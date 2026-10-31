@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"math"
 	"net/url"
 	"strings"
@@ -117,10 +119,17 @@ func TestPlaybackInfoNegotiation(t *testing.T) {
 	}
 	expectStatus(t, request(h, "GET", "/Items/movie/PlaybackInfo", "", "", ""), 401)
 	expectStatus(t, request(h, "GET", "/Items/missing/PlaybackInfo", "", "", token), 404)
+	var logged bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
 	w := request(h, "GET", "/Items/movie/PlaybackInfo?EnableDirectStream=false", "", "", token)
+	slog.SetDefault(previous)
 	expectStatus(t, w, 200)
 	if !strings.Contains(w.Body.String(), `"ErrorCode":"NoCompatibleStream"`) {
 		t.Fatal("GET ignored playback options")
+	}
+	if line := logged.String(); !strings.Contains(line, `msg="Playback refused" item=movie error=NoCompatibleStream`) || !strings.Contains(line, "profile=false hls=false") || strings.Contains(line, token) {
+		t.Fatalf("refusal log: %q", line)
 	}
 	w = request(h, "POST", "/Items/movie/PlaybackInfo?AudioStreamIndex=1", "application/json", `{"DeviceProfile":`+compatibleProfile+`}`, token)
 	expectStatus(t, w, 200)

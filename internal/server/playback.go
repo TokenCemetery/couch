@@ -186,6 +186,17 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 	default:
 		response["ErrorCode"] = "NoCompatibleStream"
 	}
+	if code, refused := response["ErrorCode"]; refused {
+		videoCodec, audioCodec := "", ""
+		if video != nil {
+			videoCodec = video.Codec
+		}
+		if audio != nil {
+			audioCodec = audio.Codec
+		}
+		slog.Warn("Playback refused", "item", item.ID, "error", code, "container", item.Container,
+			"video", videoCodec, "audio", audioCodec, "profile", body.DeviceProfile != nil, "hls", s.hls != nil)
+	}
 	respond(w, 200, response)
 }
 
