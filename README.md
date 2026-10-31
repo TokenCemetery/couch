@@ -1,5 +1,7 @@
 # Couch
 
+<img src="docs/logo.svg" alt="Couch logo" width="132">
+
 A Go backend compatible with Emby Web: a local user account, sessions, settings, movies and a basic TV series hierarchy, direct HTTP video delivery and saved playback position. The media library is read-only.
 
 The reference is Emby Web **4.10.0.40**. The original API modules and the browser scenario "search → item page → play → seek → stop → restart → resume" have been verified; the limits of that verification are described in [VALIDATION.md](docs/VALIDATION.md), and the verified combinations of formats and delivery methods in [COMPATIBILITY.md](docs/COMPATIBILITY.md). This is a prototype, not a replacement for a production Emby. Resource savings relative to Emby have not been measured yet.
