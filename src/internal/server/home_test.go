@@ -36,6 +36,18 @@ func TestHomeSectionTitlesFollowLanguage(t *testing.T) {
 		}
 		return strings.Join(names, "|")
 	}
+	// Editing is refused with a message the client shows, not "not found" (#100).
+	for _, suffix := range []string{"", "/Delete", "/Move"} {
+		r := httptest.NewRequestWithContext(t.Context(), "POST", path+suffix, strings.NewReader(`{"Id":"resume"}`))
+		r.Header.Set("X-Emby-Token", token)
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		expectStatus(t, w, 400)
+		if !strings.Contains(w.Body.String(), "cannot be added, removed or moved") {
+			t.Fatalf("POST HomeSections%s: %q", suffix, w.Body.String())
+		}
+	}
 	for _, tc := range []struct{ query, header, want string }{
 		{"?X-Emby-Language=ru", "", "Мои медиаданные|Продолжение просмотра|Недавно добавленные фильмы"},
 		{"?X-Emby-Language=es-MX", "", "Mis Contenidos|Continuar viendo|Ultimas Películas"},

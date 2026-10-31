@@ -126,4 +126,13 @@ func (s *Server) homeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{user}/sections/{section}/items", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		s.sectionItems(w, r, token)
 	}))
+	// Emby Web's Home Screen settings add, remove and move sections with
+	// these. Until editing is implemented (#100), the client's error dialog
+	// says so instead of "not found".
+	fixed := s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		failText(w, 400, "Couch's home screen sections are fixed for now: they cannot be added, removed or moved.")
+	})
+	for _, route := range []string{"POST /users/{user}/homesections", "POST /users/{user}/homesections/delete", "POST /users/{user}/homesections/move"} {
+		mux.HandleFunc(route, fixed)
+	}
 }
