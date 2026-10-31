@@ -45,6 +45,9 @@ func TestSoak(t *testing.T) {
 	defer inst.Stop()
 	pid := inst.cmd.Process.Pid
 	baseline := sampleProcess(pid)
+	if baseline.rssKiB <= 0 || baseline.files <= 0 {
+		t.Fatalf("cannot read the instance's RSS or open files: %+v", baseline)
+	}
 	dataFiles := listFiles(inst.data)
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
@@ -220,14 +223,28 @@ type processSample struct {
 	rssKiB, files, children int
 }
 
+// sampleProcess reads /proc where it exists: BusyBox ps has no -p, and its
+// lsof ignores its options and lists every process. Elsewhere (macOS) it
+// uses ps and lsof.
 func sampleProcess(pid int) processSample {
 	s := processSample{at: time.Now()}
 	p := strconv.Itoa(pid)
-	if out, err := exec.CommandContext(context.Background(), "ps", "-o", "rss=", "-p", p).Output(); err == nil { //nolint:gosec // p is the PID of the instance under test
-		s.rssKiB, _ = strconv.Atoi(strings.TrimSpace(string(out)))
-	}
-	if out, err := exec.CommandContext(context.Background(), "lsof", "-n", "-P", "-p", p).Output(); err == nil { //nolint:gosec // p is the PID of the instance under test
-		s.files = max(strings.Count(string(out), "\n")-1, 0) // minus the header
+	if status, err := os.ReadFile("/proc/" + p + "/status"); err == nil {
+		for line := range strings.Lines(string(status)) {
+			if value, found := strings.CutPrefix(line, "VmRSS:"); found {
+				s.rssKiB, _ = strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(value), " kB"))
+			}
+		}
+		if fds, err := os.ReadDir("/proc/" + p + "/fd"); err == nil {
+			s.files = len(fds)
+		}
+	} else {
+		if out, err := exec.CommandContext(context.Background(), "ps", "-o", "rss=", "-p", p).Output(); err == nil { //nolint:gosec // p is the PID of the instance under test
+			s.rssKiB, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+		}
+		if out, err := exec.CommandContext(context.Background(), "lsof", "-n", "-P", "-p", p).Output(); err == nil { //nolint:gosec // p is the PID of the instance under test
+			s.files = max(strings.Count(string(out), "\n")-1, 0) // minus the header
+		}
 	}
 	// pgrep exits 1 when there are no children; the empty output is the answer.
 	out, _ := exec.CommandContext(context.Background(), "pgrep", "-P", p).Output() //nolint:gosec // p is the PID of the instance under test
