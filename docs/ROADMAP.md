@@ -94,7 +94,7 @@ Done when every mandatory combination "client × container/codecs × tracks × d
 
 Status as of 2026-11-01:
 
-- Delivery: remux and transcoding to H.264 over HLS with client profile constraints (size, bitrate, H.264 level with macroblock rate), quality and track selection keeping the position on change, subtitles (over HLS, inside the stream, as Emby does), advancing to the next episode. A restart from the middle matches a continuous pass, including for HEVC with open GOPs in MPEG-TS.
+- Delivery: remux and transcoding to H.264 over HLS with client profile constraints (size, bitrate, H.264 level with macroblock rate), quality and track selection keeping the position on change, subtitles (over HLS, inside the stream, as Emby does), advancing to the next episode. A restart from the middle matches a continuous pass, including for HEVC with open GOPs in MPEG-TS. In Emby Web every file of the agreed set that needs remux or HLS passes start, seek, stop and resume (#21), except the 4K source, whose transcode is too slow to start (#97).
 - FFmpeg: limits of 2 remux + 1 transcode, cleanup on stop/logout/idle; 30-minute sustained load with HLS and rescanning, with no process, file or memory leaks (RSS plateau at 25–27 MiB); the acceptance duration is not agreed (#15, #30).
 - Events: UserDataChanged, LibraryChanged, UserConfigurationUpdated, ServerShuttingDown (#25).
 - A walk through Emby Web screens (home, libraries with filters and sorting, item pages, search, player, menus, settings) with no API errors.
