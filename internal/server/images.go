@@ -82,16 +82,12 @@ func (s *Server) itemImage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "NotFound")
 		return
 	}
-	open := s.catalog().OpenImage
-	switch imageKind(r) {
-	case "primary":
-	case "backdrop":
-		open = s.catalog().OpenBackdrop
-	default:
+	kind := imageKind(r)
+	if kind == "" {
 		fail(w, 404, "NotFound")
 		return
 	}
-	file, info, err := open(item)
+	file, info, err := s.catalog().OpenImage(item, kind)
 	if err != nil {
 		fail(w, 404, "ImageUnavailable")
 		return

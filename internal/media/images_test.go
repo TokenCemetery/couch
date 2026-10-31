@@ -29,7 +29,7 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := Item{ID: "movie", Path: "Movie.mp4"}
-	file, info, err := catalog.OpenImage(item)
+	file, info, err := catalog.OpenImage(item, "Primary")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,14 +42,14 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 	if err := os.Chtimes(poster, changed, changed); err != nil {
 		t.Fatal(err)
 	}
-	updated, ok := catalog.PrimaryImage(item)
+	updated, ok := catalog.ImageInfo(item, "Primary")
 	if !ok || updated.Revision == info.Revision {
 		t.Fatal("stale image revision")
 	}
 	if err := os.Remove(poster); err != nil {
 		t.Fatal(err)
 	}
-	if _, found := catalog.PrimaryImage(item); found {
+	if _, found := catalog.ImageInfo(item, "Primary"); found {
 		t.Fatal("removed image advertised")
 	}
 	outside := filepath.Join(t.TempDir(), "private.png")
@@ -59,7 +59,7 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 	if err := os.Symlink(outside, poster); err != nil {
 		t.Fatal(err)
 	}
-	if _, found := catalog.PrimaryImage(item); found {
+	if _, found := catalog.ImageInfo(item, "Primary"); found {
 		t.Fatal("symlink escaped root")
 	}
 	if err := os.Remove(poster); err != nil {
@@ -68,7 +68,7 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 	if err := syscall.Mkfifo(poster, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, found := catalog.PrimaryImage(item); found {
+	if _, found := catalog.ImageInfo(item, "Primary"); found {
 		t.Fatal("FIFO accepted")
 	}
 	if err := os.Remove(poster); err != nil {
@@ -82,13 +82,13 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = f.Close()
-	if _, found := catalog.PrimaryImage(item); found {
+	if _, found := catalog.ImageInfo(item, "Primary"); found {
 		t.Fatal("oversized image accepted")
 	}
 	if err := os.WriteFile(poster, []byte("<svg/>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, found := catalog.PrimaryImage(item); found {
+	if _, found := catalog.ImageInfo(item, "Primary"); found {
 		t.Fatal("invalid image accepted")
 	}
 	// Directory sidecars work for virtual series and season nodes too.
@@ -98,7 +98,7 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "Show", "poster.png"), encoded.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, found := catalog.PrimaryImage(Item{Kind: "Series", Path: "Show"}); !found {
+	if _, found := catalog.ImageInfo(Item{Kind: "Series", Path: "Show"}, "Primary"); !found {
 		t.Fatal("series poster missing")
 	}
 }
@@ -126,7 +126,7 @@ func TestBackdropImageLookup(t *testing.T) {
 	}
 	width := func(item Item) int {
 		t.Helper()
-		info, found := catalog.BackdropImage(item)
+		info, found := catalog.ImageInfo(item, "Backdrop")
 		if !found {
 			return 0
 		}
@@ -162,7 +162,19 @@ func TestBackdropImageLookup(t *testing.T) {
 	if width(series) != 6 {
 		t.Fatal("series backdrop not found")
 	}
-	if info, found := catalog.PrimaryImage(series); found {
+	if info, found := catalog.ImageInfo(series, "Primary"); found {
 		t.Fatalf("backdrop used as cover: %+v", info)
+	}
+	kindWidth := func(item Item, kind string) int {
+		t.Helper()
+		info, _ := catalog.ImageInfo(item, kind)
+		return info.Width
+	}
+	write("logo.png", 7)
+	write("Movie-logo.png", 8)
+	write("thumb.png", 9)
+	write("landscape.png", 10)
+	if kindWidth(movie, "Logo") != 8 || kindWidth(movie, "logo") != 8 || kindWidth(movie, "Thumb") != 10 || kindWidth(movie, "Banner") != 0 {
+		t.Fatal("logo or thumb lookup")
 	}
 }

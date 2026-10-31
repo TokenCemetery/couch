@@ -96,7 +96,7 @@ func TestSignedImageHTTP(t *testing.T) {
 	expectStatus(t, w, 401)
 }
 
-func TestBackdropImageHTTP(t *testing.T) {
+func TestImageTypesHTTP(t *testing.T) {
 	if _, err := exec.LookPath("ffprobe"); err != nil {
 		t.Skip("ffprobe required to open media root")
 	}
@@ -128,6 +128,9 @@ func TestBackdropImageHTTP(t *testing.T) {
 	poster := write("Movie-poster.png", 1)
 	movieBackdrop := write("Movie-fanart.png", 2)
 	seriesBackdrop := write("Show/backdrop.png", 3)
+	movieLogo := write("Movie-clearlogo.png", 4)
+	seriesLogo := write("Show/logo.png", 5)
+	seriesThumb := write("Show/landscape.png", 6)
 	store, _, _ := newTestServer(t)
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
@@ -136,6 +139,10 @@ func TestBackdropImageHTTP(t *testing.T) {
 		BackdropImageTags       []string
 		ParentBackdropItemId    string
 		ParentBackdropImageTags []string
+		ParentLogoItemId        string
+		ParentLogoImageTag      string
+		ParentThumbItemId       string
+		ParentThumbImageTag     string
 	}
 	get := func(id string) dto {
 		t.Helper()
@@ -162,8 +169,13 @@ func TestBackdropImageHTTP(t *testing.T) {
 	fetch("/Items/movie/Images/Primary?tag="+url.QueryEscape(movie.ImageTags["Primary"]), poster)
 	// A tag grants one image: the backdrop's does not open the cover.
 	expectStatus(t, request(h, "GET", "/Items/movie/Images/Primary?tag="+url.QueryEscape(movie.BackdropImageTags[0]), "", "", ""), 404)
+	fetch("/Items/movie/Images/Logo?tag="+url.QueryEscape(movie.ImageTags["Logo"]), movieLogo)
+	if _, found := movie.ImageTags["Thumb"]; found || movie.ParentThumbItemId != "" {
+		t.Fatalf("movie thumb: %+v", movie)
+	}
 	expectStatus(t, request(h, "GET", "/Items/movie/Images/Backdrop/1", "", "", token), 404)
 	expectStatus(t, request(h, "GET", "/Items/movie/Images/Thumb", "", "", token), 404)
+	expectStatus(t, request(h, "GET", "/Items/movie/Images/Banner", "", "", token), 404)
 	series := get("series")
 	if len(series.BackdropImageTags) != 1 {
 		t.Fatalf("series: %+v", series)
@@ -174,4 +186,9 @@ func TestBackdropImageHTTP(t *testing.T) {
 		t.Fatalf("episode: %+v", episode)
 	}
 	fetch("/Items/series/Images/Backdrop/0?tag="+url.QueryEscape(episode.ParentBackdropImageTags[0]), seriesBackdrop)
+	if len(episode.ImageTags) != 0 || episode.ParentLogoItemId != "series" || episode.ParentThumbItemId != "series" {
+		t.Fatalf("episode logo and thumb: %+v", episode)
+	}
+	fetch("/Items/series/Images/Logo?tag="+url.QueryEscape(episode.ParentLogoImageTag), seriesLogo)
+	fetch("/Items/series/Images/Thumb?tag="+url.QueryEscape(episode.ParentThumbImageTag), seriesThumb)
 }

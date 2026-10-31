@@ -20,16 +20,27 @@ type Image struct {
 	MIME          string
 }
 
-// OpenImage searches local JPEG/PNG cover sidecars. Headers and encoded file
-// size are bounded; pixels are never decoded or resized in the server.
-func (c *Catalog) OpenImage(item Item) (*os.File, Image, error) {
-	return c.openImage(item, []string{"-poster", ""}, []string{"poster", "folder"})
+// ImageTypes lists the Emby image types found as local sidecars.
+var ImageTypes = []string{"Primary", "Backdrop", "Logo", "Thumb"}
+
+// imageNames holds, by lowercase image type, the suffixes added to a video's
+// name and the names shared by its folder, in search order.
+var imageNames = map[string]struct{ own, shared []string }{
+	"primary":  {[]string{"-poster", ""}, []string{"poster", "folder"}},
+	"backdrop": {[]string{"-fanart", "-backdrop"}, []string{"backdrop", "fanart"}},
+	"logo":     {[]string{"-clearlogo", "-logo"}, []string{"clearlogo", "logo"}},
+	"thumb":    {[]string{"-landscape"}, []string{"landscape", "thumb"}},
 }
 
-// OpenBackdrop searches local JPEG/PNG backdrop sidecars, with the same bounds
-// as OpenImage.
-func (c *Catalog) OpenBackdrop(item Item) (*os.File, Image, error) {
-	return c.openImage(item, []string{"-fanart", "-backdrop"}, []string{"backdrop", "fanart"})
+// OpenImage searches local JPEG/PNG sidecars of an image type (any case).
+// Headers and encoded file size are bounded; pixels are never decoded or
+// resized in the server.
+func (c *Catalog) OpenImage(item Item, kind string) (*os.File, Image, error) {
+	names, found := imageNames[strings.ToLower(kind)]
+	if !found {
+		return nil, Image{}, os.ErrNotExist
+	}
+	return c.openImage(item, names.own, names.shared)
 }
 
 // openImage tries the video's own sidecars (its name plus each suffix), then
@@ -77,14 +88,10 @@ func (c *Catalog) openImage(item Item, suffixes, shared []string) (*os.File, Ima
 	return nil, Image{}, os.ErrNotExist
 }
 
-// PrimaryImage reports the item's cover image metadata, if a valid one exists.
-func (c *Catalog) PrimaryImage(item Item) (Image, bool) {
-	return imageInfo(c.OpenImage(item))
-}
-
-// BackdropImage reports the item's backdrop metadata, if a valid one exists.
-func (c *Catalog) BackdropImage(item Item) (Image, bool) {
-	return imageInfo(c.OpenBackdrop(item))
+// ImageInfo reports the metadata of the item's image of a type, if a valid
+// one exists.
+func (c *Catalog) ImageInfo(item Item, kind string) (Image, bool) {
+	return imageInfo(c.OpenImage(item, kind))
 }
 
 func imageInfo(file *os.File, info Image, err error) (Image, bool) {

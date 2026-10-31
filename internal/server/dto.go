@@ -180,22 +180,35 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 	dto["GenreItems"] = []any{}
 	dto["TagItems"] = []any{}
 	dto["UserData"] = itemUserData(items[item.ID], item.RunTimeTicks)
-	if info, found := catalog.PrimaryImage(item); found {
-		if tag := s.store.ImageTag(token, item.ID, info.Revision); tag != "" {
-			dto["ImageTags"] = object{"Primary": tag}
-			dto["PrimaryImageAspectRatio"] = float64(info.Width) / float64(info.Height)
+	// Like Emby, a season or episode without its own backdrop, logo or thumb
+	// names its series' image.
+	series, hasSeries := s.findItem(item.SeriesID)
+	for _, kind := range media.ImageTypes {
+		if info, found := catalog.ImageInfo(item, kind); found {
+			tag := s.store.ImageTag(token, item.ID, info.Revision)
+			switch {
+			case tag == "":
+			case kind == "Backdrop":
+				dto["BackdropImageTags"] = []string{tag}
+			default:
+				dto["ImageTags"].(object)[kind] = tag
+				if kind == "Primary" {
+					dto["PrimaryImageAspectRatio"] = float64(info.Width) / float64(info.Height)
+				}
+			}
+			continue
 		}
-	}
-	// Like Emby, a season or episode without its own backdrop names its series'.
-	if info, found := catalog.BackdropImage(item); found {
-		if tag := s.store.ImageTag(token, item.ID, info.Revision); tag != "" {
-			dto["BackdropImageTags"] = []string{tag}
+		if kind == "Primary" || !hasSeries {
+			continue
 		}
-	} else if series, found := s.findItem(item.SeriesID); found {
-		if info, found := catalog.BackdropImage(series); found {
+		if info, found := catalog.ImageInfo(series, kind); found {
 			if tag := s.store.ImageTag(token, series.ID, info.Revision); tag != "" {
-				dto["ParentBackdropItemId"] = series.ID
-				dto["ParentBackdropImageTags"] = []string{tag}
+				dto["Parent"+kind+"ItemId"] = series.ID
+				if kind == "Backdrop" {
+					dto["ParentBackdropImageTags"] = []string{tag}
+				} else {
+					dto["Parent"+kind+"ImageTag"] = tag
+				}
 			}
 		}
 	}
