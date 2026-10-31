@@ -315,19 +315,21 @@ func (m *Manager) StopOwner(owner string) {
 	}
 }
 
-// Prepare lists the source's keyframes in the background, so that the
-// playlist request that follows PlaybackInfo does not wait for the whole file
-// to be read.
+// Prepare plans the source's segments in the background, so that the
+// playlist request that follows PlaybackInfo does not wait for a remux's
+// keyframe listing.
 func (m *Manager) Prepare(source Source) {
 	go func() { _, _, _ = m.bounds(context.Background(), source) }()
 }
 
 // bounds returns the cached segment plan and the file's start time, computing
-// them once per file version. The computation is not tied to ctx, so an
+// them once per file version and kind of job: a remux lists the source's
+// keyframes, a transcode reads only the header and first packet and uses
+// Grid. The computation is not tied to ctx, so an
 // impatient client does not waste it; at most maxScans run at once, and
 // Close stops them.
 func (m *Manager) bounds(ctx context.Context, source Source) ([]float64, float64, error) {
-	key := source.ItemID + "/" + source.Version + "/" + strconv.Itoa(source.VideoStream)
+	key := source.ItemID + "/" + source.Version + "/" + strconv.Itoa(source.VideoStream) + "/" + strconv.FormatBool(source.VideoEncode)
 	m.mu.Lock()
 	entry, ok := m.cache[key]
 	if !ok {
@@ -366,6 +368,16 @@ func (m *Manager) bounds(ctx context.Context, source Source) ([]float64, float64
 				return
 			}
 			defer func() { _ = file.Close() }()
+			if source.VideoEncode {
+				first, start, duration, err := firstFrame(m.scanCtx, m.ffprobe, file, source.VideoStream)
+				if err != nil || duration <= 0 {
+					slog.Warn("Reading the video's start and duration failed", "item", source.ItemID)
+					entry.err = errors.New("cannot read the video's start and duration")
+					return
+				}
+				entry.bounds, entry.start = Grid(first, duration), start
+				return
+			}
 			times, start, err := keyframes(m.scanCtx, m.ffprobe, file, source.VideoStream)
 			if err != nil {
 				slog.Warn("Keyframe listing failed", "item", source.ItemID)
@@ -723,8 +735,7 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 // encodeVideo returns the FFmpeg options that encode the video to 8-bit
 // H.264 for the segments starting at bounds, relative to the file's start
 // time; trim, when set, is a filter that runs before scaling. Keyframes are
-// forced on the source's keyframe plan, so the segments
-// match those of a remux. The encoder keeps the source's time base (demux):
+// forced on the plan's grid, so every segment starts with one. The encoder keeps the source's time base (demux):
 // with the frame rate's, timestamps are rounded and a forced keyframe can
 // land one frame late. The picture keeps its aspect ratio, shrinks to fit
 // the source's MaxWidth and MaxHeight, and has even dimensions, as 4:2:0

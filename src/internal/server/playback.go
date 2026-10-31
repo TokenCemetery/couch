@@ -137,7 +137,10 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 		case !ok || direct:
 		case s.hls.Available(playSession, encoding.Bitrate > 0):
 			transcoding = transcodingURL(item, session.DeviceID, playSession, token, videoCodec, audioCodec, audio, channels, encoding)
-			s.hls.Prepare(remuxSource(catalog, item, video))
+			// A transcode's plan needs no keyframe listing (#98).
+			prepared := remuxSource(catalog, item, video)
+			prepared.VideoEncode = encoding.Bitrate > 0
+			s.hls.Prepare(prepared)
 		default:
 			remuxBusy = true
 		}

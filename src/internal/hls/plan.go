@@ -1,6 +1,7 @@
-// Package hls remuxes a video into HLS with MPEG-TS segments: FFmpeg copies
-// the video and copies or encodes the audio, and the playlist is cut on the
-// source's keyframes so that it matches the segments FFmpeg writes.
+// Package hls remuxes or transcodes a video into HLS with MPEG-TS segments.
+// A remux copies the video, so its playlist is cut on the source's keyframes;
+// a transcode forces keyframes on a fixed grid and is cut there. Either way
+// the playlist matches the segments FFmpeg writes.
 package hls
 
 import (
@@ -16,9 +17,13 @@ import (
 	"time"
 )
 
-// SegmentSeconds is the minimum segment length; segments end on the first
-// keyframe at least this far from their start.
+// SegmentSeconds is the minimum segment length of a remux; segments end on
+// the first keyframe at least this far from their start.
 const SegmentSeconds = 6
+
+// EncodedSegmentSeconds is the segment length of a transcode, as Emby's: the
+// first segment and a seek wait for this much video to be encoded (#99).
+const EncodedSegmentSeconds = 3
 
 const (
 	// seekStep spaces the seeks that list keyframes. A seek lands on the
@@ -41,6 +46,19 @@ func Boundaries(keyframes []float64) []float64 {
 		if k-bounds[len(bounds)-1] >= SegmentSeconds {
 			bounds = append(bounds, k)
 		}
+	}
+	return bounds
+}
+
+// Grid returns segment start times every EncodedSegmentSeconds from first,
+// the video's first timestamp, to duration, both relative to the file's start
+// time. The first segment starts at first, as FFmpeg counts segment times
+// from the job's first packet. A last segment shorter than a second is merged
+// into the one before, so the plan does not end past the video's last frame.
+func Grid(first, duration float64) []float64 {
+	bounds := []float64{first}
+	for t := first + EncodedSegmentSeconds; t < duration-1; t += EncodedSegmentSeconds {
+		bounds = append(bounds, t)
 	}
 	return bounds
 }
@@ -77,14 +95,7 @@ func Playlist(bounds []float64, duration float64, segmentURL func(n int) string)
 func keyframes(ctx context.Context, ffprobe string, file *os.File, stream int) ([]float64, float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, keyframeLimit)
 	defer cancel()
-	start, duration := 0.0, 0.0
-	err := probe(ctx, ffprobe, file, []string{"-show_entries", "format=start_time,duration"}, func(fields []string) error {
-		if len(fields) >= 3 && fields[0] == "format" {
-			start, _ = strconv.ParseFloat(fields[1], 64)
-			duration, _ = strconv.ParseFloat(fields[2], 64)
-		}
-		return nil
-	})
+	start, duration, err := fileTimes(ctx, ffprobe, file)
 	if err != nil {
 		return nil, 0, errors.New("cannot list keyframes")
 	}
@@ -136,6 +147,40 @@ func keyframes(ctx context.Context, ffprobe string, file *os.File, stream int) (
 		}
 	}
 	return result, start, nil
+}
+
+// firstFrame returns the time of the video stream's first packet, relative
+// to the file's start time, and that start time. It reads the header and a
+// few packets.
+func firstFrame(ctx context.Context, ffprobe string, file *os.File, stream int) (first, start, duration float64, err error) {
+	start, duration, err = fileTimes(ctx, ffprobe, file)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	found := false
+	err = probe(ctx, ffprobe, file, []string{"-select_streams", strconv.Itoa(stream), "-show_entries", "packet=pts_time,flags", "-read_intervals", "%+#1"}, func(fields []string) error {
+		if t, _, ok := packet(fields); ok && !found {
+			first, found = max(t-start, 0), true
+		}
+		return nil
+	})
+	if err == nil && !found {
+		err = errors.New("video stream has no packets")
+	}
+	return first, start, duration, err
+}
+
+// fileTimes returns the file's start time and duration in seconds from its
+// header, without reading packets.
+func fileTimes(ctx context.Context, ffprobe string, file *os.File) (start, duration float64, err error) {
+	err = probe(ctx, ffprobe, file, []string{"-show_entries", "format=start_time,duration"}, func(fields []string) error {
+		if len(fields) >= 3 && fields[0] == "format" {
+			start, _ = strconv.ParseFloat(fields[1], 64)
+			duration, _ = strconv.ParseFloat(fields[2], 64)
+		}
+		return nil
+	})
+	return start, duration, err
 }
 
 // packet parses a CSV packet line with pts_time and flags.

@@ -191,6 +191,30 @@ Fourth run, 2026-11-01, large profile only, same script, bench and media: Couch 
 - **FFprobe outside playback:** Couch's 0.32 s of CPU during the API phase is its keyframe listing, which `PlaybackInfo` starts (#98). Its scan also probes in FFprobe (0.82 s), while Emby's scan spends its CPU in the server process.
 - **Gaps:** Emby's remux FFmpeg finished between samples, so its memory reads 0; Emby's startup memory reads 0 as in the second run. The split counts FFmpeg's memory as `RssAnon`, so it can differ from the container's `anon` figure by a few MiB.
 
+## 3 s transcode segments (#97, #98, #99)
+
+Fifth run, 2026-11-01, large profile only, same script, bench and media: Couch at the commit that adds 3 s transcode segments, in an image built from it. The soak test from the fourth run was still running on the host, so the comparison is with Couch and Emby from the fourth run, measured under the same load, not with the tables above.
+
+A transcode now cuts 3 s segments from the video's first frame, as Emby does, with a forced keyframe at each. Its plan needs only the file's header and first packet, so `PlaybackInfo` no longer lists the source's keyframes for a transcode. A remux still does.
+
+| Phase | Measure | Couch before | Couch now | Emby |
+|---|---|---|---|---|
+| Transcode of R06, 120 s of video | first segment | 1.80 s | 0.70 s | 0.47 s |
+| | CPU | 40.5 s | 40.5 s | 38.0 s |
+| | read from disk | 321 MiB | 39 MiB | 39 MiB |
+| | peak anon. memory | 303 MiB | 304 MiB | 368 MiB |
+| Transcode seek in R06, to 50 % / to 75 % | time | 1.44 / 1.38 s | 0.77 / 0.62 s | 0.56 / 0.47 s |
+| | CPU | 19.9 s | 13.8 s | 13.3 s |
+| 4K transcode of R09 | first segment | 20.8 s | 5.4 s | 4.5 s |
+| | CPU | 106 s | 96 s | 94 s |
+| | read from disk | 758 MiB | 53 MiB | 51 MiB |
+| 700 API requests | read from disk | 126 MiB | 139 MiB | 0 MiB |
+
+- **4K now starts within Emby Web's 10 s wait** on the large profile, 0.9 s behind Emby. This was not checked in the browser.
+- **Reads before a transcode** equal Emby's. The API phase still reads 126–139 MiB: the keyframe listing for R03, which needs a remux, so this change does not affect it.
+- **First segment and transcode seek** are 0.15–0.23 s behind Emby's. CPU for the same 120 s is 7 % above Emby's.
+- **Picture quality:** FFmpeg alone, first 120 s of R06, same x264 options, against the source. A keyframe every 3 s instead of about every 6 s gives SSIM 0.9831 against 0.9826 and PSNR Y 41.84 dB against 41.74 dB, for an output 5 % larger (24.4 against 23.2 MiB) at the same CPU.
+
 ## Not measured yet
 
 - Picture quality of the two encoders.

@@ -27,6 +27,14 @@ func TestBoundariesAndPlaylist(t *testing.T) {
 	if got != want {
 		t.Fatalf("playlist:\n%s", got)
 	}
+	for duration, want := range map[float64][]float64{0.5: {0}, 3.9: {0}, 4.1: {0, 3}, 9.9: {0, 3, 6}, 10.1: {0, 3, 6, 9}} {
+		if got := Grid(0, duration); !equal(got, want) {
+			t.Fatalf("grid of %v s: %v, want %v", duration, got, want)
+		}
+	}
+	if got, want := Grid(0.5, 10), []float64{0.5, 3.5, 6.5}; !equal(got, want) {
+		t.Fatalf("grid from 0.5 s: %v, want %v", got, want)
+	}
 }
 
 func equal(a, b []float64) bool {
