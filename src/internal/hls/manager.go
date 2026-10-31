@@ -95,6 +95,11 @@ func (s Source) Key() string {
 type Manager struct {
 	ffmpeg, ffprobe, dir string
 
+	// Threads, when positive, caps the decoder and encoder threads of a
+	// transcode; zero leaves them to FFmpeg. Set it before the first
+	// session.
+	Threads int
+
 	mu       sync.Mutex
 	sessions map[string]*session
 	cache    map[string]*keyframeEntry
@@ -479,7 +484,7 @@ func (m *Manager) Segment(ctx context.Context, id, owner string, source Source, 
 				return nil, ErrSuperseded
 			}
 			s.stopJob()
-			if err := s.startJob(m.ffmpeg, bounds, start, n); err != nil {
+			if err := s.startJob(m.ffmpeg, m.Threads, bounds, start, n); err != nil {
 				s.mu.Unlock()
 				slog.Warn("HLS job failed to start", "item", source.ItemID, "error", err)
 				return nil, ErrSegment
@@ -583,7 +588,7 @@ func (j *job) finished() bool {
 }
 
 // startJob writes segments from n on. Caller holds s.mu.
-func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int) error {
+func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start float64, n int) error {
 	file, err := s.source.Open()
 	if err != nil {
 		return err
@@ -616,6 +621,9 @@ func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int
 		// starts below zero would lose the keyframe itself (#64).
 		args = append(args, "-seek_timestamp", "1", "-ss", strconv.FormatFloat(start+bounds[n]-0.001, 'f', 6, 64))
 	}
+	if s.source.VideoEncode && threads > 0 {
+		args = append(args, "-threads", strconv.Itoa(threads))
+	}
 	args = append(args, "-fd", "3", "-i", "fd:", "-map", "0:"+strconv.Itoa(s.source.VideoStream))
 	if s.source.AudioStream >= 0 {
 		args = append(args, "-map", "0:"+strconv.Itoa(s.source.AudioStream))
@@ -625,7 +633,7 @@ func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int
 		if trimmed {
 			trim = "trim=start=" + cut + ","
 		}
-		args = append(args, encodeVideo(bounds[n:], start, trim, s.source)...)
+		args = append(args, encodeVideo(bounds[n:], start, trim, threads, s.source)...)
 	} else {
 		args = append(args, "-c:v", "copy")
 	}
@@ -720,8 +728,8 @@ func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int
 // with the frame rate's, timestamps are rounded and a forced keyframe can
 // land one frame late. The picture keeps its aspect ratio, shrinks to fit
 // the source's MaxWidth and MaxHeight, and has even dimensions, as 4:2:0
-// requires.
-func encodeVideo(bounds []float64, start float64, trim string, source Source) []string {
+// requires. Threads, when positive, caps the encoder threads.
+func encodeVideo(bounds []float64, start float64, trim string, threads int, source Source) []string {
 	keyframes := make([]string, len(bounds))
 	for i, b := range bounds {
 		keyframes[i] = strconv.FormatFloat(start+b-0.001, 'f', 6, 64)
@@ -739,6 +747,9 @@ func encodeVideo(bounds []float64, start float64, trim string, source Source) []
 	if source.VideoBitrate > 0 {
 		rate := strconv.FormatInt(source.VideoBitrate, 10)
 		args = append(args, "-maxrate", rate, "-bufsize", strconv.FormatInt(2*source.VideoBitrate, 10))
+	}
+	if threads > 0 {
+		args = append(args, "-threads", strconv.Itoa(threads))
 	}
 	return args
 }

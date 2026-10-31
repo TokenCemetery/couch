@@ -37,7 +37,7 @@ The alternative is `-web-upstream http://192.168.1.11:8096`: `/web/*` fetches th
 
 The `-web-dir` and `-web-upstream` options are mutually exclusive. Without either, only the API and the information at `/` are available. In all modes, authentication, the catalog and video are served by Couch.
 
-Other options: `-listen` (default `127.0.0.1:8097`), `-data` (`./data`), `-name` (`Couch`). The default listener is local; TLS and running behind a reverse proxy are not configured yet. On a graceful shutdown (SIGINT, SIGTERM) Couch writes a `Couch stopped` line: its own CPU time and peak resident memory (`cpu`, `peak_rss_kib`) and, separately, the total time and the highest peak of finished FFmpeg and FFprobe child processes (`children_cpu`, `children_peak_rss_kib`) over the whole run.
+Other options: `-listen` (default `127.0.0.1:8097`), `-data` (`./data`), `-name` (`Couch`), `-ffmpeg-threads` (`0`). `-ffmpeg-threads N` caps the decoder and `libx264` encoder threads of each transcode at N; remux is not affected. By default FFmpeg sizes them from the CPUs it sees, which ignores a container CPU quota; under a quota a cap that matches it halves transcoding memory (#92, [VALIDATION](docs/VALIDATION.md)). The default listener is local; TLS and running behind a reverse proxy are not configured yet. On a graceful shutdown (SIGINT, SIGTERM) Couch writes a `Couch stopped` line: its own CPU time and peak resident memory (`cpu`, `peak_rss_kib`) and, separately, the total time and the highest peak of finished FFmpeg and FFprobe child processes (`children_cpu`, `children_peak_rss_kib`) over the whole run.
 
 ### Container
 

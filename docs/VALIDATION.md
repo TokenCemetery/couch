@@ -507,7 +507,16 @@ Same file and image as in the section above; FFmpeg was run directly with Couch'
 | auto / auto (current) | none | 5.5 s | 58.6 s | 453 MiB | — |
 | 4 / 4 | none | 10.0 s | 48.3 s | 221 MiB | — |
 
-FFmpeg picks the thread count from the visible CPUs, not from the container quota. Under a quota, extra threads only add memory and contention; without a quota they make encoding twice as fast, and therefore also the wait for the first segment and for the segment after a seek. All variants encode much faster than real time. Fewer x264 threads give a 10% smaller file at the same CRF; quality (PSNR/VMAF) was not compared. The decision to limit depends on the target hardware (#15, #28); Couch behavior was not changed.
+FFmpeg picks the thread count from the visible CPUs, not from the container quota. Under a quota, extra threads only add memory and contention; without a quota they make encoding twice as fast, and therefore also the wait for the first segment and for the segment after a seek. All variants encode much faster than real time. Fewer x264 threads give a 10% smaller file at the same CRF; quality (PSNR/VMAF) was not compared.
+
+Decision (owner): a `-ffmpeg-threads` flag, automatic by default. Checked through Couch's own HLS job on the same kind of file (synthetic `testsrc2` 1920×1080, 24 fps, 120 s, H.264 + AC3, MKV), transcoding to 1280×720 at 4 Mbit/s, `--cpus 4`, segments requested back to back; two runs each, figures from the `HLS job ended` line:
+
+| `-ffmpeg-threads` | Segments | Time of all requests | FFmpeg CPU | FFmpeg peak RSS |
+|---|---|---|---|---|
+| 0 (automatic) | 12 | 13.4–13.5 s | 52.9–53.3 s | 449 MiB |
+| 4 | 12 | 11.3–11.4 s | 44.8 s | 214 MiB |
+
+The file has x264's default keyframe interval, so it has 12 segments instead of the 15 above.
 
 ## FFprobe cost during scanning (2026-10-31, #93)
 

@@ -697,3 +697,42 @@ func TestJobEndLogsUsage(t *testing.T) {
 		t.Fatalf("log %q", logged.String())
 	}
 }
+
+// Threads caps the decoder and the encoder of a transcode, not a remux (#92).
+func TestThreadsCapTranscodeOnly(t *testing.T) {
+	path := fixture(t, "in.mkv")
+	ffmpeg, _ := exec.LookPath("ffmpeg")
+	dir := t.TempDir()
+	wrapper := filepath.Join(dir, "ffmpeg")
+	script := "#!/bin/sh\necho \"$@\" >> " + filepath.Join(dir, "args") + "\nexec " + ffmpeg + " \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // test script in a temp dir
+		t.Fatal(err)
+	}
+	m, err := NewManager(wrapper, "ffprobe", filepath.Join(dir, "transcode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	m.Threads = 2
+	ctx := context.Background()
+	for _, encode := range []bool{false, true} {
+		source := Source{ItemID: "movie", Version: "1", Duration: 40, VideoStream: 0, VideoEncode: encode, AudioStream: 1, AudioEncode: true, AudioChannels: 2,
+			Open: func() (*os.File, error) { return os.Open(path) }}
+		if _, err := m.Segment(ctx, "a", "owner", source, 0); err != nil {
+			t.Fatal(err)
+		}
+		m.Stop("a", "owner")
+	}
+	runs, _ := os.ReadFile(filepath.Join(dir, "args"))
+	lines := strings.Split(strings.TrimSpace(string(runs)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("FFmpeg runs:\n%s", runs)
+	}
+	if strings.Contains(lines[0], "-threads") {
+		t.Fatalf("remux capped threads: %s", lines[0])
+	}
+	decoder, encoder, _ := strings.Cut(lines[1], " -i fd: ")
+	if !strings.Contains(decoder, " -threads 2 ") || !strings.Contains(encoder, " -threads 2 ") || !strings.Contains(encoder, "libx264") {
+		t.Fatalf("transcode arguments: %s", lines[1])
+	}
+}

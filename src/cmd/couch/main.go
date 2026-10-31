@@ -39,12 +39,16 @@ func run() error {
 	rescanInterval := flag.Duration("rescan-interval", 0, "rescan -media-dir this often, for example 30m; 0 disables")
 	init := flag.Bool("init", false, "initialize a local user; read password from stdin and exit")
 	username := flag.String("username", "", "username for -init")
+	ffmpegThreads := flag.Int("ffmpeg-threads", 0, "cap FFmpeg decoder and encoder threads per transcode; 0 leaves them to FFmpeg")
 	flag.Parse()
 	if *webDir != "" && *upstream != "" {
 		return errors.New("choose either -web-dir or -web-upstream")
 	}
 	if *rescanInterval < 0 || (*rescanInterval > 0 && *rescanInterval < time.Minute) {
 		return errors.New("-rescan-interval must be 0 or at least 1m")
+	}
+	if *ffmpegThreads < 0 {
+		return errors.New("-ffmpeg-threads must be 0 or a positive integer")
 	}
 	s, err := state.Open(*data)
 	if err != nil {
@@ -114,6 +118,7 @@ func run() error {
 				return fmt.Errorf("prepare HLS directory: %w", err)
 			}
 			defer remux.Close()
+			remux.Threads = *ffmpegThreads
 			api.SetHLS(remux)
 		} else {
 			slog.Info("FFmpeg not found; HLS remux is disabled")
