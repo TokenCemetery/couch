@@ -11,13 +11,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/TokenCemetery/coach/internal/procusage"
 )
 
 const (
@@ -683,7 +684,7 @@ func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int
 			slog.Warn("HLS job failed", "item", s.source.ItemID, "error", err)
 		}
 		if cmd.ProcessState != nil {
-			cpu, peak := processUsage(cmd.ProcessState)
+			cpu, peak := procusage.Of(cmd.ProcessState)
 			j.mu.Lock()
 			segments := j.completed - j.start + 1
 			j.mu.Unlock()
@@ -819,19 +820,4 @@ func (s *session) close() {
 	s.stopJob()
 	s.mu.Unlock()
 	_ = os.RemoveAll(s.dir)
-}
-
-// processUsage reports a finished process's CPU time (user and system) and
-// peak resident memory in KiB, which macOS reports in bytes.
-func processUsage(state *os.ProcessState) (time.Duration, int64) {
-	cpu := state.UserTime() + state.SystemTime()
-	usage, ok := state.SysUsage().(*syscall.Rusage)
-	if !ok {
-		return cpu, 0
-	}
-	peak := usage.Maxrss
-	if runtime.GOOS == "darwin" {
-		peak /= 1024
-	}
-	return cpu, peak
 }

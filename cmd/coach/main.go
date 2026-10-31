@@ -96,7 +96,8 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("scan media: %w", err)
 		}
-		slog.Info("Media scan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped)
+		slog.Info("Media scan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped,
+			"probes", catalog.Probes.Runs, "probe_cpu", catalog.Probes.CPU.Round(time.Millisecond), "probe_peak_rss_kib", catalog.Probes.PeakKiB)
 		defer func() { _ = catalog.Close() }()
 	}
 	api := server.New(s, *name, web, catalog)
@@ -173,6 +174,7 @@ func rescanLoop(ctx context.Context, catalog *media.Catalog, hangup <-chan os.Si
 		}
 		catalog = next
 		publish(catalog)
-		slog.Info("Media rescan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped)
+		slog.Info("Media rescan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped,
+			"probes", catalog.Probes.Runs, "probe_cpu", catalog.Probes.CPU.Round(time.Millisecond), "probe_peak_rss_kib", catalog.Probes.PeakKiB)
 	}
 }

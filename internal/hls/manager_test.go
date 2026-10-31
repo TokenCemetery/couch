@@ -635,19 +635,6 @@ func TestIdleSessionIsReaped(t *testing.T) {
 	}
 }
 
-func TestProcessUsageUnits(t *testing.T) {
-	cmd := exec.CommandContext(t.Context(), "sh", "-c", "true")
-	if err := cmd.Run(); err != nil {
-		t.Fatal(err)
-	}
-	cpu, peak := processUsage(cmd.ProcessState)
-	// A shell's peak RSS is some hundreds of KiB to a few MiB; bytes taken
-	// for KiB would be over 100 000.
-	if cpu < 0 || peak < 100 || peak > 100_000 {
-		t.Fatalf("cpu %v, peak %d KiB", cpu, peak)
-	}
-}
-
 // lockedBuffer collects log output written from job goroutines.
 type lockedBuffer struct {
 	mu  sync.Mutex

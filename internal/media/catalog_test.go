@@ -105,8 +105,10 @@ func TestRescan(t *testing.T) {
 	write("Removed.mp4", "removed")
 	write("Show/Season 1/Show.S01E01.mp4", "episode")
 	probed := map[string]int{}
+	stats := &ProbeStats{}
 	probe := func(ctx context.Context, f *os.File) (Item, error) {
 		probed[filepath.Base(f.Name())]++
+		stats.Runs++
 		return Item{RunTimeTicks: 10000000, Streams: []Stream{{Index: 0, Type: "Video", Codec: "h264"}}}, nil
 	}
 	first, err := scan(context.Background(), dir, probe)
@@ -114,6 +116,7 @@ func TestRescan(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = first.Close() }()
+	first.Probes, first.probeStats = *stats, stats // as Scan does
 	ids := map[string]Item{}
 	for _, item := range first.Items {
 		ids[item.Path] = item
@@ -135,6 +138,9 @@ func TestRescan(t *testing.T) {
 	}
 	if want := map[string]int{"Changed.mp4": 1, "New.mp4": 1}; !reflect.DeepEqual(probed, want) {
 		t.Fatalf("probed %v, want %v", probed, want)
+	}
+	if first.Probes.Runs != 4 || second.Probes.Runs != 2 {
+		t.Fatalf("probe runs: first scan %d, rescan %d", first.Probes.Runs, second.Probes.Runs)
 	}
 	paths := map[string]Item{}
 	for _, item := range second.Items {

@@ -33,8 +33,12 @@ type Catalog struct {
 	// extractor delivers embedded text subtitles; nil without FFmpeg.
 	extractor *subtitleExtractor
 	probe     func(context.Context, *os.File) (Item, error)
-	index     catalogIndex
-	imageDirs imageDirCache
+	// Probes is what FFprobe cost in the scan that built the catalogue;
+	// probeStats collects it and is nil when the probe is not FFprobe.
+	Probes     ProbeStats
+	probeStats *ProbeStats
+	index      catalogIndex
+	imageDirs  imageDirCache
 }
 
 // Item is a movie, series, season, or episode in the catalogue.
@@ -125,7 +129,7 @@ func stableID(s string) string {
 
 // Scan probes files sequentially. No metadata is written to the media directory.
 func Scan(ctx context.Context, directory string) (*Catalog, error) {
-	probe, err := newProbe(ctx)
+	probe, stats, err := newProbe(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +137,7 @@ func Scan(ctx context.Context, directory string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
+	catalog.Probes, catalog.probeStats = *stats, stats
 	// FFmpeg is optional: without it only sidecar subtitles are delivered.
 	// The extractor and its job limit are shared with rescanned catalogs.
 	if binary, err := exec.LookPath("ffmpeg"); err == nil {
@@ -169,9 +174,15 @@ func (c *Catalog) Rescan(ctx context.Context) (*Catalog, error) {
 	for _, item := range c.Items {
 		previous[item.Path] = item
 	}
+	if c.probeStats != nil {
+		*c.probeStats = ProbeStats{}
+	}
 	next, err := walk(ctx, c, previous, time.Now().UTC())
 	if err != nil {
 		return nil, err
+	}
+	if c.probeStats != nil {
+		next.Probes = *c.probeStats
 	}
 	if len(next.Items) == 0 && len(c.Items) > 0 {
 		return nil, errors.New("media directory has no videos")
@@ -183,7 +194,7 @@ func (c *Catalog) Rescan(ctx context.Context) (*Catalog, error) {
 // scan; otherwise new paths are dated now.
 func walk(ctx context.Context, base *Catalog, previous map[string]Item, now time.Time) (*Catalog, error) {
 	root, probe := base.root, base.probe
-	catalog := &Catalog{ID: base.ID, Items: []Item{}, root: root, probe: probe, extractor: base.extractor}
+	catalog := &Catalog{ID: base.ID, Items: []Item{}, root: root, probe: probe, probeStats: base.probeStats, extractor: base.extractor}
 	subtitles := []string{}
 	visit := func(path string, entry fs.DirEntry) error {
 		ext := strings.ToLower(filepath.Ext(path))

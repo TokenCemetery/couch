@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/TokenCemetery/coach/internal/procusage"
 )
 
 const maxProbeOutput = 1 << 20
@@ -28,7 +30,22 @@ func (b *probeOutput) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 
-func runProbe(ctx context.Context, binary string, file *os.File, args ...string) ([]byte, error) {
+// ProbeStats sums the FFprobe runs of one scan.
+type ProbeStats struct {
+	Runs    int
+	CPU     time.Duration // user and system
+	PeakKiB int64         // the largest peak resident memory of a run
+}
+
+func (p *ProbeStats) add(state *os.ProcessState) {
+	cpu, peak := procusage.Of(state)
+	p.Runs++
+	p.CPU += cpu
+	p.PeakKiB = max(p.PeakKiB, peak)
+}
+
+// runProbe runs FFprobe and, when stats is set, adds the run's resource use.
+func runProbe(ctx context.Context, binary string, stats *ProbeStats, file *os.File, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // binary is ffprobe from PATH; args are fixed by the callers
@@ -40,23 +57,29 @@ func runProbe(ctx context.Context, binary string, file *os.File, args ...string)
 	output := &probeOutput{cancel: cancel}
 	cmd.Stdout = output
 	cmd.WaitDelay = time.Second
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if stats != nil && cmd.ProcessState != nil {
+		stats.add(cmd.ProcessState)
+	}
+	if err != nil {
 		return nil, errors.New("ffprobe failed or exceeded its limits")
 	}
 	return output.buffer.Bytes(), nil
 }
 
-func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error), error) {
+// newProbe returns the file probe and the stats its runs add to.
+func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error), *ProbeStats, error) {
 	binary, err := exec.LookPath("ffprobe")
 	if err != nil {
-		return nil, errors.New("-media-dir requires ffprobe on PATH")
+		return nil, nil, errors.New("-media-dir requires ffprobe on PATH")
 	}
-	protocols, err := runProbe(ctx, binary, nil, "-v", "error", "-protocols")
+	protocols, err := runProbe(ctx, binary, nil, nil, "-v", "error", "-protocols")
 	if err != nil || !strings.Contains(string(protocols), "\n  fd\n") {
-		return nil, errors.New("ffprobe must support the fd input protocol")
+		return nil, nil, errors.New("ffprobe must support the fd input protocol")
 	}
+	stats := &ProbeStats{}
 	return func(ctx context.Context, file *os.File) (Item, error) {
-		data, err := runProbe(ctx, binary, file, "-v", "error", "-max_alloc", "67108864",
+		data, err := runProbe(ctx, binary, stats, file, "-v", "error", "-max_alloc", "67108864",
 			"-protocol_whitelist", "fd", "-threads", "1", "-probesize", "5000000", "-analyzeduration", "5000000",
 			"-max_streams", "64", "-fd", "3", "-i", "fd:", "-of", "json",
 			// Clients decide direct play from codec profile, level and pixel
@@ -66,7 +89,7 @@ func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error
 			return Item{}, err
 		}
 		return parseProbe(data)
-	}, nil
+	}, stats, nil
 }
 
 // profileName normalises ffprobe's profile field, which is a string for most

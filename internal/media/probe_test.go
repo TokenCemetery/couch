@@ -65,21 +65,26 @@ func TestProbeExecutionLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Failed runs count too: their CPU time is spent all the same.
+	var stats ProbeStats
 	for _, mode := range []string{"overflow", "wait", "crash"} {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, err := runProbe(ctx, binary, nil, "-test.run=TestProbeProcess", "coach-probe-helper", mode)
+		_, err := runProbe(ctx, binary, &stats, nil, "-test.run=TestProbeProcess", "coach-probe-helper", mode)
 		cancel()
 		if err == nil {
 			t.Fatalf("%s limit not enforced", mode)
 		}
 	}
+	if stats.Runs != 3 || stats.CPU <= 0 || stats.PeakKiB <= 0 {
+		t.Fatalf("stats %+v", stats)
+	}
 	t.Setenv("FFREPORT", "test-only-value")
-	output, err := runProbe(context.Background(), binary, nil, "-test.run=TestProbeProcess", "coach-probe-helper", "environment")
+	output, err := runProbe(context.Background(), binary, nil, nil, "-test.run=TestProbeProcess", "coach-probe-helper", "environment")
 	if err != nil || string(output) != "clean" {
 		t.Fatal("child inherited report environment")
 	}
 	t.Setenv("PATH", t.TempDir())
-	if _, err := newProbe(context.Background()); err == nil {
+	if _, _, err := newProbe(context.Background()); err == nil {
 		t.Fatal("missing ffprobe accepted")
 	}
 }
