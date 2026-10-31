@@ -14,6 +14,7 @@ func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 var (
 	subtitles            = knownFailure{24, "subtitle editing, remote subtitle search and attachments are not implemented"}
 	nextUpAndCollections = knownFailure{40, "missing episodes and collections are not implemented"}
+	homeSections         = knownFailure{100, "Home Screen settings cannot add, remove or move sections"}
 	administration       = knownFailure{33, "administration is not implemented (single non-admin user)"}
 	backup               = knownFailure{32, "backup and restore are not implemented"}
 	unranked             = knownFailure{34, "not implemented; not ranked by real usage yet"}
@@ -64,9 +65,9 @@ var knownFailures = map[string]knownFailure{
 	"postUsersByIdConnectLink":       unranked,
 	"postUsersByIdConnectLinkDelete": unranked,
 	// ContentService
-	"postUsersByUseridHomesections":       unranked,
-	"postUsersByUseridHomesectionsDelete": unranked,
-	"postUsersByUseridHomesectionsMove":   unranked,
+	"postUsersByUseridHomesections":       homeSections,
+	"postUsersByUseridHomesectionsDelete": homeSections,
+	"postUsersByUseridHomesectionsMove":   homeSections,
 	// DeviceService
 	"deleteDevices":            administration,
 	"getDevices":               administration,
