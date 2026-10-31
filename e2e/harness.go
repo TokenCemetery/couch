@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -60,6 +61,7 @@ type Instance struct {
 	args   []string
 	stderr *bytes.Buffer
 	data   string
+	port   string
 }
 
 var instanceCount atomic.Int64
@@ -103,11 +105,12 @@ func (s *Suite) Start() (*Instance, error) {
 		_ = os.RemoveAll(data)
 		return nil, err
 	}
-	inst := &Instance{URL: "http://127.0.0.1:" + port, stderr: &bytes.Buffer{}, data: data}
+	inst := &Instance{URL: "http://127.0.0.1:" + port, stderr: &bytes.Buffer{}, data: data, port: port}
 	inst.args = []string{s.Binary, "-listen", "127.0.0.1:" + port, "-data", data, "-media-dir", s.Media}
 	inst.cmd = exec.CommandContext(context.Background(), inst.args[0], inst.args[1:]...) //nolint:gosec // see NewSuite
 	inst.cmd.Stderr = inst.stderr
 	if err := inst.cmd.Start(); err != nil {
+		releasePort(port)
 		_ = os.RemoveAll(data)
 		return nil, err
 	}
@@ -121,7 +124,7 @@ func (s *Suite) Start() (*Instance, error) {
 		}
 		if err != nil {
 			inst.Stop()
-			return nil, err
+			return nil, fmt.Errorf("%w\n%s", err, inst.stderr)
 		}
 	} else {
 		inst.Stop()
@@ -162,10 +165,11 @@ func (inst *Instance) restart() error {
 	return nil
 }
 
-// Stop terminates the process and removes its state.
+// Stop terminates the process, removes its state and frees its port.
 func (inst *Instance) Stop() {
 	inst.terminate()
 	_ = os.RemoveAll(inst.data)
+	releasePort(inst.port)
 }
 
 // terminate stops the process with SIGTERM, or SIGKILL after 10 seconds.
@@ -373,14 +377,41 @@ func setOnce(dst *string, v string) {
 	}
 }
 
+// reservedPorts holds the ports of live instances. An instance keeps its
+// port while it restarts, when the port is briefly unbound; without this a
+// parallel Start could be handed it, and one of the two processes would fail
+// to bind while the other answered both tests (#91).
+var reservedPorts = struct {
+	sync.Mutex
+	ports map[string]bool
+}{ports: map[string]bool{}}
+
+// freePort returns a port that is unbound now and reserved until releasePort.
 func freePort() (string, error) {
-	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
+	for {
+		l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+		if err != nil {
+			return "", err
+		}
+		_, port, err := net.SplitHostPort(l.Addr().String())
+		_ = l.Close()
+		if err != nil {
+			return "", err
+		}
+		reservedPorts.Lock()
+		taken := reservedPorts.ports[port]
+		reservedPorts.ports[port] = true
+		reservedPorts.Unlock()
+		if !taken {
+			return port, nil
+		}
 	}
-	defer func() { _ = l.Close() }()
-	_, port, err := net.SplitHostPort(l.Addr().String())
-	return port, err
+}
+
+func releasePort(port string) {
+	reservedPorts.Lock()
+	delete(reservedPorts.ports, port)
+	reservedPorts.Unlock()
 }
 
 func copyDir(src, dst string) error {
