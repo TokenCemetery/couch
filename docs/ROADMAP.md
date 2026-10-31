@@ -124,7 +124,7 @@ Status as of 2026-10-31 (comparison with Emby not started, #29):
 
 Depends on the corresponding parts of M2–M4. Rank the remaining APIs, features and apps by real usage: music/photos, collections, Live TV/DVR, DLNA, device control, offline, external integrations and state migration.
 
-Each capability goes through the cycle "record behavior → implement → compare → client check". The result is a versioned list of supported, partial and unsupported capabilities. The percentage of implemented routes does not replace the result of user scenarios.
+Each capability goes through the cycle "record behavior → implement → compare → client check". The result is a versioned list of supported, partial and unsupported capabilities: [FEATURES](FEATURES.md), first version 2026-11-01 for Emby Web (#35). The percentage of implemented routes does not replace the result of user scenarios.
 
 ## M6. Custom frontend
 

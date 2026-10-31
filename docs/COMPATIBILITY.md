@@ -87,6 +87,5 @@ Quality switching was verified 2026-10-07 on the set above, the other rows earli
 
 - Android, Android TV (#26), iOS, Apple TV (#27).
 - Other browsers and Emby Web on TVs (Tizen, webOS).
-- CPU load of the real files during transcoding against Emby (#29, #14).
 - A browser whose profile limits H.264 to 1920 width: the limit was verified only with requests to Couch (VALIDATION, "Transcoding to H.264").
 - HEVC with open GOPs in MPEG-TS with copied audio: a restart from the middle may begin later than planned (#81); with encoded audio this is fixed and covered by a unit test, not checked in the browser.
