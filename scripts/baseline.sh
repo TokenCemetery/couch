@@ -47,6 +47,16 @@ cgroup() { echo "/sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}
 cpu_usec() { awk '$1=="usage_usec"{print $2}' "$(cgroup)/cpu.stat"; }
 # io_bytes prints "read written" summed over the container's block devices.
 io_bytes() { awk '{for (i = 2; i <= NF; i++) { split($i, kv, "="); if (kv[1] == "rbytes") r += kv[2]; if (kv[1] == "wbytes") w += kv[2] } } END { print r + 0, w + 0 }' "$(cgroup)/io.stat"; }
+# server_pid prints the server process's host PID, if it has started.
+server_pid() {
+  local p
+  for p in $(cat "$1/cgroup.procs"); do
+    [ "$(cat "/proc/$p/comm" 2>/dev/null)" = "$process" ] && { echo "$p"; return; }
+  done
+  return 0
+}
+# proc_cpu_usec PID: the process's own user and system CPU, without children.
+proc_cpu_usec() { awk -v hz="$(getconf CLK_TCK)" '{sub(/.*\) /, ""); print ($12 + $13) * 1e6 / hz}' "/proc/$1/stat" 2>/dev/null || echo 0; }
 evict() { for f in "$@"; do dd if="$media/$f" iflag=nocache count=0 status=none; done; }
 evict_all() { find "$media" -type f -print0 | while IFS= read -r -d '' f; do dd if="$f" iflag=nocache count=0 status=none; done; }
 now() { date +%s.%N; }
@@ -54,16 +64,32 @@ now() { date +%s.%N; }
 # phase_begin and phase_end bracket a phase: container CPU from cpu.stat and
 # the peak of anonymous memory from memory.stat, sampled every 0.2 s (server
 # and FFmpeg). memory.current would also count the page cache of the media
-# being read, which is reclaimable and not process memory.
+# being read, which is reclaimable and not process memory. The server process
+# is also measured on its own: its CPU from /proc, so the rest of the
+# container's CPU is FFmpeg and FFprobe, and its anonymous memory (RssAnon)
+# next to the sum over the ffmpeg and ffprobe processes running at once.
 phase_begin() {
   phase=$1 t0=$(now) c0=$(cpu_usec)
   read -r r0 w0 < <(io_bytes)
-  local file=$(cgroup)/memory.stat
-  : > "$work/peak"; : > "$work/temp"
-  ( max=0 tmax=0
+  local cg; cg=$(cgroup)
+  local file=$cg/memory.stat pid
+  pid=$(server_pid "$cg"); s0=0; [ -n "$pid" ] && s0=$(proc_cpu_usec "$pid")
+  : > "$work/peak"; : > "$work/temp"; : > "$work/srv"; : > "$work/ff"
+  ( max=0 tmax=0 smax=0 fmax=0
     while :; do
       v=$(awk '$1=="anon"{print $2}' "$file" 2>/dev/null || echo 0)
       [ "${v:-0}" -gt "$max" ] && max=$v && echo "$max" > "$work/peak"
+      s=0 f=0
+      for p in $(cat "$cg/cgroup.procs" 2>/dev/null); do
+        c=$(cat "/proc/$p/comm" 2>/dev/null) || continue
+        k=$(awk '/^RssAnon/{print $2}' "/proc/$p/status" 2>/dev/null)
+        case $c in
+          "$process") s=${k:-0} ;;
+          ffmpeg | ffprobe) f=$((f + ${k:-0})) ;;
+        esac
+      done
+      [ "$s" -gt "$smax" ] && smax=$s && echo "$smax" > "$work/srv"
+      [ "$f" -gt "$fmax" ] && fmax=$f && echo "$fmax" > "$work/ff"
       t=$(du -sb "$tempdir" 2>/dev/null | cut -f1)
       [ "${t:-0}" -gt "$tmax" ] && tmax=$t && echo "$tmax" > "$work/temp"
       sleep 0.2
@@ -73,13 +99,17 @@ phase_begin() {
 phase_end() {
   local extra=${1:-'{}'}
   kill "$sampler" 2>/dev/null || true; wait "$sampler" 2>/dev/null || true; sampler=""
-  local t1 c1 peak temp r1 w1; t1=$(now); c1=$(cpu_usec); peak=$(cat "$work/peak" 2>/dev/null); temp=$(cat "$work/temp" 2>/dev/null)
+  local t1 c1 peak temp r1 w1 pid s1=0 srv ff; t1=$(now); c1=$(cpu_usec); peak=$(cat "$work/peak" 2>/dev/null); temp=$(cat "$work/temp" 2>/dev/null)
+  pid=$(server_pid "$(cgroup)"); [ -n "$pid" ] && s1=$(proc_cpu_usec "$pid")
+  srv=$(cat "$work/srv" 2>/dev/null); ff=$(cat "$work/ff" 2>/dev/null)
   read -r r1 w1 < <(io_bytes)
   record --arg phase "$phase" --argjson wall "$(awk "BEGIN{print $t1-$t0}")" \
     --argjson cpu "$(awk "BEGIN{print ($c1-$c0)/1e6}")" --argjson peak "$(awk "BEGIN{print ${peak:-0}/1048576}")" \
     --argjson read "$(awk "BEGIN{print ($r1-$r0)/1048576}")" --argjson written "$(awk "BEGIN{print ($w1-$w0)/1048576}")" \
     --argjson temp "$(awk "BEGIN{print ${temp:-0}/1048576}")" --argjson extra "$extra" \
+    --argjson scpu "$(awk "BEGIN{print ($s1-$s0)/1e6}")" --argjson srv "$(awk "BEGIN{print ${srv:-0}/1024}")" --argjson ff "$(awk "BEGIN{print ${ff:-0}/1024}")" \
     '{server: $server, profile: $profile, phase: $phase, wall_s: ($wall*100|round/100), cpu_s: ($cpu*100|round/100), anon_peak_mib: ($peak|round),
+      server_cpu_s: ($scpu*100|round/100), ffmpeg_cpu_s: (($cpu-$scpu)*100|round/100), server_anon_peak_mib: ($srv|round), ffmpeg_anon_peak_mib: ($ff|round),
       read_mib: ($read*10|round/10), written_mib: ($written*10|round/10), temp_peak_mib: ($temp*10|round/10)} + $extra'
 }
 alive() { [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" = true ]; }
@@ -111,6 +141,7 @@ emby)
     -e UID="$(id -u)" -e GID="$(id -g)" -e GIDLIST="$(id -g)" \
     -v "$work/config:/config" -v "$media:/media:ro" "$emby_image" >/dev/null
   tempdir=$work/config/transcoding-temp
+  process=EmbyServer
   evict_all
   docker start "$name" >/dev/null
   phase_begin startup_scan
@@ -132,7 +163,6 @@ emby)
     state=$(api "$base/ScheduledTasks?IsHidden=false" | jq -r '.[] | select(.Key=="RefreshLibrary") | .State')
     [ "$state" = Idle ] && break; alive || died startup_scan; sleep 0.5
   done
-  process=EmbyServer
   ;;
 couch)
   mkdir -p "$work/data"
@@ -140,6 +170,7 @@ couch)
   docker create --name "$name" --network couch-bench --cpus "$cpus" --memory "$mem" --memory-swap "$mem" \
     --user "$(id -u):$(id -g)" -v "$work/data:/data" -v "$media:/media:ro" "$couch_image" -listen :8097 -media-dir /media >/dev/null
   tempdir=$work/data/transcode
+  process=couch
   evict_all
   docker start "$name" >/dev/null
   phase_begin startup_scan
@@ -148,7 +179,6 @@ couch)
   # The scan finishes before Couch listens.
   wait_url "http://$ip:8097/healthz" || died startup_scan
   login
-  process=couch
   ;;
 *) echo "server must be emby or couch" >&2; exit 2 ;;
 esac

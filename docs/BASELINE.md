@@ -1,6 +1,6 @@
 # Resource baseline: Emby and Couch (#14)
 
-Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time. The phases both runs share agree within about 3 %; more runs are needed for a real variance figure. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
+Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately. The phases both runs share agree within about 3 %; more runs are needed for a real variance figure. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
 
 ## Method
 
@@ -22,6 +22,7 @@ Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Cou
   - peak size of the server's transcode folder (`/data/transcode` for Couch, `/config/transcoding-temp` for Emby), sampled every 0.2 s.
 
   Also the server process's own peak RSS (`VmHWM`).
+- **Measures, per phase, for the server process alone:** its CPU from `/proc/PID/stat`, so the rest of the container's CPU is FFmpeg and FFprobe, and its peak anonymous memory (`RssAnon`) next to the peak sum over the `ffmpeg` and `ffprobe` processes running at once, both sampled every 0.2 s.
 - **Cache:** before the scan and before each phase that reads media, the files are evicted from the page cache (`dd iflag=nocache`, which works as a normal user). Reads therefore come from the disk, as on a server that has not just read them.
 - **Phases:**
   1. Startup and library scan: Couch scans before it listens; Emby runs its wizard and adds the library with a scan.
@@ -168,9 +169,31 @@ Third run, Couch only, same script, bench and media: Couch `main` at f5f9eed, wh
 - The first segment and a transcode seek are still 2.5–3.5 times slower than Emby's. Couch's segments are 6 s and longer against Emby's 3 s, and it reads the source for its keyframe plan first (#98); reads did not change (321 MiB for R06).
 - 4K still starts after Emby Web's 10 s wait (#97).
 
+## Server process and FFmpeg separately
+
+Fourth run, 2026-11-01, large profile only, same script, bench and media: Couch at f5f9eed (the `couch:dev` image), and Emby. An unrelated 4-CPU soak test of Couch ran on the host throughout, so wall times and first segments of this run are not comparable and are left out. CPU seconds and memory are.
+
+| Phase | Measure | Couch server | Couch FFmpeg | Emby server | Emby FFmpeg |
+|---|---|---|---|---|---|
+| Startup and scan | CPU | 0.11 s | 0.82 s | 2.54 s | 0.41 s |
+| Idle 60 s | CPU | 0 s | 0 s | 0.35 s | 0.05 s |
+| 700 API requests | CPU | 0.94 s | 0.32 s | 4.31 s | 0 s |
+| Remux of R03, 120 s of video | CPU | 0.04 s | 2.26 s | 0.66 s | 1.69 s |
+| | peak anon. memory | 7 MiB | 15 MiB | 85 MiB | not captured |
+| Transcode of R06, 120 s of video | CPU | 0.05 s | 40.4 s | 0.82 s | 37.1 s |
+| | peak anon. memory | 7 MiB | 296 MiB | 91 MiB | 277 MiB |
+| Transcode seek in R06 | CPU | 0.01 s | 19.9 s | 0.21 s | 13.1 s |
+| 4K transcode of R09 | CPU | 0.14 s | 106 s | 0.41 s | 94 s |
+| | peak anon. memory | 7 MiB | 2650 MiB | 92 MiB | 2511 MiB |
+
+- **The server process:** Couch's stays at 7 MiB of anonymous memory through every phase, Emby's at 63–92 MiB. During HLS Couch's own process uses 0.01–0.14 s of CPU, Emby's 0.2–0.8 s.
+- **FFmpeg:** Couch's costs more than Emby's in every HLS phase: 9 % more CPU and 7 % more memory for the 720p transcode, 13 % and 6 % for 4K, 1.5 times the CPU for a transcode seek. Couch's container figures are lower or close only because its server process is smaller. So the transcode budgets (#99) are FFmpeg work: the command line and its keyframe plan, not the Go server.
+- **FFprobe outside playback:** Couch's 0.32 s of CPU during the API phase is its keyframe listing, which `PlaybackInfo` starts (#98). Its scan also probes in FFprobe (0.82 s), while Emby's scan spends its CPU in the server process.
+- **Gaps:** Emby's remux FFmpeg finished between samples, so its memory reads 0; Emby's startup memory reads 0 as in the second run. The split counts FFmpeg's memory as `RssAnon`, so it can differ from the container's `anon` figure by a few MiB.
+
 ## Not measured yet
 
 - Picture quality of the two encoders.
 - More runs for variance.
-- Emby's server process and its FFmpeg separately during transcoding; the table gives the container total, which is their sum.
+- The split above on the small and average profiles, and on a host without other load.
 - A real NAS, where the read volumes above turn into time, and Emby's internet metadata, which the offline network rules out.
