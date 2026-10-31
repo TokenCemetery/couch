@@ -17,6 +17,7 @@ import (
 
 	"github.com/TokenCemetery/coach/internal/hls"
 	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/coach/internal/procusage"
 	"github.com/TokenCemetery/coach/internal/server"
 	"github.com/TokenCemetery/coach/internal/state"
 )
@@ -143,8 +144,21 @@ func run() error {
 			_ = httpServer.Close()
 			return err
 		}
+		logUsage()
 		return nil
 	}
+}
+
+// logUsage records what Coach itself and, separately, its finished FFmpeg
+// and FFprobe runs cost over the process's life.
+func logUsage() {
+	cpu, peak, err := procusage.Self(syscall.RUSAGE_SELF)
+	childCPU, childPeak, childErr := procusage.Self(syscall.RUSAGE_CHILDREN)
+	if err != nil || childErr != nil {
+		return
+	}
+	slog.Info("Coach stopped", "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak,
+		"children_cpu", childCPU.Round(time.Millisecond), "children_peak_rss_kib", childPeak)
 }
 
 // rescanLoop rescans on SIGHUP and every interval (0 disables), one scan at a
