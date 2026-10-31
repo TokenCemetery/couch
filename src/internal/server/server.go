@@ -350,6 +350,9 @@ func (s *Server) Handler() http.Handler {
 			if s.web == nil {
 				fail(w, 404, "WebClientNotConfigured")
 			} else {
+				// Emby Web reports the ServerId and DeviceId to mb3admin.com on
+				// every load; the browser may only connect back to Couch (#89).
+				w.Header().Set("Content-Security-Policy", "connect-src 'self'")
 				s.web.ServeHTTP(w, r)
 			}
 			return

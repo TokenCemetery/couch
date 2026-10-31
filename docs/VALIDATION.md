@@ -518,6 +518,16 @@ Decision (owner): a `-ffmpeg-threads` flag, automatic by default. Checked throug
 
 The file has x264's default keyframe interval, so it has 12 segments instead of the 15 above.
 
+## External requests blocked by CSP (2026-11-01, #89)
+
+Couch serves `/web/*` with `Content-Security-Policy: connect-src 'self'`. Release image, `-web-dir` with the local Emby Web 4.10.0.40, Chromium, R03 and R04 from the real set.
+
+- On each load, the client's `validateDevice` request to `mb3admin.com` (ServerId, DeviceId and device name in the query) is blocked by the browser: "violates the following Content Security Policy directive". Emby Web logs `getRegistrationInfo failed: TypeError: Failed to fetch` and an unhandled rejection, shows no dialog, and keeps the "Get Emby Premiere" button, as with the earlier 404.
+- Still working: sign-in, home with Continue Watching and Latest, the library, item pages, search suggestions, settings, Direct Stream of R04 (9.1 s after 10 s), and HLS remux of R03 with a seek (327 s → 336.5 s 10 s later).
+- No other request was blocked during the walk, and no warnings in the Couch log.
+
+Not checked: casting (the Chromecast sender loads its script, which `connect-src` does not cover; casting itself was not tried) and `-web-upstream`, which goes through the same header code.
+
 ## x264 options from Emby (2026-10-31, #99)
 
 Transcoding now adds Emby's `-x264-params subme=0:me_range=4:rc_lookahead=10:partitions=none` to the same `veryfast` and CRF 23. Release image (FFmpeg 8.1), container limited to 4 CPUs, AMD Ryzen 7 255, local SSD. Source: R06 from the real set (MP4 HEVC 720p + AC3 5.1).

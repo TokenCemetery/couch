@@ -75,6 +75,9 @@ func TestLocalWebAssets(t *testing.T) {
 	expectStatus(t, request(h, "GET", "/", "", "", ""), 302)
 	expectStatus(t, request(h, "GET", "/System/Info/Public", "", "", ""), 200)
 	expectStatus(t, request(h, "GET", "/web/app.js", "", "", ""), 200)
+	if w := request(h, "GET", "/web/index.html", "", "", ""); w.Header().Get("Content-Security-Policy") != "connect-src 'self'" {
+		t.Fatalf("UI served without a connect-src policy: %q", w.Header().Get("Content-Security-Policy"))
+	}
 }
 
 func TestLocalWebRequiresIndex(t *testing.T) {
