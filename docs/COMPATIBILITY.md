@@ -48,7 +48,7 @@ The row scenario is scripted in the page: "Play" on the item page, frames after 
 
 | ID | Container, video / audio, subtitles | Delivery | Start | Seek (to the middle) | Stop | Resume | Status |
 |---|---|---|---|---|---|---|---|
-| R01 | AVI, MPEG-4 ASP 400p / AC3 2.0, keyframes without PTS | HLS refused: `main.m3u8` 500 | no | — | — | — | failed (#96); fixed on a synthetic MPEG-4 ASP AVI (missing PTS generated for the plan and the job), the real file not rechecked |
+| R01 | AVI, MPEG-4 ASP 400p / AC3 2.0, keyframes without PTS | transcode to H.264, AC3 → AAC; missing PTS generated for the plan and the job | yes | 538.7 s of 527 | 546.0 s | 555.3 s | verified 2026-10-31 at f542e55 (failed before: `main.m3u8` 500, #96) |
 | R02 | AVI, MPEG-4 ASP 400p / MP3 2.0 | transcode to H.264, MP3 copied | yes | 227.9 s of 216 | 227.9 s | 237.2 s | verified 2026-10-31 |
 | R03 | MKV, H.264 High 1080p / AC3 5.1 ×2, E-AC3 5.1 ×2, SubRip ×2 | remux, AC3 → AAC; SubRip inside HLS | yes | 665.6 s of 654 | 665.6 s | 674.8 s | verified 2026-10-31 |
 | R04 | MP4, H.264 High 576p / AAC 2.0, AC3 2.0, `mov_text` ×3 | Direct Stream; `mov_text` as external WebVTT | yes | 831.8 s of 820 | 831.6 s | 840.9 s | verified 2026-10-31 |
