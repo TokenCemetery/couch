@@ -12,14 +12,13 @@ type knownFailure struct {
 func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 
 var (
-	subtitles            = knownFailure{24, "subtitle editing, remote subtitle search and attachments are not implemented"}
 	nextUpAndCollections = knownFailure{40, "missing episodes and collections are not implemented"}
 	homeSections         = knownFailure{100, "Home Screen settings cannot add, remove or move sections"}
 	administration       = knownFailure{33, "administration is not implemented (single non-admin user)"}
 	backup               = knownFailure{32, "backup and restore are not implemented"}
 	unranked             = knownFailure{34, "not implemented; not ranked by real usage yet"}
 	notCalledByWeb       = knownFailure{34, "Emby Web 4.10.0.40 does not call it; use by other clients is not ranked yet"}
-	notOfferedByWeb      = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags or media types Couch does not send; not ranked yet"}
+	notOfferedByWeb      = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags, user policy flags or media types Couch does not send; not ranked yet"}
 )
 
 // knownFailures lists contract operations (by operationId) and behavior
@@ -391,14 +390,14 @@ var knownFailures = map[string]knownFailure{
 	"getEncodingSubtitleoptions":  notCalledByWeb,
 	"postEncodingSubtitleoptions": notCalledByWeb,
 	// SubtitleService
-	"deleteItemsByIdSubtitlesByIndex":                      subtitles,
-	"deleteVideosByIdSubtitlesByIndex":                     subtitles,
-	"getItemsByIdRemotesearchSubtitlesByLanguage":          subtitles,
-	"getProvidersSubtitlesSubtitlesById":                   subtitles,
-	"getVideosByIdByMediasourceidAttachmentsByIndexStream": subtitles,
-	"postItemsByIdRemotesearchSubtitlesBySubtitleid":       subtitles,
-	"postItemsByIdSubtitlesByIndexDelete":                  subtitles,
-	"postVideosByIdSubtitlesByIndexDelete":                 subtitles,
+	"deleteItemsByIdSubtitlesByIndex":                      notCalledByWeb,
+	"deleteVideosByIdSubtitlesByIndex":                     notCalledByWeb,
+	"getItemsByIdRemotesearchSubtitlesByLanguage":          notOfferedByWeb,
+	"getProvidersSubtitlesSubtitlesById":                   notOfferedByWeb,
+	"getVideosByIdByMediasourceidAttachmentsByIndexStream": notCalledByWeb,
+	"postItemsByIdRemotesearchSubtitlesBySubtitleid":       notOfferedByWeb,
+	"postItemsByIdSubtitlesByIndexDelete":                  notCalledByWeb,
+	"postVideosByIdSubtitlesByIndexDelete":                 notOfferedByWeb,
 	// SuggestionsService
 	"getUsersByUseridSuggestions": unranked,
 	// SyncService

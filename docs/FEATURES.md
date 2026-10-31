@@ -61,7 +61,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Default subtitle by the user's subtitle mode and language | Supported | Rules follow Emby Web's mode descriptions |
 | Image subtitles (PGS, DVD, DVB) | Unsupported | Not delivered; no burn-in |
 | Subtitle files in legacy encodings | Unsupported | By decision: UTF-8 only (#24) |
-| Subtitle search and download, subtitle editing | Unsupported | #24 |
+| Subtitle search and download, subtitle editing and deletion | Unsupported | Hidden: Emby Web offers them only when the user policy enables subtitle downloading or management, and Couch's does not (#34) |
 
 ## Library and server
 
