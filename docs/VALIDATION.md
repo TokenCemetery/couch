@@ -282,7 +282,7 @@ The behavioral check `storage-error-is-reported` in `make e2e` makes the data di
 | FFmpeg failure in HLS | `TestFailedJobIsReported`: FFmpeg error; `TestKilledJobIsRestarted`: killed by `SIGKILL` (2026-10-11) | the request waiting for a segment receives 500, the next request restarts the job, other sessions keep working |
 | FFmpeg failure during subtitle extraction | `TestEmbeddedSubtitleExtraction`: no track, all jobs busy | the subtitle request receives 404 and a log warning; the video stream is a separate request and is not affected |
 | Power loss | not checked | needs a test rig; `SIGKILL` does not lose the OS cache |
-| Library unavailable at startup | not checked | currently startup fails with a scan error; protection against an empty volume is in `docs/RESCAN-DESIGN.md` (#39) |
+| Library unavailable at startup | `TestSavedCatalog`; container run, section "Saved catalog index" (2026-11-01) | with a saved index, an empty volume keeps the saved catalog published and the index unchanged; without an index (first start) or with a missing directory, startup still fails with a scan error |
 
 ## Data backup and upgrade (2026-10-11, #32)
 
@@ -564,3 +564,13 @@ Same image and set, no CPU limit. A 106 MiB file (`stream.mkv?Static=true`) was 
 | 8 workers concurrently, 3 times | 2549 MiB | 1.52 s | 12.4 MiB |
 
 Couch spends about 0.5–0.6 s of CPU per gibibyte of served file, and memory barely grows with the number of workers. For playback at 20 Mbit/s this is on the order of 1.5 ms of CPU per second per stream. Not checked: reading from disk or a network volume instead of the cache, TLS, slow clients.
+
+## Saved catalog index (2026-11-01, #39, #31)
+
+Couch built from the working tree, run in the `couch:dev` image (FFprobe 8.1) on the 18-file real set from [COMPATIBILITY](COMPATIBILITY.md):
+
+- First start, no index: `Media scan complete videos=18 folders=2 skipped=0 probes=18 probe_cpu=771ms`, then `catalog.json` (26 KiB) in the data directory. The process was killed with `SIGKILL` 6 s later.
+- Second start: `Media index loaded; rescanning in the background videos=18 folders=2`, `/healthz` answered 28 ms after `docker run` returned, and the background rescan finished with `probes=0`.
+- Third start with an empty directory mounted as `/media`: the index loaded, the rescan logged `Media rescan failed; keeping the previous catalog error="media directory has no videos"`, and `catalog.json` still held 18 items.
+
+`TestSavedCatalog` covers the round trip (items, series and seasons equal to a fresh scan), a rescan after loading that probes nothing unchanged, a first-seen date that survives a save and reload, and the rejected indexes: missing, truncated, empty, another version, another directory, a path outside the library, a duplicate path, no videos.

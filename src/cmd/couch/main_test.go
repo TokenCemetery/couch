@@ -35,7 +35,7 @@ func TestRescanLoop(t *testing.T) {
 	published := make(chan *media.Catalog, 1)
 	done := make(chan struct{})
 	go func() {
-		rescanLoop(ctx, catalog, hangup, 0, func(c *media.Catalog) { published <- c })
+		rescanLoop(ctx, catalog, hangup, 0, false, func(c *media.Catalog) { published <- c })
 		close(done)
 	}()
 

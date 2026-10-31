@@ -68,7 +68,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Feature | Status | Notes |
 |---|---|---|
 | Rescan on `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; an emptied volume is not published (#39) |
-| Catalog kept across restarts | Unsupported | Every start rescans; date added resets to file mtime (#39) |
+| Catalog kept across restarts | Supported | Saved to `catalog.json`; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
 | Library unreachable at startup | Unsupported | A missing `-media-dir` fails the start (#31) |
 | Backup and restore of user state | Partial | By copying the data directory; the Emby backup API is not implemented (#32) |
 | Server administration in the UI (libraries, users, tasks, logs) | Unsupported | #33 |

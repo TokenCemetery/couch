@@ -138,12 +138,17 @@ func Scan(ctx context.Context, directory string) (*Catalog, error) {
 		return nil, err
 	}
 	catalog.Probes, catalog.probeStats = *stats, stats
-	// FFmpeg is optional: without it only sidecar subtitles are delivered.
-	// The extractor and its job limit are shared with rescanned catalogs.
+	attachExtractor(catalog)
+	return catalog, nil
+}
+
+// attachExtractor sets up embedded subtitle delivery. FFmpeg is optional:
+// without it only sidecar subtitles are delivered. The extractor and its job
+// limit are shared with rescanned catalogs.
+func attachExtractor(catalog *Catalog) {
 	if binary, err := exec.LookPath("ffmpeg"); err == nil {
 		catalog.extractor = newSubtitleExtractor(binary)
 	}
-	return catalog, nil
 }
 
 func scan(ctx context.Context, directory string, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {

@@ -1,6 +1,6 @@
 # Design: library rescan without restart (#39)
 
-Status: stages 1–3 implemented 2026-10-06, stage 5 (`LibraryChanged`) on 2026-10-07; stage 4 deferred. Decisions on the "Questions" section (2026-10-06): periodic scanning is off by default; a saved index is not needed for now; publishing an empty volume is cancelled; the date added is the time the path was first seen in the current process (at startup, mtime, until an index exists).
+Status: stages 1–3 implemented 2026-10-06, stage 5 (`LibraryChanged`) on 2026-10-07, stage 4 (saved index) on 2026-11-01 after the owner ranked it first (#34). Decisions on the "Questions" section (2026-10-06): periodic scanning is off by default; publishing an empty volume is cancelled; the date added is the time the path was first seen, kept in the index.
 
 ## Current state
 

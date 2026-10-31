@@ -113,7 +113,7 @@ Done when the M0 budgets are met, recovery is verified, there are no open blocki
 
 Status as of 2026-11-01:
 
-- Recovery ([summary](VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. Open: power loss (needs a test bench) and a library unavailable at startup (#39).
+- Recovery ([summary](VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. A library that is empty at startup keeps the saved catalog (#39). Open: power loss (needs a test bench).
 - Backup/restore and data upgrades between versions are verified (#32).
 - Sustained load: 30 minutes with no process, file or memory leaks; the acceptance duration is not agreed (#30, #15).
 - Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Couch itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.

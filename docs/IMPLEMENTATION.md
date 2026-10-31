@@ -23,7 +23,7 @@ After another browser runtime refusal, an independent catalog slice was implemen
 3. Compatible Views, Items, Items/{id}, root and Latest routes; search, filters and bounded pagination. DTOs are built after the page is selected.
 4. Tests for isolation, errors, limits, ID stability and requests of the original API client on synthetic video.
 
-The in-memory catalog is a temporary solution for a limited read-only scenario; user data stays in the existing store. A persistent index and file appearance history are not implemented yet.
+The in-memory catalog is a temporary solution for a limited read-only scenario; user data stays in the existing store. A persistent index and file appearance history were added later (2026-11-01, #39).
 
 ## Playback and state (2026-09-19)
 

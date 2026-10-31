@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -35,7 +36,7 @@ func run() error {
 	name := flag.String("name", "Couch", "server display name")
 	upstream := flag.String("web-upstream", "", "optional Emby origin supplying only /web static assets")
 	webDir := flag.String("web-dir", "", "optional local Emby Web directory containing index.html")
-	mediaDir := flag.String("media-dir", "", "optional read-only movie/series directory; scanned at startup with ffprobe and again on SIGHUP")
+	mediaDir := flag.String("media-dir", "", "optional read-only movie/series directory; scanned with ffprobe at startup and on SIGHUP, indexed in -data")
 	rescanInterval := flag.Duration("rescan-interval", 0, "rescan -media-dir this often, for example 30m; 0 disables")
 	init := flag.Bool("init", false, "initialize a local user; read password from stdin and exit")
 	username := flag.String("username", "", "username for -init")
@@ -93,16 +94,32 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var catalog *media.Catalog
+	catalogFile := filepath.Join(*data, "catalog.json")
+	loaded := false
 	if *mediaDir != "" {
-		slog.Info("Scanning media directory")
-		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		catalog, err = media.Scan(scanCtx, *mediaDir)
-		cancel()
-		if err != nil {
-			return fmt.Errorf("scan media: %w", err)
+		// A saved index serves at once; the rescan below catches up with
+		// changes made while Couch was stopped.
+		catalog, err = media.Load(ctx, *mediaDir, catalogFile)
+		switch {
+		case err == nil:
+			loaded = true
+			slog.Info("Media index loaded; rescanning in the background", "videos", len(catalog.Items), "folders", len(catalog.Folders))
+		case errors.Is(err, fs.ErrNotExist):
+		default:
+			slog.Warn("Media index not used; scanning", "error", err)
 		}
-		slog.Info("Media scan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped,
-			"probes", catalog.Probes.Runs, "probe_cpu", catalog.Probes.CPU.Round(time.Millisecond), "probe_peak_rss_kib", catalog.Probes.PeakKiB)
+		if !loaded {
+			slog.Info("Scanning media directory")
+			scanCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			catalog, err = media.Scan(scanCtx, *mediaDir)
+			cancel()
+			if err != nil {
+				return fmt.Errorf("scan media: %w", err)
+			}
+			slog.Info("Media scan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped,
+				"probes", catalog.Probes.Runs, "probe_cpu", catalog.Probes.CPU.Round(time.Millisecond), "probe_peak_rss_kib", catalog.Probes.PeakKiB)
+			saveCatalog(catalog, catalogFile)
+		}
 		defer func() { _ = catalog.Close() }()
 	}
 	api := server.New(s, *name, web, catalog)
@@ -129,7 +146,11 @@ func run() error {
 		hangup := make(chan os.Signal, 1)
 		signal.Notify(hangup, syscall.SIGHUP)
 		defer signal.Stop(hangup)
-		go rescanLoop(ctx, catalog, hangup, *rescanInterval, api.SetCatalog)
+		publish := func(next *media.Catalog) {
+			api.SetCatalog(next)
+			saveCatalog(next, catalogFile)
+		}
+		go rescanLoop(ctx, catalog, hangup, *rescanInterval, loaded, publish)
 	}
 	httpServer := &http.Server{Addr: *listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	errCh := make(chan error, 1)
@@ -166,10 +187,19 @@ func logUsage() {
 		"children_cpu", childCPU.Round(time.Millisecond), "children_peak_rss_kib", childPeak)
 }
 
+// saveCatalog writes the media index; a failure costs only a full scan at
+// the next start.
+func saveCatalog(catalog *media.Catalog, file string) {
+	if err := catalog.Save(file); err != nil {
+		slog.Warn("Media index not saved", "error", err)
+	}
+}
+
 // rescanLoop rescans on SIGHUP and every interval (0 disables), one scan at a
 // time: a signal during a scan starts one more scan after it, and ticks during
-// a scan are dropped. A failed scan keeps the published catalog.
-func rescanLoop(ctx context.Context, catalog *media.Catalog, hangup <-chan os.Signal, interval time.Duration, publish func(*media.Catalog)) {
+// a scan are dropped. With now set it rescans once right away. A failed scan
+// keeps the published catalog.
+func rescanLoop(ctx context.Context, catalog *media.Catalog, hangup <-chan os.Signal, interval time.Duration, now bool, publish func(*media.Catalog)) {
 	var tick <-chan time.Time
 	if interval > 0 {
 		ticker := time.NewTicker(interval)
@@ -177,12 +207,15 @@ func rescanLoop(ctx context.Context, catalog *media.Catalog, hangup <-chan os.Si
 		tick = ticker.C
 	}
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-hangup:
-		case <-tick:
+		if !now {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hangup:
+			case <-tick:
+			}
 		}
+		now = false
 		slog.Info("Rescanning media directory")
 		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		next, err := catalog.Rescan(scanCtx)
