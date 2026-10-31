@@ -1,6 +1,6 @@
 # Supported features (#35)
 
-Version: Couch 0.1.0, `main` at 3908118 (2026-11-01). Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium; the other mandatory clients (Android/Android TV, iOS/Apple TV) are not checked (#26, #27), so nothing here applies to them.
+Version: Couch 0.1.0, `main` at 81a45d0 (2026-11-01). Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium; the other mandatory clients (Android/Android TV, iOS/Apple TV) are not checked (#26, #27), so nothing here applies to them.
 
 The list follows what a viewer does, not API routes. Statuses:
 
@@ -69,7 +69,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 |---|---|---|
 | Rescan on `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; an emptied volume is not published (#39) |
 | Catalog kept across restarts | Supported | Saved to `catalog.json`; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
-| Library unreachable at startup | Unsupported | A missing `-media-dir` fails the start (#31) |
+| Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; a first start, or a `-media-dir` that does not exist, fails (#31, #39) |
 | Backup and restore of user state | Partial | By copying the data directory; the Emby backup API is not implemented (#32) |
 | Server administration in the UI (libraries, users, tasks, logs) | Unsupported | #33 |
 | Container image (Linux amd64, FFmpeg 8.1) | Supported | `Dockerfile`, checked in CI; NAS packaging not started (#33) |
