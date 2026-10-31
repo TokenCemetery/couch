@@ -131,6 +131,7 @@ func TestImageTypesHTTP(t *testing.T) {
 	movieLogo := write("Movie-clearlogo.png", 4)
 	seriesLogo := write("Show/logo.png", 5)
 	seriesThumb := write("Show/landscape.png", 6)
+	seriesPoster := write("Show/poster.png", 7)
 	store, _, _ := newTestServer(t)
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
@@ -143,6 +144,7 @@ func TestImageTypesHTTP(t *testing.T) {
 		ParentLogoImageTag      string
 		ParentThumbItemId       string
 		ParentThumbImageTag     string
+		SeriesPrimaryImageTag   string
 	}
 	get := func(id string) dto {
 		t.Helper()
@@ -191,4 +193,8 @@ func TestImageTypesHTTP(t *testing.T) {
 	}
 	fetch("/Items/series/Images/Logo?tag="+url.QueryEscape(episode.ParentLogoImageTag), seriesLogo)
 	fetch("/Items/series/Images/Thumb?tag="+url.QueryEscape(episode.ParentThumbImageTag), seriesThumb)
+	fetch("/Items/series/Images/Primary?tag="+url.QueryEscape(episode.SeriesPrimaryImageTag), seriesPoster)
+	if movie.SeriesPrimaryImageTag != "" || series.SeriesPrimaryImageTag != "" {
+		t.Fatalf("series cover outside a series: movie %+v, series %+v", movie, series)
+	}
 }

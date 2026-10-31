@@ -181,10 +181,12 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 	dto["TagItems"] = []any{}
 	dto["UserData"] = itemUserData(items[item.ID], item.RunTimeTicks)
 	// Like Emby, a season or episode without its own backdrop, logo or thumb
-	// names its series' image.
+	// names its series' image, and always names the series' cover, which
+	// cards and the player fall back to.
 	var series *media.Item
 	for _, kind := range media.ImageTypes {
-		if info, found := catalog.ImageInfo(item, kind); found {
+		info, own := catalog.ImageInfo(item, kind)
+		if own {
 			tag := s.store.ImageTag(token, item.ID, info.Revision)
 			switch {
 			case tag == "":
@@ -196,9 +198,8 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 					dto["PrimaryImageAspectRatio"] = float64(info.Width) / float64(info.Height)
 				}
 			}
-			continue
 		}
-		if kind == "Primary" || item.SeriesID == "" {
+		if item.SeriesID == "" || (own && kind != "Primary") {
 			continue
 		}
 		if series == nil {
@@ -208,15 +209,21 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 			}
 			series = &folder
 		}
-		if info, found := catalog.ImageInfo(*series, kind); found {
-			if tag := s.store.ImageTag(token, series.ID, info.Revision); tag != "" {
-				dto["Parent"+kind+"ItemId"] = series.ID
-				if kind == "Backdrop" {
-					dto["ParentBackdropImageTags"] = []string{tag}
-				} else {
-					dto["Parent"+kind+"ImageTag"] = tag
-				}
-			}
+		info, found := catalog.ImageInfo(*series, kind)
+		if !found {
+			continue
+		}
+		tag := s.store.ImageTag(token, series.ID, info.Revision)
+		switch {
+		case tag == "":
+		case kind == "Primary":
+			dto["SeriesPrimaryImageTag"] = tag
+		case kind == "Backdrop":
+			dto["ParentBackdropItemId"] = series.ID
+			dto["ParentBackdropImageTags"] = []string{tag}
+		default:
+			dto["Parent"+kind+"ItemId"] = series.ID
+			dto["Parent"+kind+"ImageTag"] = tag
 		}
 	}
 	if item.SeriesID != "" {
