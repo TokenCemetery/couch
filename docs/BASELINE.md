@@ -1,6 +1,6 @@
 # Resource baseline: Emby and Couch (#14)
 
-Status: two runs, 2026-10-31. The second run adds I/O, temporary files and seek time. The phases both runs share agree within about 3 %; more runs are needed for a real variance figure. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
+Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time. The phases both runs share agree within about 3 %; more runs are needed for a real variance figure. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
 
 ## Method
 
@@ -146,6 +146,27 @@ Two gaps in the second run: Emby's memory sampler read 0 during startup, so star
 
   The cause is its keyframe listing, which plans segments on the source's keyframes. `PlaybackInfo` already starts it for an item that will need HLS, which is why 100 `PlaybackInfo` calls read about 200 MiB. On a local NVMe this costs little time. On a NAS volume it delays the first segment by the time to read that much.
 - **Seeking:** within a direct stream, Couch answers a seek in 0.6 ms against Emby's 1.7–2.7 ms. Within a remux both take 0.14–0.35 s. Within a transcode Couch takes about 4 times longer, for the same reasons as the first segment.
+
+## Couch after Emby's x264 options (#99)
+
+Third run, Couch only, same script, bench and media: Couch `main` at f5f9eed, which adds Emby's `subme=0:me_range=4:rc_lookahead=10:partitions=none` to transcoding (5b2b7b8). Remux, Direct Stream and the API did not change. The Emby figures are from the runs above.
+
+| Phase | Measure | Couch before | Couch now | Emby |
+|---|---|---|---|---|
+| Transcode HEVC 720p → H.264, 120 s of video | CPU | 54–55 s | 36–37 s | 33–35 s |
+| | wall, small / average / large | 54 / 28 / 14 s | 37 / 19 / 9.8 s | 35 / 17 / 8.5 s |
+| | first segment, small / average / large | 4.5 / 2.5 / 1.4 s | 3.4 / 2.0 / 1.4 s | 1.4 / 0.8 / 0.5 s |
+| | peak anon. memory | 383 MiB | 303 MiB | 368 MiB |
+| | output | 18 MiB per 122 s | 22 MiB per 122 s | 25 MiB per 120 s |
+| Transcode seek in R06, to 50 %, small / average / large | | 6.0 / 3.1 / 1.6 s | 4.5 / 2.4 / 1.25 s | 1.5 / 0.76 / 0.36 s |
+| 4K transcode, large | first segment | 27.8 s | 18.2 s | 4.4 s |
+| | CPU | 158 s | 100 s | 90 s |
+| | peak anon. memory | 3324 MiB | 2657 MiB | 2603 MiB |
+| 4K transcode, small and average | result | out of memory | out of memory | out of memory |
+
+- Transcoding CPU is now within 10 % of Emby's, and memory is below it. Picture quality on R06 stayed within 0.002 SSIM and 0.05 dB PSNR ([VALIDATION](VALIDATION.md), "x264 options from Emby").
+- The first segment and a transcode seek are still 2.5–3.5 times slower than Emby's. Couch's segments are 6 s and longer against Emby's 3 s, and it reads the source for its keyframe plan first (#98); reads did not change (321 MiB for R06).
+- 4K still starts after Emby Web's 10 s wait (#97).
 
 ## Not measured yet
 
