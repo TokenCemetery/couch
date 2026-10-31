@@ -6,19 +6,19 @@ E2E_RESULTS := e2e/allure-results
 all: lint test build
 
 build:
-	go build -o $(BIN) ./cmd/coach
+	cd src && go build -o ../$(BIN) ./cmd/coach
 
 build-linux:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o $(BIN)-linux-amd64 ./cmd/coach
+	cd src && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../$(BIN)-linux-amd64 ./cmd/coach
 
 test:
-	go test -race ./...
+	cd src && go test -race ./...
 
 vet:
-	go vet ./...
+	cd src && go vet ./...
 
 lint:
-	golangci-lint run ./...
+	cd src && golangci-lint run --config ../.golangci.yml ./...
 	cd e2e && golangci-lint run --config ../.golangci.yml ./...
 
 check: build

@@ -1,5 +1,5 @@
 *
-!go.mod
-!go.sum
-!cmd
-!internal
+!src/go.mod
+!src/go.sum
+!src/cmd
+!src/internal

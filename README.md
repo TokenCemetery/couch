@@ -9,7 +9,7 @@ The reference is Emby Web **4.10.0.40**. The original API modules and the browse
 Requires Go 1.25+ and Linux/macOS.
 
 ```sh
-go build -o bin/coach ./cmd/coach
+go -C src build -o ../bin/coach ./cmd/coach
 ```
 
 Create a local user. The password is passed via stdin, at least 12 bytes. Example for the current zsh shell; the input is hidden and does not end up in the command history:
@@ -157,9 +157,9 @@ Emby schemas have no `required`, so only types and enums are checked, not field 
 ## Verification
 
 ```sh
-go test -race ./...
-go vet ./...
-go build -o bin/coach ./cmd/coach
+go -C src test -race ./...
+go -C src vet ./...
+go -C src build -o ../bin/coach ./cmd/coach
 node scripts/check-emby-client.mjs
 COACH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs
 COACH_WEB_DIR=../emby-webui COACH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs
@@ -179,7 +179,7 @@ CI ([ci.yml](.github/workflows/ci.yml)) runs on push to `main` and on every pull
 2. Tests: `make test` and `make e2e` in `golang:1.25-alpine3.24` with FFmpeg 8.1, as in the image, as a non-root user. The HLS tests also pass with FFmpeg 6.1 and 7.1 (Alpine 3.21, Debian 13).
 3. Container: image build and `scripts/check-container.sh` on linux/amd64 and linux/arm64.
 
-Build and tests run on Go 1.25, the minimum version from `go.mod`; the image is built with the Go from the `Dockerfile`. The Node scenario (`make check`) does not run in CI.
+Build and tests run on Go 1.25, the minimum version from `src/go.mod`; the image is built with the Go from the `Dockerfile`. The Node scenario (`make check`) does not run in CI.
 
 ### Contract E2E
 

@@ -19,13 +19,13 @@ Below are the original findings; fixes and remaining gaps are listed separately.
 
 | Priority | Location | Evidence and minimal fix |
 |---|---|---|
-| P1 | `internal/server/catalog.go`, `listItems` | IsPlayed/IsFavorite=true always exclude the item, false ignores the state. Filter by the saved UserData, add tests after the flags change. |
-| P1 | `internal/server/dto.go`, `movieDTO`; server routes | ImageTags is always empty; images are not served. Needs local posters, authorization, size limits and correct cache validators. |
-| P1 | `internal/media/catalog.go`; `internal/server/catalog.go` | Every video file is a Movie. No Series/Season/Episode and no season/episode routes. This is an explicit M2/FR-03–04 gap, not an M3 feature. |
-| P2 | `internal/server/playback.go`, `reportPlaystate` | A report without PositionTicks resets the position to zero. Keep the previous position when the field is missing; validate negative values the same way for JSON/query. |
-| P2 | `internal/server/playback.go`, `reportPlaystate` | A repeated start increments PlayCount; a late progress after stop restores the position. PlaySessionId is not tracked; FR-08 is not yet fully met. |
-| P2 | `internal/server/playback.go`, Resume route | Limit/StartIndex are ignored, TotalRecordCount is truncated to 24. Needs filters and pagination before building DTOs. |
-| P2 | `internal/server/home.go`, `sectionItems` | Latest Movies advertises IsPlayed=false but includes played movies. Use the saved flag. |
+| P1 | `src/internal/server/catalog.go`, `listItems` | IsPlayed/IsFavorite=true always exclude the item, false ignores the state. Filter by the saved UserData, add tests after the flags change. |
+| P1 | `src/internal/server/dto.go`, `movieDTO`; server routes | ImageTags is always empty; images are not served. Needs local posters, authorization, size limits and correct cache validators. |
+| P1 | `src/internal/media/catalog.go`; `src/internal/server/catalog.go` | Every video file is a Movie. No Series/Season/Episode and no season/episode routes. This is an explicit M2/FR-03–04 gap, not an M3 feature. |
+| P2 | `src/internal/server/playback.go`, `reportPlaystate` | A report without PositionTicks resets the position to zero. Keep the previous position when the field is missing; validate negative values the same way for JSON/query. |
+| P2 | `src/internal/server/playback.go`, `reportPlaystate` | A repeated start increments PlayCount; a late progress after stop restores the position. PlaySessionId is not tracked; FR-08 is not yet fully met. |
+| P2 | `src/internal/server/playback.go`, Resume route | Limit/StartIndex are ignored, TotalRecordCount is truncated to 24. Needs filters and pagination before building DTOs. |
+| P2 | `src/internal/server/home.go`, `sectionItems` | Latest Movies advertises IsPlayed=false but includes played movies. Use the saved flag. |
 
 ## Verification gaps
 

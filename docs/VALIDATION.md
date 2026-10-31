@@ -288,7 +288,7 @@ The behavioral check `storage-error-is-reported` in `make e2e` makes the data di
 
 The behavioral check `backup-restores-after-forced-stop` in `make e2e` follows the procedure from the README. After a "favorite" mark, Coach is stopped with `SIGTERM`, the data directory files are copied, and Coach is started. Then "favorite" is removed, "played" is set, the avatar is deleted, and the process is killed with `SIGKILL`. After that Coach is stopped again, the directory files are replaced with the copy, and it is started. The session token from the copy is valid, the movie is a favorite again and not played, and the avatar is served (200 `image/png`). If the replacement is skipped, the check fails on both conditions.
 
-Upgrade: the first release (172bee0) was built from `git archive`, and used to run `-init`, sign-in, "favorite" and a position report. The current binary on this directory accepted the same token, showed the position and "favorite", and wrote a change. The written file is in `internal/state/testdata/state-172bee0.json`; `TestOpenFirstReleaseState` opens it, signs in, writes and opens it again. This check catches a rename of the `PositionTicks` field in JSON. There is no other schema version yet: a v1 → v2 migration will need to be checked on this same file.
+Upgrade: the first release (172bee0) was built from `git archive`, and used to run `-init`, sign-in, "favorite" and a position report. The current binary on this directory accepted the same token, showed the position and "favorite", and wrote a change. The written file is in `src/internal/state/testdata/state-172bee0.json`; `TestOpenFirstReleaseState` opens it, signs in, writes and opens it again. This check catches a rename of the `PositionTicks` field in JSON. There is no other schema version yet: a v1 → v2 migration will need to be checked on this same file.
 
 ## External subtitles in the browser (2026-10-04, #24)
 
@@ -300,7 +300,7 @@ Upgrade: the first release (172bee0) was built from `git archive`, and used to r
 
 ## Language list for settings (2026-10-04, #55)
 
-With the user's permission, the `GET /Localization/Cultures` response of the reference Emby 4.10.0.40 was captured: sign-in as `oleg` with a separate device `coach-capture-cultures`, one GET, `Sessions/Logout` (204), token revocation confirmed by a 401 response. The response (196 entries, only ISO 639 language codes and names) is stored unchanged in `internal/server/cultures.json` and served by Coach. In the browser, the "Subtitles" page shows 196 languages; selecting Russian saves `SubtitleLanguagePreference=ru`. The "Playback" page uses the same call for the audio language.
+With the user's permission, the `GET /Localization/Cultures` response of the reference Emby 4.10.0.40 was captured: sign-in as `oleg` with a separate device `coach-capture-cultures`, one GET, `Sessions/Logout` (204), token revocation confirmed by a 401 response. The response (196 entries, only ISO 639 language codes and names) is stored unchanged in `src/internal/server/cultures.json` and served by Coach. In the browser, the "Subtitles" page shows 196 languages; selecting Russian saves `SubtitleLanguagePreference=ru`. The "Playback" page uses the same call for the audio language.
 
 ## Remux to HLS (2026-10-06, #21)
 
@@ -348,7 +348,7 @@ Not checked: the linux/amd64 image, a Docker build, the browser scenario against
 
 ## Rescan without restart (2026-10-06, #39)
 
-`-web-upstream` setup, `-media-dir` with the synthetic e2e set (4 videos, 2 series folders). `Rescanned Movie.mp4` was copied into the directory and `SIGHUP` was sent to the Coach process: the log shows `Rescanning media directory` and `Media rescan complete videos=5`. Without a restart, Emby Web shows the movie first in "Latest Movies", the item page shows "Added 06.10.2026, 09:20" (scan time), and the movie plays. The file was deleted, another `SIGHUP`: `videos=4`, the API no longer returns the movie, and after a page reload it is gone from home; before the reload the open home page still showed it (there is no `LibraryChanged` notification). The process keeps running after the signals. Unit tests cover FFprobe reuse, keeping ID and date, deletion, walk error and an empty volume; `cmd/coach` — publishing on signal and refusing to publish an empty directory.
+`-web-upstream` setup, `-media-dir` with the synthetic e2e set (4 videos, 2 series folders). `Rescanned Movie.mp4` was copied into the directory and `SIGHUP` was sent to the Coach process: the log shows `Rescanning media directory` and `Media rescan complete videos=5`. Without a restart, Emby Web shows the movie first in "Latest Movies", the item page shows "Added 06.10.2026, 09:20" (scan time), and the movie plays. The file was deleted, another `SIGHUP`: `videos=4`, the API no longer returns the movie, and after a page reload it is gone from home; before the reload the open home page still showed it (there is no `LibraryChanged` notification). The process keeps running after the signals. Unit tests cover FFprobe reuse, keeping ID and date, deletion, walk error and an empty volume; `src/cmd/coach` — publishing on signal and refusing to publish an empty directory.
 
 ## Local Emby Web via `-web-dir` (2026-10-06, #19)
 

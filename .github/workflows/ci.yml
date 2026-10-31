@@ -17,11 +17,13 @@ jobs:
       # go.mod declares the minimum supported Go; the image builds with a newer one.
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version-file: src/go.mod
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.14
+          working-directory: src
+          args: --config ../.golangci.yml
       - name: Lint e2e
         uses: golangci/golangci-lint-action@v9
         with:

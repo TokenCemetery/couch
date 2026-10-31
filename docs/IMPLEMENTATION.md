@@ -29,14 +29,14 @@ The in-memory catalog is a temporary solution for a limited read-only scenario; 
 
 Implemented after the reference contract was captured with the user's authorization and Emby Web could run in the browser against Coach. Each decision below is confirmed by real client behavior, not inferred from documentation:
 
-1. The DTO layer (`internal/server/dto.go`) reproduces the reference fields, including arrays the client dereferences without guards. `Subviews` is returned only in the library item response, as in the reference.
-2. Home screen (`internal/server/home.go`): `HomeSections` and `Sections/{id}/Items`. The server fills the rows; only sections Coach can populate are declared.
+1. The DTO layer (`src/internal/server/dto.go`) reproduces the reference fields, including arrays the client dereferences without guards. `Subviews` is returned only in the library item response, as in the reference.
+2. Home screen (`src/internal/server/home.go`): `HomeSections` and `Sections/{id}/Items`. The server fills the rows; only sections Coach can populate are declared.
 3. `PlaybackInfo` negotiates Direct Stream by the client's `DeviceProfile`. Coach does not transcode, so on a profile mismatch the source is declared unsupported rather than promised and then refused.
 4. File serving uses `http.ServeContent`: Range, If-Range, HEAD, 206 and 416 come from the standard library, and the file is streamed. The catalog holds an open `os.Root`, so reopening a file cannot escape the chosen directory.
 5. `SupportsDirectPlay` is deliberately `false`: in the Emby model it means the client reads the file by `MediaSource.Path`. HTTP delivery is Direct Stream.
 6. Progress, "played" and "favorites" are stored in `state.ItemState` next to the user; the number of items is limited. The position survives a restart; finishing playback resets it.
 
-Later a basic WebSocket without external dependencies was added: authorization, handshake, KeepAlive, ping/pong, limits on message size and connection count. At that slice images and series were still missing; their implementation is described below. Transcoding was not implemented then, nor was localization of row titles; home screen headings were later translated through embedded files `internal/server/locales/*.yaml` (#18).
+Later a basic WebSocket without external dependencies was added: authorization, handshake, KeepAlive, ping/pong, limits on message size and connection count. At that slice images and series were still missing; their implementation is described below. Transcoding was not implemented then, nor was localization of row titles; home screen headings were later translated through embedded files `src/internal/server/locales/*.yaml` (#18).
 
 ## HTTP serving reliability (2026-09-19)
 

@@ -73,7 +73,7 @@ func NewSuite(dir string) (*Suite, error) {
 	if s.Binary == "" {
 		s.Binary = filepath.Join(dir, "coach")
 		build := exec.CommandContext(context.Background(), "go", "build", "-o", s.Binary, "./cmd/coach") //nolint:gosec // output path is a temp dir created by the test
-		build.Dir = ".."
+		build.Dir = "../src"
 		if out, err := build.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("build coach: %w\n%s", err, out)
 		}

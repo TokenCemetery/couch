@@ -1,6 +1,6 @@
 # Design: HLS delivery — remux and transcoding (#21, #22)
 
-Status: stages 1–2 (job manager and remux) implemented 2026-10-06 (`internal/hls`, `internal/server/hls.go`); stage 3 (transcoding to H.264) implemented 2026-10-07; browser check and CPU measurement are in [VALIDATION](VALIDATION.md). Decisions on the "Questions" section (2026-10-06): limit of 2 remux sessions (1 transcode for stage 3); segments in `<data>/transcode`, up to 2 GiB per session; segment length 6 seconds; start with remux; media for checks are synthetic, made with FFmpeg.
+Status: stages 1–2 (job manager and remux) implemented 2026-10-06 (`src/internal/hls`, `src/internal/server/hls.go`); stage 3 (transcoding to H.264) implemented 2026-10-07; browser check and CPU measurement are in [VALIDATION](VALIDATION.md). Decisions on the "Questions" section (2026-10-06): limit of 2 remux sessions (1 transcode for stage 3); segments in `<data>/transcode`, up to 2 GiB per session; segment length 6 seconds; start with remux; media for checks are synthetic, made with FFmpeg.
 
 How the implementation differs from the design below:
 - Segments are cut by the `segment` muxer from a list of times (`-segment_times`), not by `hls`; FFmpeg reports each closed segment through `-segment_list` into a pipe, from which the server knows readiness and immediately pauses the job (SIGSTOP) once it is 10 segments ahead. Polling the directory could not keep up: on a fast disk FFmpeg managed to write the whole file.
@@ -13,8 +13,8 @@ How the implementation differs from the design below:
 
 ## Current state
 
-- Coach serves only the source file (Direct Stream, `internal/server/stream.go`). If the DeviceProfile does not allow it, PlaybackInfo answers `ErrorCode=NoCompatibleStream`, and Emby Web shows "no compatible streams".
-- At runtime FFmpeg runs only to extract embedded subtitles (`internal/media/extract.go`). That code already has a concurrent job limit, waiting on the request context, a timeout, an output limit and output through a pipe without temporary files (#23).
+- Coach serves only the source file (Direct Stream, `src/internal/server/stream.go`). If the DeviceProfile does not allow it, PlaybackInfo answers `ErrorCode=NoCompatibleStream`, and Emby Web shows "no compatible streams".
+- At runtime FFmpeg runs only to extract embedded subtitles (`src/internal/media/extract.go`). That code already has a concurrent job limit, waiting on the request context, a timeout, an output limit and output through a pipe without temporary files (#23).
 - In e2e the behavioral check `hls-master-playlist` fails (404); HLS operations are marked `hlsDelivery` in `e2e/known_failures.go`.
 
 ## What the client expects
