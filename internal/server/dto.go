@@ -182,7 +182,7 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 	dto["UserData"] = itemUserData(items[item.ID], item.RunTimeTicks)
 	// Like Emby, a season or episode without its own backdrop, logo or thumb
 	// names its series' image.
-	series, hasSeries := s.findItem(item.SeriesID)
+	var series *media.Item
 	for _, kind := range media.ImageTypes {
 		if info, found := catalog.ImageInfo(item, kind); found {
 			tag := s.store.ImageTag(token, item.ID, info.Revision)
@@ -198,10 +198,17 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 			}
 			continue
 		}
-		if kind == "Primary" || !hasSeries {
+		if kind == "Primary" || item.SeriesID == "" {
 			continue
 		}
-		if info, found := catalog.ImageInfo(series, kind); found {
+		if series == nil {
+			folder, found := catalog.Folder(item.SeriesID)
+			if !found {
+				continue
+			}
+			series = &folder
+		}
+		if info, found := catalog.ImageInfo(*series, kind); found {
 			if tag := s.store.ImageTag(token, series.ID, info.Revision); tag != "" {
 				dto["Parent"+kind+"ItemId"] = series.ID
 				if kind == "Backdrop" {

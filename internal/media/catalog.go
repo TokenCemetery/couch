@@ -34,6 +34,7 @@ type Catalog struct {
 	extractor *subtitleExtractor
 	probe     func(context.Context, *os.File) (Item, error)
 	index     catalogIndex
+	imageDirs imageDirCache
 }
 
 // Item is a movie, series, season, or episode in the catalogue.

@@ -178,3 +178,53 @@ func TestBackdropImageLookup(t *testing.T) {
 		t.Fatal("logo or thumb lookup")
 	}
 }
+
+func TestImageDirectoryListingIsRevalidated(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := &Catalog{root: root}
+	defer func() { _ = catalog.Close() }()
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	item := Item{ID: "movie", Path: "Movie.mp4"}
+	// add writes an image and sets the directory mtime, as a coarse clock
+	// or an unchanged directory would leave it.
+	add := func(name string, mtime time.Time) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), encoded.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(dir, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(dir, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := catalog.ImageInfo(item, "Primary"); found {
+		t.Fatal("image in an empty directory")
+	}
+	add("poster.png", old)
+	if _, found := catalog.ImageInfo(item, "Primary"); found {
+		t.Fatal("listing of an unchanged directory was not reused")
+	}
+	add("poster.png", old.Add(time.Minute))
+	if _, found := catalog.ImageInfo(item, "Primary"); !found {
+		t.Fatal("changed directory was not listed again")
+	}
+	recent := time.Now()
+	if err := os.Chtimes(dir, recent, recent); err != nil {
+		t.Fatal(err)
+	}
+	catalog.ImageInfo(item, "Logo")
+	add("logo.png", recent)
+	if _, found := catalog.ImageInfo(item, "Logo"); !found {
+		t.Fatal("listing taken in the directory's mtime tick was reused")
+	}
+}

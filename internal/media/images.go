@@ -9,6 +9,8 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"time"
 )
 
 const maxImageBytes = 8 << 20
@@ -62,8 +64,12 @@ func (c *Catalog) openImage(item Item, suffixes, shared []string) (*os.File, Ima
 	for _, name := range shared {
 		bases = append(bases, path.Join(dir, name))
 	}
+	present := c.imageFiles(dir)
 	for _, base := range bases {
 		for _, ext := range []string{".jpg", ".jpeg", ".png"} {
+			if !present[path.Base(base+ext)] {
+				continue
+			}
 			file, err := c.Open(Item{Path: base + ext})
 			if err != nil {
 				continue
@@ -100,4 +106,57 @@ func imageInfo(file *os.File, info Image, err error) (Image, bool) {
 	}
 	_ = file.Close()
 	return info, true
+}
+
+// imageDirCache keeps, per directory, the names that may be images, so that
+// building an item costs one stat of its directory instead of a failed open
+// per candidate name.
+type imageDirCache struct {
+	sync.Mutex
+	dirs map[string]imageDir
+}
+
+type imageDir struct {
+	modified, listed time.Time
+	names            map[string]bool
+}
+
+// imageFiles lists the JPEG/PNG names in dir. A listing is reused while the
+// directory's mtime is unchanged, unless it was taken within two seconds of
+// that mtime: a file added in the same coarse mtime tick would go unseen.
+func (c *Catalog) imageFiles(dir string) map[string]bool {
+	info, err := c.root.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	c.imageDirs.Lock()
+	cached, found := c.imageDirs.dirs[dir]
+	c.imageDirs.Unlock()
+	if found && cached.modified.Equal(info.ModTime()) && cached.listed.Sub(cached.modified) > 2*time.Second {
+		return cached.names
+	}
+	listed := time.Now()
+	file, err := c.root.Open(dir)
+	if err != nil {
+		return nil
+	}
+	all, err := file.Readdirnames(-1)
+	_ = file.Close()
+	if err != nil {
+		return nil
+	}
+	names := map[string]bool{}
+	for _, name := range all {
+		switch path.Ext(name) {
+		case ".jpg", ".jpeg", ".png":
+			names[name] = true
+		}
+	}
+	c.imageDirs.Lock()
+	if c.imageDirs.dirs == nil {
+		c.imageDirs.dirs = map[string]imageDir{}
+	}
+	c.imageDirs.dirs[dir] = imageDir{modified: info.ModTime(), listed: listed, names: names}
+	c.imageDirs.Unlock()
+	return names
 }
