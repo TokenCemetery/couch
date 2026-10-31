@@ -34,7 +34,7 @@ Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: sam
 | | first segment / seek to 50 % | 1.4 / 0.8 / 0.5 s; 1.5 / 0.76 / 0.36 s | not met on large, under host load: 0.70 s against 0.47 s; 0.77 s against 0.56 s (#99, 3 s segments since 2026-11-01; small and average not measured yet) |
 | | reads | 39 MiB | met on large: 39 MiB (#98) |
 | | temp folder peak | 96–97 MiB | met: 9 MiB |
-| 4K HEVC 10-bit, large | first segment | 4.4 s, and within Emby Web's 10 s wait | within the wait, not Emby's figure: 5.4 s against 4.5 s under host load; not checked in Emby Web (#97) |
+| 4K HEVC 10-bit, large | first segment | 4.4 s, and within Emby Web's 10 s wait | within the wait, not Emby's figure: 5.4 s against 4.5 s under host load; starts in Emby Web, but encodes at about 0.75× real time (#97) |
 
 Picture quality is a condition, not a budget: a transcode change must stay within 0.01 SSIM of the previous Couch encode on R06, as measured in [VALIDATION](VALIDATION.md). The FFmpeg builds differ (Emby's 5.1, Couch's Alpine 8.1), so FFmpeg-bound budgets compare the whole container, which is what users pay for.
 
@@ -98,7 +98,7 @@ Status as of 2026-11-01:
 - FFmpeg: limits of 2 remux + 1 transcode, cleanup on stop/logout/idle; 30-minute sustained load with HLS and rescanning, with no process, file or memory leaks (RSS plateau at 25–27 MiB); the acceptance duration is not agreed (#15, #30).
 - Events: UserDataChanged, LibraryChanged, UserConfigurationUpdated, ServerShuttingDown (#25).
 - A walk through Emby Web screens (home, libraries with filters and sorting, item pages, search, player, menus, settings) with no API errors.
-- The [matrix](COMPATIBILITY.md) contains Emby Web in Chromium on the synthetic set and on 18 real files from the agreed set (#16): 17 verified; the 4K HEVC source does not start in time (#97). Not started: Android/Android TV, iOS/Apple TV (#26, #27), hardware acceleration (#28).
+- The [matrix](COMPATIBILITY.md) contains Emby Web in Chromium on the synthetic set and on 18 real files from the agreed set (#16): 17 verified; the 4K HEVC source starts since 2026-11-01 on 4 CPUs but stalls, below real time (#97). Not started: Android/Android TV, iOS/Apple TV (#26, #27), hardware acceleration (#28).
 
 ## M4. Resources, recovery and operations
 

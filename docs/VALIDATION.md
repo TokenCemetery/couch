@@ -574,3 +574,15 @@ Couch built from the working tree, run in the `couch:dev` image (FFprobe 8.1) on
 - Third start with an empty directory mounted as `/media`: the index loaded, the rescan logged `Media rescan failed; keeping the previous catalog error="media directory has no videos"`, and `catalog.json` still held 18 items.
 
 `TestSavedCatalog` covers the round trip (items, series and seasons equal to a fresh scan), a rescan after loading that probes nothing unchanged, a first-seen date that survives a save and reload, and the rejected indexes: missing, truncated, empty, another version, another directory, a path outside the library, a duplicate path, no videos.
+
+## 4K source in Emby Web after 3 s transcode segments (2026-11-01, #97)
+
+Couch at a9eb3a9 in an image built from it, limited like the large profile of [BASELINE](BASELINE.md) (`--cpus 4 --memory 4g`), with only R09 (MKV HEVC Main 10 HDR10 3840×2076, 88 min) mounted, and Emby Web 4.10.0.40 via `-web-dir` in the built-in Chromium. The soak test of #30 was running on the host. The scenario is the one of the matrix in [COMPATIBILITY](COMPATIBILITY.md).
+
+- **Start:** the player showed 3840×2076 frames at once, without the 10 s restarts seen before. Over 14 s the position went from 1.5 to 11.8 s: the encode runs at about 0.75× real time, and `readyState` alternated between 2 and 4, so the player stalls briefly every few seconds. Emby on the same profile delivers 18 s of this video in 23.9 s ([BASELINE](BASELINE.md), fourth run), also below real time.
+- **Seek to the middle (2644 s):** 12 s later at 2645.9 s, then about 0.8× real time. The log shows one job ending for the restart.
+- **Stop:** 2664.9 s saved with the player at 2665 s.
+- **Resume:** no frames 10 s after "Resume"; at 12 s playing from 2665.5 s, then at real time. One job ended after a single segment during the start, which suggests one restart.
+- Couch itself: `cpu=526ms peak_rss_kib=16448`; FFmpeg jobs: `children_cpu=7m48.834s children_peak_rss_kib=2685160` over the session.
+
+So the 4K source now starts in Emby Web on 4 CPUs, but does not play smoothly, and a resume can take longer than the client's 10 s wait. Smooth 4K needs a smaller output size or hardware encoding (#97, #28).
