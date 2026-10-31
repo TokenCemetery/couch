@@ -45,16 +45,21 @@ func (s *Server) imageAccess(w http.ResponseWriter, r *http.Request, subject str
 			return state.Session{}, "", false
 		}
 	}
-	if !primaryImage(r) {
-		fail(w, 404, "NotFound")
-		return state.Session{}, "", false
-	}
 	return session, revision, true
 }
 
-// primaryImage reports whether the route names the only image Coach has.
+// primaryImage reports whether the route names the first Primary image.
 func primaryImage(r *http.Request) bool {
-	return r.PathValue("kind") == "primary" && (r.PathValue("index") == "" || r.PathValue("index") == "0")
+	return imageKind(r) == "primary"
+}
+
+// imageKind is the image type the route names when it is the first of its
+// type, or "": Coach keeps at most one image per type.
+func imageKind(r *http.Request) string {
+	if r.PathValue("index") != "" && r.PathValue("index") != "0" {
+		return ""
+	}
+	return r.PathValue("kind")
 }
 
 // serveImage sends a validated JPEG/PNG with private revalidated caching.
@@ -77,7 +82,16 @@ func (s *Server) itemImage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "NotFound")
 		return
 	}
-	file, info, err := s.catalog().OpenImage(item)
+	open := s.catalog().OpenImage
+	switch imageKind(r) {
+	case "primary":
+	case "backdrop":
+		open = s.catalog().OpenBackdrop
+	default:
+		fail(w, 404, "NotFound")
+		return
+	}
+	file, info, err := open(item)
 	if err != nil {
 		fail(w, 404, "ImageUnavailable")
 		return

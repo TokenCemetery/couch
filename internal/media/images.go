@@ -20,9 +20,21 @@ type Image struct {
 	MIME          string
 }
 
-// OpenImage searches local JPEG/PNG sidecars. Headers and encoded file size are
-// bounded; pixels are never decoded or resized in the server.
+// OpenImage searches local JPEG/PNG cover sidecars. Headers and encoded file
+// size are bounded; pixels are never decoded or resized in the server.
 func (c *Catalog) OpenImage(item Item) (*os.File, Image, error) {
+	return c.openImage(item, []string{"-poster", ""}, []string{"poster", "folder"})
+}
+
+// OpenBackdrop searches local JPEG/PNG backdrop sidecars, with the same bounds
+// as OpenImage.
+func (c *Catalog) OpenBackdrop(item Item) (*os.File, Image, error) {
+	return c.openImage(item, []string{"-fanart", "-backdrop"}, []string{"backdrop", "fanart"})
+}
+
+// openImage tries the video's own sidecars (its name plus each suffix), then
+// the shared names in its folder; a folder item has only the shared names.
+func (c *Catalog) openImage(item Item, suffixes, shared []string) (*os.File, Image, error) {
 	if c == nil || c.root == nil {
 		return nil, Image{}, os.ErrNotExist
 	}
@@ -32,9 +44,13 @@ func (c *Catalog) OpenImage(item Item) (*os.File, Image, error) {
 		dir = item.Path
 	} else {
 		stem := strings.TrimSuffix(item.Path, path.Ext(item.Path))
-		bases = append(bases, stem+"-poster", stem)
+		for _, suffix := range suffixes {
+			bases = append(bases, stem+suffix)
+		}
 	}
-	bases = append(bases, path.Join(dir, "poster"), path.Join(dir, "folder"))
+	for _, name := range shared {
+		bases = append(bases, path.Join(dir, name))
+	}
 	for _, base := range bases {
 		for _, ext := range []string{".jpg", ".jpeg", ".png"} {
 			file, err := c.Open(Item{Path: base + ext})
@@ -63,7 +79,15 @@ func (c *Catalog) OpenImage(item Item) (*os.File, Image, error) {
 
 // PrimaryImage reports the item's cover image metadata, if a valid one exists.
 func (c *Catalog) PrimaryImage(item Item) (Image, bool) {
-	file, info, err := c.OpenImage(item)
+	return imageInfo(c.OpenImage(item))
+}
+
+// BackdropImage reports the item's backdrop metadata, if a valid one exists.
+func (c *Catalog) BackdropImage(item Item) (Image, bool) {
+	return imageInfo(c.OpenBackdrop(item))
+}
+
+func imageInfo(file *os.File, info Image, err error) (Image, bool) {
 	if err != nil {
 		return Image{}, false
 	}

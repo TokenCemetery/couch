@@ -186,6 +186,19 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 			dto["PrimaryImageAspectRatio"] = float64(info.Width) / float64(info.Height)
 		}
 	}
+	// Like Emby, a season or episode without its own backdrop names its series'.
+	if info, found := catalog.BackdropImage(item); found {
+		if tag := s.store.ImageTag(token, item.ID, info.Revision); tag != "" {
+			dto["BackdropImageTags"] = []string{tag}
+		}
+	} else if series, found := s.findItem(item.SeriesID); found {
+		if info, found := catalog.BackdropImage(series); found {
+			if tag := s.store.ImageTag(token, series.ID, info.Revision); tag != "" {
+				dto["ParentBackdropItemId"] = series.ID
+				dto["ParentBackdropImageTags"] = []string{tag}
+			}
+		}
+	}
 	if item.SeriesID != "" {
 		dto["SeriesId"], dto["SeriesName"] = item.SeriesID, item.SeriesName
 	}

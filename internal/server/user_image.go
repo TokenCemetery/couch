@@ -41,7 +41,7 @@ func (s *Server) userImage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !strings.EqualFold(user, s.store.Snapshot().User.ID) {
+	if !primaryImage(r) || !strings.EqualFold(user, s.store.Snapshot().User.ID) {
 		fail(w, 404, "NotFound")
 		return
 	}

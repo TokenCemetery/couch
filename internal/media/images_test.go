@@ -102,3 +102,67 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 		t.Fatal("series poster missing")
 	}
 }
+
+func TestBackdropImageLookup(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := &Catalog{root: root}
+	defer func() { _ = catalog.Close() }()
+	write := func(name string, width int) {
+		t.Helper()
+		var encoded bytes.Buffer
+		if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, width, 1))); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), encoded.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	width := func(item Item) int {
+		t.Helper()
+		info, found := catalog.BackdropImage(item)
+		if !found {
+			return 0
+		}
+		return info.Width
+	}
+	movie := Item{ID: "movie", Path: "Movie.mp4"}
+	// A cover named after the video is not a backdrop.
+	write("Movie.png", 1)
+	if width(movie) != 0 {
+		t.Fatal("cover used as backdrop")
+	}
+	write("fanart.png", 2)
+	if width(movie) != 2 {
+		t.Fatal("folder fanart not found")
+	}
+	write("backdrop.png", 3)
+	if width(movie) != 3 {
+		t.Fatal("backdrop does not precede fanart")
+	}
+	write("Movie-backdrop.png", 4)
+	if width(movie) != 4 {
+		t.Fatal("video backdrop does not precede the folder's")
+	}
+	write("Movie-fanart.png", 5)
+	if width(movie) != 5 {
+		t.Fatal("video fanart does not come first")
+	}
+	series := Item{ID: "series", Kind: "Series", Path: "Show"}
+	if width(series) != 0 {
+		t.Fatal("parent folder backdrop used for a series")
+	}
+	write("Show/fanart.png", 6)
+	if width(series) != 6 {
+		t.Fatal("series backdrop not found")
+	}
+	if info, found := catalog.PrimaryImage(series); found {
+		t.Fatalf("backdrop used as cover: %+v", info)
+	}
+}
