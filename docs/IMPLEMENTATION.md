@@ -12,7 +12,7 @@ The initial implementation uses the Go standard library. A JSON store with schem
 
 The first user is created by a local command and does not get administrative rights through the API. Administration, WebSocket, scanning and playback are not part of this stage. Unknown routes return an error, not a fake success.
 
-At the time of the first slice, M0 remained open: there was no authenticated exchange, no measurements and no resource budgets; M1 awaited browser acceptance. Later the exchange and acceptance were completed — current status is in [ROADMAP](../ROADMAP.md).
+At the time of the first slice, M0 remained open: there was no authenticated exchange, no measurements and no resource budgets; M1 awaited browser acceptance. Later the exchange and acceptance were completed — current status is in [ROADMAP](ROADMAP.md).
 
 ## Initial M2 catalog
 

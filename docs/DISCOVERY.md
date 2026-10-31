@@ -83,7 +83,7 @@ Technical metadata comes from [FFprobe](https://ffmpeg.org/ffprobe.html). To pas
 - Distribution model; the provenance of used sources and frontend resources is recorded before they are included in the project.
 - Whether migration of users, history and settings is needed. API compatibility alone does not mean database compatibility.
 
-Related documents: [requirements](../PRD.md), [roadmap](../ROADMAP.md).
+Related documents: [requirements](PRD.md), [roadmap](ROADMAP.md).
 
 ## PlaybackInfo refinement and local UI (2026-09-19)
 

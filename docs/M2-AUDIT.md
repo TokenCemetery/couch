@@ -1,7 +1,7 @@
 # M2 audit — 2026-09-20–21
 
-Scope: M2 criteria from the [roadmap](../ROADMAP.md), FR-03–FR-09 from the
-[PRD](../PRD.md). Baseline: `172bee0` and the uncommitted WebSocket stage.
+Scope: M2 criteria from the [roadmap](ROADMAP.md), FR-03–FR-09 from the
+[PRD](PRD.md). Baseline: `172bee0` and the uncommitted WebSocket stage.
 
 ## Strengths
 

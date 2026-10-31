@@ -6,7 +6,7 @@ createdAt: "2026-09-18"
 updatedAt: "2026-09-18"
 related:
   - docs/DISCOVERY.md
-  - ROADMAP.md
+  - docs/ROADMAP.md
 ---
 
 # Go media server with Emby compatibility
@@ -15,7 +15,7 @@ related:
 
 The user needs a Go media server that uses fewer resources and runs more reliably than Emby while staying compatible with its frontend and, where possible, other clients. Specific failures and baseline resource usage have not been measured yet. Without a reproducible comparison, an improvement cannot be considered proven.
 
-Jellyfin serves as an accessible source of knowledge about media servers. Compatibility requirements are defined by the target Emby and client versions. Facts and sources are collected in the [discovery](docs/DISCOVERY.md).
+Jellyfin serves as an accessible source of knowledge about media servers. Compatibility requirements are defined by the target Emby and client versions. Facts and sources are collected in the [discovery](DISCOVERY.md).
 
 ## Users
 

@@ -1,6 +1,6 @@
 # Compatibility matrix (#20)
 
-Status: draft, updated 2026-10-07. Row and status rules: [ROADMAP](../ROADMAP.md#compatibility-matrix-rules). Compatibility is claimed only for rows with the "verified" status. The media set is not agreed (#16): the rows below were verified on synthetic files and do not replace verification on a real library.
+Status: draft, updated 2026-10-07. Row and status rules: [ROADMAP](ROADMAP.md#compatibility-matrix-rules). Compatibility is claimed only for rows with the "verified" status. The media set is not agreed (#16): the rows below were verified on synthetic files and do not replace verification on a real library.
 
 ## Test bench
 

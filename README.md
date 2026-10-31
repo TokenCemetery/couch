@@ -209,8 +209,8 @@ In a restricted environment, Go may need an accessible `GOCACHE`, and network te
 
 ## Documents
 
-- [Requirements](PRD.md)
-- [Roadmap](ROADMAP.md)
+- [Requirements](docs/PRD.md)
+- [Roadmap](docs/ROADMAP.md)
 - [Emby/Jellyfin discovery](docs/DISCOVERY.md)
 - [First stage plan](docs/IMPLEMENTATION.md)
 

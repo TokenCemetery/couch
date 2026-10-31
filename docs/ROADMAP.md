@@ -1,8 +1,8 @@
 # Roadmap
 
-Status: draft, updated 2026-10-31. This is the work order and completion criteria, without unconfirmed calendar estimates. Requirements: [PRD](PRD.md); facts: [discovery](docs/DISCOVERY.md).
+Status: draft, updated 2026-10-31. This is the work order and completion criteria, without unconfirmed calendar estimates. Requirements: [PRD](PRD.md); facts: [discovery](DISCOVERY.md).
 
-M0 is partially done: the reference contract is captured (30 scrubbed fixtures), resource measurements remain open. M1 accepted: Emby Web works against Coach in the browser. M2 accepted 2026-10-03 on a synthetic H.264/AAC MP4: the browser passed "sign in → search → item page → play → seek → stop → restart → resume" for a movie and the TV series scenario. The media set is not agreed, the full local UI is not verified. M3 is in progress (see below), M4–M6 are not started. Verification boundaries: [VALIDATION.md](docs/VALIDATION.md).
+M0 is partially done: the reference contract is captured (30 scrubbed fixtures), resource measurements remain open. M1 accepted: Emby Web works against Coach in the browser. M2 accepted 2026-10-03 on a synthetic H.264/AAC MP4: the browser passed "sign in → search → item page → play → seek → stop → restart → resume" for a movie and the TV series scenario. The media set is not agreed, the full local UI is not verified. M3 is in progress (see below), M4–M6 are not started. Verification boundaries: [VALIDATION.md](VALIDATION.md).
 
 Mandatory clients (user's answer 2026-09-19): Emby Web (first), Android/Android TV, iOS/Apple TV. Kodi and DLNA are not part of the mandatory scope.
 
@@ -28,7 +28,7 @@ Depends on M0. Outcome: the first working Go server that the target client conne
 
 Done when the unmodified target client signs in, shows a correct empty state, restores a valid session after restart and loses access after logout. Any auxiliary APIs are implemented according to observed need.
 
-Accepted 2026-09-19. Unmodified Emby Web 4.10.0.40 in the browser connects to Coach, signs in, restores the session after restart and loses access after logout. A basic WebSocket was added later; browser check 2026-10-04: UserDataChanged reaches a second tab and after a Coach restart, client reconnection is lazy ([VALIDATION](docs/VALIDATION.md)).
+Accepted 2026-09-19. Unmodified Emby Web 4.10.0.40 in the browser connects to Coach, signs in, restores the session after restart and loses access after logout. A basic WebSocket was added later; browser check 2026-10-04: UserDataChanged reaches a second tab and after a Coach restart, client reconnection is lazy ([VALIDATION](VALIDATION.md)).
 
 ## M2. Library and first Direct Play
 
@@ -45,9 +45,9 @@ Done for movies 2026-09-19: home screen (HomeSections and Sections/{id}/Items), 
 
 Not done in this stage: localization of home screen strings, browser acceptance of TV series, of the fixed search and of full seek/resume on a long video. WebSocket supports UserDataChanged for watch state and favorites; other events are not implemented. Queues, logout, connection shutdown and event delivery to the original API client are verified. The catalog is in memory, there is no persistent index, DateCreated is taken from mtime. Seek is confirmed at the HTTP Range level; it was not checked in the interface on a long file.
 
-Audit 2026-09-20–21: [gaps and results](docs/M2-AUDIT.md). Fixed the Played/Favorite filters, Latest and Resume pagination, and position loss without PositionTicks; added a bounded durable replay window for PlaySessionId. The API client verified the Series/Season/Episode hierarchy, signed covers with revocation and full getSearchResults. The browser showed sign-in, home and a cover through `-web-upstream`; further acceptance was stopped by the tool's access limit. M2 is not closed: HTTP integration does not replace player acceptance.
+Audit 2026-09-20–21: [gaps and results](M2-AUDIT.md). Fixed the Played/Favorite filters, Latest and Resume pagination, and position loss without PositionTicks; added a bounded durable replay window for PlaySessionId. The API client verified the Series/Season/Episode hierarchy, signed covers with revocation and full getSearchResults. The browser showed sign-in, home and a cover through `-web-upstream`; further acceptance was stopped by the tool's access limit. M2 is not closed: HTTP integration does not replace player acceptance.
 
-Accepted 2026-10-03. Unmodified Emby Web through `-web-upstream`: search finds a movie and a TV series; on a 10-minute H.264/AAC file, seeking to 5:00 loads only the needed ranges; after stop and a Coach restart the movie resumes from the saved position 5:15. The TV series page shows the season and episodes, "Play" plays both episodes in a row, progress and the played mark are saved. Acceptance found and fixed `IsSpecialSeason` for seasons and the episode query parameters when playing a TV series. Open: the "recent searches" row (`SearchedItems`, `WasSearched`) implemented and verified in the browser 2026-10-04; home screen headings localized 2026-10-04 (ru, de, fr, es, it; #18); full local UI; media set. Details: [VALIDATION](docs/VALIDATION.md).
+Accepted 2026-10-03. Unmodified Emby Web through `-web-upstream`: search finds a movie and a TV series; on a 10-minute H.264/AAC file, seeking to 5:00 loads only the needed ranges; after stop and a Coach restart the movie resumes from the saved position 5:15. The TV series page shows the season and episodes, "Play" plays both episodes in a row, progress and the played mark are saved. Acceptance found and fixed `IsSpecialSeason` for seasons and the episode query parameters when playing a TV series. Open: the "recent searches" row (`SearchedItems`, `WasSearched`) implemented and verified in the browser 2026-10-04; home screen headings localized 2026-10-04 (ru, de, fr, es, it; #18); full local UI; media set. Details: [VALIDATION](VALIDATION.md).
 
 Images (2026-10-31): besides Primary, local Backdrop, Logo and Thumb; seasons and episodes get the TV series images (`Parent*`, `SeriesPrimaryImageTag`), as in the reference responses. Verified in the browser on the container image (#85, #86, #88); image lookup does not slow down the screens of a large library (#87).
 
@@ -70,7 +70,7 @@ Status as of 2026-10-11:
 - FFmpeg: limits of 2 remux + 1 transcode, cleanup on stop/logout/idle; 30-minute sustained load with HLS and rescanning, with no process, file or memory leaks (RSS plateau at 25–27 MiB); the acceptance duration is not agreed (#15, #30).
 - Events: UserDataChanged, LibraryChanged, UserConfigurationUpdated, ServerShuttingDown (#25).
 - A walk through Emby Web screens (home, libraries with filters and sorting, item pages, search, player, menus, settings) with no API errors.
-- The [matrix](docs/COMPATIBILITY.md) contains only Emby Web in Chromium on a synthetic set. Not started: Android/Android TV, iOS/Apple TV (#26, #27), an agreed media set (#16), resource budgets (#15), hardware acceleration (#28).
+- The [matrix](COMPATIBILITY.md) contains only Emby Web in Chromium on a synthetic set. Not started: Android/Android TV, iOS/Apple TV (#26, #27), an agreed media set (#16), resource budgets (#15), hardware acceleration (#28).
 
 ## M4. Resources, recovery and operations
 
@@ -85,11 +85,11 @@ Done when the M0 budgets are met, recovery is verified, there are no open blocki
 
 Status as of 2026-10-31 (comparison with Emby not started, #29):
 
-- Recovery ([summary](docs/VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. Open: power loss (needs a test bench) and a library unavailable at startup (#39).
+- Recovery ([summary](VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. Open: power loss (needs a test bench) and a library unavailable at startup (#39).
 - Backup/restore and data upgrades between versions are verified (#32).
 - Sustained load: 30 minutes with no process, file or memory leaks; the acceptance duration is not agreed (#30, #15).
 - Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Coach itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.
-- First Coach measurements without comparison to Emby ([VALIDATION](docs/VALIDATION.md)): Coach up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory; the decision waits for the hardware (#92).
+- First Coach measurements without comparison to Emby ([VALIDATION](VALIDATION.md)): Coach up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory; the decision waits for the hardware (#92).
 - A container image with FFmpeg is built and checked in CI; administration and NAS packaging are not started (#33).
 
 ## M5. Compatibility expansion
