@@ -12,8 +12,7 @@ type knownFailure struct {
 func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 
 var (
-	hlsDelivery          = knownFailure{21, "video remux and transcoding to HLS are implemented; audio-only HLS and live playlists are not"}
-	transcoding          = knownFailure{22, "only HLS video transcoding is implemented: no encoder settings, live streams, bitrate test or universal audio"}
+	transcoding          = knownFailure{22, "only HLS video transcoding is implemented: no encoder settings, live streams or bitrate test"}
 	subtitles            = knownFailure{24, "subtitle editing, remote subtitle search, attachments and subtitle encoding options are not implemented"}
 	nextUpAndCollections = knownFailure{40, "missing episodes and collections are not implemented"}
 	administration       = knownFailure{33, "administration is not implemented (single non-admin user)"}
@@ -82,14 +81,14 @@ var knownFailures = map[string]knownFailure{
 	"getDisplaypreferencesById":                    notOfferedByWeb,
 	"postDisplaypreferencesByDisplaypreferencesid": notOfferedByWeb,
 	// DynamicHlsService
-	"getAudioByIdHls1ByPlaylistidBySegmentidBySegmentcontainer": hlsDelivery,
-	"getAudioByIdLiveM3u8":                                       hlsDelivery,
-	"getAudioByIdMainM3u8":                                       hlsDelivery,
-	"getAudioByIdMasterM3u8":                                     hlsDelivery,
-	"getVideosByIdLiveM3u8":                                      hlsDelivery,
-	"getVideosByIdLiveSubtitlesM3u8":                             hlsDelivery,
-	"headAudioByIdHls1ByPlaylistidBySegmentidBySegmentcontainer": hlsDelivery,
-	"headAudioByIdMasterM3u8":                                    hlsDelivery,
+	"getAudioByIdHls1ByPlaylistidBySegmentidBySegmentcontainer": notOfferedByWeb,
+	"getAudioByIdLiveM3u8":                                       notOfferedByWeb,
+	"getAudioByIdMainM3u8":                                       notOfferedByWeb,
+	"getAudioByIdMasterM3u8":                                     notOfferedByWeb,
+	"getVideosByIdLiveM3u8":                                      notCalledByWeb,
+	"getVideosByIdLiveSubtitlesM3u8":                             notCalledByWeb,
+	"headAudioByIdHls1ByPlaylistidBySegmentidBySegmentcontainer": notOfferedByWeb,
+	"headAudioByIdMasterM3u8":                                    notOfferedByWeb,
 	// EncodingInfoService
 	"getEncodingCodecconfigurationDefaults": transcoding,
 	"getEncodingCodecinformationVideo":      transcoding,
@@ -450,10 +449,10 @@ var knownFailures = map[string]knownFailure{
 	// TrailersService
 	"getTrailers": unranked,
 	// UniversalAudioService
-	"getAudioByIdUniversal":             transcoding,
-	"getAudioByIdUniversalByContainer":  transcoding,
-	"headAudioByIdUniversal":            transcoding,
-	"headAudioByIdUniversalByContainer": transcoding,
+	"getAudioByIdUniversal":             notOfferedByWeb,
+	"getAudioByIdUniversalByContainer":  notOfferedByWeb,
+	"headAudioByIdUniversal":            notOfferedByWeb,
+	"headAudioByIdUniversalByContainer": notOfferedByWeb,
 	// UserLibraryService
 	"deleteUsersByUseridItemsByIdRating":     notCalledByWeb,
 	"getLivetvProgramsById":                  notCalledByWeb,
@@ -487,8 +486,8 @@ var knownFailures = map[string]knownFailure{
 	"postUsersForgotpasswordPin":                    administration,
 	"postUsersNew":                                  administration,
 	// VideoHlsService
-	"getAudioByIdHlsByPlaylistidBySegmentidBySegmentcontainer":  hlsDelivery,
-	"getVideosByIdHlsByPlaylistidBySegmentidBySegmentcontainer": hlsDelivery,
+	"getAudioByIdHlsByPlaylistidBySegmentidBySegmentcontainer":  notOfferedByWeb,
+	"getVideosByIdHlsByPlaylistidBySegmentidBySegmentcontainer": notCalledByWeb,
 	// VideosService
 	"deleteVideosByIdAlternatesources":     administration,
 	"postVideosByIdAlternatesourcesDelete": administration,
