@@ -14,7 +14,7 @@ func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 var (
 	hlsDelivery          = knownFailure{21, "video remux and transcoding to HLS are implemented; audio-only HLS and live playlists are not"}
 	transcoding          = knownFailure{22, "only HLS video transcoding is implemented: no encoder settings, live streams, bitrate test or universal audio"}
-	subtitles            = knownFailure{24, "audio and subtitle track selection and subtitle delivery are not implemented"}
+	subtitles            = knownFailure{24, "subtitle editing, remote subtitle search, attachments and subtitle encoding options are not implemented"}
 	nextUpAndCollections = knownFailure{40, "missing episodes and collections are not implemented"}
 	administration       = knownFailure{33, "administration is not implemented (single non-admin user)"}
 	backup               = knownFailure{32, "backup and restore are not implemented"}
@@ -392,18 +392,14 @@ var knownFailures = map[string]knownFailure{
 	"getEncodingSubtitleoptions":  subtitles,
 	"postEncodingSubtitleoptions": subtitles,
 	// SubtitleService
-	"deleteItemsByIdSubtitlesByIndex":                                                subtitles,
-	"deleteVideosByIdSubtitlesByIndex":                                               subtitles,
-	"getItemsByIdByMediasourceidSubtitlesByIndexByStartpositionticksStreamByFormat":  subtitles,
-	"getItemsByIdByMediasourceidSubtitlesByIndexStreamByFormat":                      subtitles,
-	"getItemsByIdRemotesearchSubtitlesByLanguage":                                    subtitles,
-	"getProvidersSubtitlesSubtitlesById":                                             subtitles,
-	"getVideosByIdByMediasourceidAttachmentsByIndexStream":                           subtitles,
-	"headItemsByIdByMediasourceidSubtitlesByIndexByStartpositionticksStreamByFormat": subtitles,
-	"headItemsByIdByMediasourceidSubtitlesByIndexStreamByFormat":                     subtitles,
-	"postItemsByIdRemotesearchSubtitlesBySubtitleid":                                 subtitles,
-	"postItemsByIdSubtitlesByIndexDelete":                                            subtitles,
-	"postVideosByIdSubtitlesByIndexDelete":                                           subtitles,
+	"deleteItemsByIdSubtitlesByIndex":                      subtitles,
+	"deleteVideosByIdSubtitlesByIndex":                     subtitles,
+	"getItemsByIdRemotesearchSubtitlesByLanguage":          subtitles,
+	"getProvidersSubtitlesSubtitlesById":                   subtitles,
+	"getVideosByIdByMediasourceidAttachmentsByIndexStream": subtitles,
+	"postItemsByIdRemotesearchSubtitlesBySubtitleid":       subtitles,
+	"postItemsByIdSubtitlesByIndexDelete":                  subtitles,
+	"postVideosByIdSubtitlesByIndexDelete":                 subtitles,
 	// SuggestionsService
 	"getUsersByUseridSuggestions": unranked,
 	// SyncService

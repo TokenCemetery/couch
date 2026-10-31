@@ -72,6 +72,11 @@ func TestSidecarSubtitleDelivery(t *testing.T) {
 		t.Fatalf("subtitle: %q %q", w.Header().Get("Content-Type"), w.Body.String())
 	}
 	expectStatus(t, request(h, "GET", "/Videos/movie/mediasource_movie/Subtitles/4/0/Stream.vtt", "", "", token), 200)
+	for _, path := range []string{"/Items/movie/mediasource_movie/Subtitles/4/Stream.vtt", "/Items/movie/mediasource_movie/Subtitles/4/0/Stream.vtt"} {
+		if w := request(h, "GET", path, "", "", token); w.Code != 200 || w.Body.String() != "WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nПривет\n\n" {
+			t.Fatalf("%s: %d %q", path, w.Code, w.Body.String())
+		}
+	}
 	for _, path := range []string{"/Videos/movie/mediasource_movie/Subtitles/3/Stream.vtt", "/Videos/movie/mediasource_movie/Subtitles/4/Stream.srt", "/Videos/movie/other/Subtitles/4/Stream.vtt"} {
 		expectStatus(t, request(h, "GET", path, "", "", token), 404)
 	}

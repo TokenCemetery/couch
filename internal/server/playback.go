@@ -645,8 +645,10 @@ func (s *Server) playbackRoutes(mux *http.ServeMux) {
 	// Emby also answers GET for clients that cannot post a profile.
 	mux.HandleFunc("GET /items/{item}/playbackinfo", s.protect(s.playbackInfo))
 	mux.HandleFunc("GET /items/{item}/download", s.protect(s.downloadItem))
-	mux.HandleFunc("GET /videos/{item}/{source}/subtitles/{index}/{file}", s.protect(s.streamSubtitle))
-	mux.HandleFunc("GET /videos/{item}/{source}/subtitles/{index}/{start}/{file}", s.protect(s.streamSubtitle))
+	for _, prefix := range []string{"/videos", "/items"} {
+		mux.HandleFunc("GET "+prefix+"/{item}/{source}/subtitles/{index}/{file}", s.protect(s.streamSubtitle))
+		mux.HandleFunc("GET "+prefix+"/{item}/{source}/subtitles/{index}/{start}/{file}", s.protect(s.streamSubtitle))
+	}
 	for _, prefix := range []string{"/videos", "/audio"} {
 		// A GET pattern also serves HEAD.
 		mux.HandleFunc("GET "+prefix+"/{item}/{stream}", s.protect(s.streamVideo))
