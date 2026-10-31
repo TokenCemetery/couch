@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 func randomSessionID() string {
@@ -28,7 +28,7 @@ func randomSessionID() string {
 }
 
 // bitrate estimates the source bitrate from the container size and duration.
-// Emby reports a slightly higher figure than the sum of stream bitrates; Coach
+// Emby reports a slightly higher figure than the sum of stream bitrates; Couch
 // derives its own value rather than copying a formula it cannot verify.
 func bitrate(item media.Item) int64 {
 	if item.RunTimeTicks <= 0 || item.Size <= 0 {
@@ -102,7 +102,7 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 	}
 	source := mediaSource(item, streams)
 	// Subtitles are delivered as WebVTT; burn-in is not implemented. A
-	// selected subtitle Coach cannot deliver is dropped and the video plays
+	// selected subtitle Couch cannot deliver is dropped and the video plays
 	// without it, rather than refusing playback.
 	subtitle := -1
 	deliverable := func(index int) bool { return catalog.SubtitleDeliverable(item, index) }
@@ -253,7 +253,7 @@ func (s *Server) subtitleText(w http.ResponseWriter, r *http.Request, item media
 // prefix itself. Including it here yields "/emby/emby/..." and a dead URL.
 //
 // The access token is embedded, as the reference server does, because the URL
-// is handed to a media element that cannot send an Authorization header. Coach
+// is handed to a media element that cannot send an Authorization header. Couch
 // never logs request URLs, so the token stays out of the logs.
 func directStreamURL(item media.Item, deviceID, playSession, token string) string {
 	query := url.Values{}
@@ -287,7 +287,7 @@ func (s *Server) findItem(id string) (media.Item, bool) {
 }
 
 // streamVideo serves the original file. http.ServeContent implements Range,
-// If-Range, HEAD, 206 and 416 exactly, so Coach does not reimplement them, and
+// If-Range, HEAD, 206 and 416 exactly, so Couch does not reimplement them, and
 // the file is streamed rather than read into memory.
 func (s *Server) streamVideo(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 	// The route may carry a container suffix, as in /videos/{id}/stream.mp4.
@@ -335,7 +335,7 @@ func (s *Server) downloadItem(w http.ResponseWriter, r *http.Request, token stri
 }
 
 // playstateReport is the body Emby Web posts to the /Sessions/Playing family.
-// Unknown fields are ignored: Coach only persists what it can act on.
+// Unknown fields are ignored: Couch only persists what it can act on.
 type playstateReport struct {
 	ItemId        string
 	PositionTicks *int64

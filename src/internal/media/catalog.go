@@ -57,7 +57,7 @@ type Item struct {
 	Container string
 	Size      int64
 	Modified  time.Time
-	// Added is when Coach first saw the path: the file's mtime for files
+	// Added is when Couch first saw the path: the file's mtime for files
 	// present at startup, the rescan time for files found later.
 	Added        time.Time
 	RunTimeTicks int64

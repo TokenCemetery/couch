@@ -27,11 +27,11 @@ The in-memory catalog is a temporary solution for a limited read-only scenario; 
 
 ## Playback and state (2026-09-19)
 
-Implemented after the reference contract was captured with the user's authorization and Emby Web could run in the browser against Coach. Each decision below is confirmed by real client behavior, not inferred from documentation:
+Implemented after the reference contract was captured with the user's authorization and Emby Web could run in the browser against Couch. Each decision below is confirmed by real client behavior, not inferred from documentation:
 
 1. The DTO layer (`src/internal/server/dto.go`) reproduces the reference fields, including arrays the client dereferences without guards. `Subviews` is returned only in the library item response, as in the reference.
-2. Home screen (`src/internal/server/home.go`): `HomeSections` and `Sections/{id}/Items`. The server fills the rows; only sections Coach can populate are declared.
-3. `PlaybackInfo` negotiates Direct Stream by the client's `DeviceProfile`. Coach does not transcode, so on a profile mismatch the source is declared unsupported rather than promised and then refused.
+2. Home screen (`src/internal/server/home.go`): `HomeSections` and `Sections/{id}/Items`. The server fills the rows; only sections Couch can populate are declared.
+3. `PlaybackInfo` negotiates Direct Stream by the client's `DeviceProfile`. Couch does not transcode, so on a profile mismatch the source is declared unsupported rather than promised and then refused.
 4. File serving uses `http.ServeContent`: Range, If-Range, HEAD, 206 and 416 come from the standard library, and the file is streamed. The catalog holds an open `os.Root`, so reopening a file cannot escape the chosen directory.
 5. `SupportsDirectPlay` is deliberately `false`: in the Emby model it means the client reads the file by `MediaSource.Path`. HTTP delivery is Direct Stream.
 6. Progress, "played" and "favorites" are stored in `state.ItemState` next to the user; the number of items is limited. The position survives a restart; finishing playback resets it.
@@ -46,7 +46,7 @@ For video, the overall timeout was replaced by a renewable write deadline. Valid
 
 PlaybackInfo accepts query/JSON parameters and checks limits, the source, tracks and basic DeviceProfile conditions. Unsupported playback returns NoCompatibleStream without a URL; transcoding is not faked.
 
-`-web-dir` serves the provided Emby Web from a separate folder through `os.Root`, without listings or escaping the root. The mode is mutually exclusive with `-web-upstream`. index.html is prepared in memory; user files are not changed. API module integration can run without the original Emby through `COACH_WEB_DIR`. UI completeness and browser acceptance are verified separately — see [VALIDATION](VALIDATION.md).
+`-web-dir` serves the provided Emby Web from a separate folder through `os.Root`, without listings or escaping the root. The mode is mutually exclusive with `-web-upstream`. index.html is prepared in memory; user files are not changed. API module integration can run without the original Emby through `COUCH_WEB_DIR`. UI completeness and browser acceptance are verified separately — see [VALIDATION](VALIDATION.md).
 
 ## User state events (2026-09-20)
 

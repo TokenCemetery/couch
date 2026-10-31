@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 type directPlayProfile struct {

@@ -11,10 +11,10 @@ import path from 'node:path';
 import vm from 'node:vm';
 
 const reference = new URL(process.env.EMBY_REFERENCE || 'http://192.168.1.11:8096/');
-const binary = path.resolve(process.env.COACH_BINARY || 'bin/coach');
-const webDirectory = process.env.COACH_WEB_DIR ? path.resolve(process.env.COACH_WEB_DIR) : undefined;
+const binary = path.resolve(process.env.COUCH_BINARY || 'bin/couch');
+const webDirectory = process.env.COUCH_WEB_DIR ? path.resolve(process.env.COUCH_WEB_DIR) : undefined;
 const password = randomBytes(32).toString('hex');
-const data = await mkdtemp(path.join(os.tmpdir(), 'coach-client-check-'));
+const data = await mkdtemp(path.join(os.tmpdir(), 'couch-client-check-'));
 const quiet = { log() {}, error() {}, warn() {}, debug() {} };
 let origin;
 let child;
@@ -191,7 +191,7 @@ try {
   assert.equal((await restored.getUser(user.Id, false)).Id, user.Id);
   assert.equal((await restored.getDisplayPreferences(user.Id)).theme, 'dark');
   const mediaChecks = [];
-  if (process.env.COACH_CHECK_MEDIA === '1') {
+  if (process.env.COUCH_CHECK_MEDIA === '1') {
     await stop();
     const sourceHash = await createMedia();
     await start();
@@ -227,7 +227,7 @@ try {
     assert.deepEqual(Array.from(search.ItemTypes, type => type.Name), ['Movie']);
     assert.equal((await mediaClient.getItems(user.Id, { ParentId: libraryId, StartIndex: 1 })).Items.length, 0);
     assert.equal((await mediaClient.getLatestItems({ ParentId: libraryId, Limit: 1 }))[0].Id, movieId);
-    // Exercise delivery and saved progress against Coach only; the reference
+    // Exercise delivery and saved progress against Couch only; the reference
     // supplies static modules, never authentication or playback requests.
     const localAPI = (route, options = {}) => fetch(new URL(`/emby/${route}`, origin), {
       ...options, headers: { 'X-Emby-Token': auth.AccessToken, ...options.headers },
@@ -267,7 +267,7 @@ try {
     assert.equal(mediaSource.SupportsDirectStream, true);
     assert.equal(mediaSource.SupportsTranscoding, false);
     const streamURL = new URL(`/emby${mediaSource.DirectStreamUrl}`, origin);
-    assert.equal(streamURL.origin, origin, 'stream must stay on Coach');
+    assert.equal(streamURL.origin, origin, 'stream must stay on Couch');
     const stream = await fetch(streamURL, { signal: AbortSignal.timeout(15000), redirect: 'error' });
     assert.equal(stream.status, 200);
     assert.equal(createHash('sha256').update(Buffer.from(await stream.arrayBuffer())).digest('hex'), sourceHash);

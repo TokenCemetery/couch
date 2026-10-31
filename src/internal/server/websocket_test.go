@@ -31,7 +31,7 @@ func socketRequest(t *testing.T, server *httptest.Server, query, version, key st
 	if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	request := "GET /embywebsocket" + query + " HTTP/1.1\r\nHost: coach\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+	request := "GET /embywebsocket" + query + " HTTP/1.1\r\nHost: couch\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
 		"Sec-WebSocket-Version: " + version + "\r\nSec-WebSocket-Key: " + key + "\r\n\r\n"
 	if _, err := conn.Write([]byte(request)); err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestWebSocketKeepAliveAndControlFrames(t *testing.T) {
 		t.Fatalf("answer to KeepAlive = %q", kind)
 	}
 
-	// A listener Coach cannot feed is accepted silently, not answered with an
+	// A listener Couch cannot feed is accepted silently, not answered with an
 	// invented event; the socket must stay usable afterwards.
 	writeClientFrame(t, conn, opText, []byte(`{"MessageType":"SessionsStart","Data":"0,1500"}`))
 	writeClientFrame(t, conn, opPing, []byte("alive"))

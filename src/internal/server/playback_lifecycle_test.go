@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 func TestPlaybackReportRetriesSurviveRestart(t *testing.T) {

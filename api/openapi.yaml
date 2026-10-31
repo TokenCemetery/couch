@@ -1,12 +1,12 @@
 openapi: 3.0.1
 info:
-  title: Coach API
+  title: Couch API
   version: 0.1.0
-  description: 'Contract of the Coach server. Derived from the OpenAPI document published by Emby Server 4.10.0.40 (GET /emby/openapi.json)
-    and maintained by hand from then on. Coach changes: JSON only (application/xml variants removed), reference host removed
-    from servers, Coach-only operations tagged CoachService. Emby schemas declare no required properties, so validation checks
-    types and enums only. Corrections confirmed by captures are marked with x-coach-source.'
-  x-coach-derived-from:
+  description: 'Contract of the Couch server. Derived from the OpenAPI document published by Emby Server 4.10.0.40 (GET /emby/openapi.json)
+    and maintained by hand from then on. Couch changes: JSON only (application/xml variants removed), reference host removed
+    from servers, Couch-only operations tagged CouchService. Emby schemas declare no required properties, so validation checks
+    types and enums only. Corrections confirmed by captures are marked with x-couch-source.'
+  x-couch-derived-from:
     product: Emby Server
     version: 4.10.0.40
     document: /emby/openapi.json
@@ -19144,7 +19144,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
   /Branding/Css:
     summary: Gets custom css
@@ -19169,7 +19169,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
   /Branding/Css.css:
     summary: Gets custom css
@@ -19194,7 +19194,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
   /Connect/Pending:
     summary: Creates a Connect link for a user
@@ -31064,7 +31064,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
     get:
       tags:
@@ -31086,7 +31086,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
     head:
       tags:
@@ -31108,7 +31108,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
   /System/WakeOnLanInfo:
     summary: Gets wake on lan information
@@ -31363,7 +31363,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
   /Users/Query:
     summary: Gets a list of users
@@ -31755,7 +31755,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
   /Users/New:
     summary: Creates a user
@@ -31920,7 +31920,7 @@ paths:
               additionalProperties:
                 type: string
         required: true
-      x-coach-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, updateDisplayPreferences) sends the settings
+      x-couch-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, updateDisplayPreferences) sends the settings
         map of name to string value, the same shape GET /UserSettings/{UserId} returns; the Emby document
         declares an array of strings.
       responses:
@@ -49698,7 +49698,7 @@ paths:
       - apikeyauth: []
       - embyauth: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Requested by the Emby Web 4.10.0.40 Notifications settings page (settings/notifications.js),
+      x-couch-source: Requested by the Emby Web 4.10.0.40 Notifications settings page (settings/notifications.js),
         which reads the response as a list; the Emby document does not list the path.
   /Notifications/Services/Defaults:
     summary: Gets default notification info
@@ -55217,7 +55217,7 @@ paths:
           $ref: '#/components/responses/500'
       security: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
+      x-couch-source: Called by Emby Web 4.10.0.40 before login (M1 browser acceptance, docs/VALIDATION.md); the Emby document
         marks it as secured.
   /System/ActivityLog/Entries:
     summary: Gets activity log entries
@@ -58033,7 +58033,7 @@ paths:
       - apikeyauth: []
       - embyauth: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, reportSearched) posts Users/{UserId}/SearchedItems
+      x-couch-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, reportSearched) posts Users/{UserId}/SearchedItems
         without a trailing slash; the Emby document lists the path with one.
   /Users/{UserId}/Views:
     get:
@@ -58124,7 +58124,7 @@ paths:
       - apikeyauth: []
       - embyauth: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: 'scripts/check-emby-client.mjs: the original Emby Web 4.10.0.40 ApiClient.updatePartialDisplayPreferences
+      x-couch-source: 'scripts/check-emby-client.mjs: the original Emby Web 4.10.0.40 ApiClient.updatePartialDisplayPreferences
         posts a JSON object (sent as text/plain with reqformat=json); the Emby document declares an octet-stream body.'
   /Videos/{Id}/AlternateSources:
     summary: Removes alternate video sources.
@@ -64284,7 +64284,7 @@ paths:
             schema:
               $ref: '#/components/schemas/UserConfiguration'
         required: true
-      x-coach-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, updatePartialUserConfiguration) posts a JSON
+      x-couch-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, updatePartialUserConfiguration) posts a JSON
         object with the changed UserConfiguration properties as application/json; the Emby document declares
         a binary stream.
       responses:
@@ -70967,7 +70967,7 @@ paths:
       - apikeyauth: []
       - embyauth: []
       x-RequiredAuthentication: Requires authentication as user
-      x-coach-source: The path has {Index}, but the Emby document does not declare it; added as in the other
+      x-couch-source: The path has {Index}, but the Emby document does not declare it; added as in the other
         Users/{Id}/Images/{Type}/{Index} operations.
     delete:
       tags:
@@ -72566,10 +72566,10 @@ paths:
   /healthz:
     get:
       tags:
-      - CoachService
+      - CouchService
       operationId: getHealthz
-      summary: Reports Coach liveness and version
-      description: Coach-only. Served at the root, not under /emby.
+      summary: Reports Couch liveness and version
+      description: Couch-only. Served at the root, not under /emby.
       servers:
       - url: /
       security: []
@@ -78783,7 +78783,7 @@ components:
       properties:
         OwnerId:
           type: string
-          x-coach-source: Item IDs are strings everywhere else in the contract and in Coach; Emby Web 4.10.0.40
+          x-couch-source: Item IDs are strings everywhere else in the contract and in Couch; Emby Web 4.10.0.40
             (modules/thememediaplayer.js) only compares OwnerId for equality. The Emby document declares int64.
         Items:
           type: array
@@ -79444,7 +79444,7 @@ components:
           type: string
         CurrentPw:
           type: string
-          x-coach-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, updateUserPassword) sends the
+          x-couch-source: Emby Web 4.10.0.40 (modules/emby-apiclient/apiclient.js, updateUserPassword) sends the
             current password with NewPw from the Profile page; the Emby document omits it.
         NewPw:
           type: string

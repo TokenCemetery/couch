@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 )
 
-const subtitle = "1\n00:00:00,000 --> 00:00:02,000\nCoach e2e subtitle\n"
+const subtitle = "1\n00:00:00,000 --> 00:00:02,000\nCouch e2e subtitle\n"
 
 // generateMedia writes the synthetic library: a movie with two audio tracks,
 // an embedded and an external subtitle and a poster; a series with a regular
-// and a special season; and an audio track and a photo, which Coach does not
+// and a special season; and an audio track and a photo, which Couch does not
 // catalog yet but the contract covers.
 func generateMedia(root string) error {
 	movieDir := filepath.Join(root, "Movies", "Sample Movie (2024)")

@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
-// rootID is the parent of every library. Emby uses a numeric string here; Coach
+// rootID is the parent of every library. Emby uses a numeric string here; Couch
 // keeps its own opaque value because clients treat item IDs as opaque.
 const rootID = "root"
 
@@ -112,7 +112,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 }
 
 // extrasRoutes answers the companion requests Emby Web makes on an item page.
-// Coach has none of this content, so each returns an empty result in the shape
+// Couch has none of this content, so each returns an empty result in the shape
 // the reference server uses; a 404 here leaves the page in an error state.
 func (s *Server) extrasRoutes(mux *http.ServeMux) {
 	known := func(r *http.Request) bool {
@@ -148,7 +148,7 @@ func (s *Server) extrasRoutes(mux *http.ServeMux) {
 		empty := object{"Items": []any{}, "TotalRecordCount": 0, "OwnerId": r.PathValue("item")}
 		respond(w, 200, object{"ThemeVideosResult": empty, "ThemeSongsResult": empty, "SoundtrackSongsResult": empty})
 	}))
-	// Coach generates no seek-bar previews. Emby Web's player re-requests the
+	// Couch generates no seek-bar previews. Emby Web's player re-requests the
 	// set after every failure, so an empty set is answered instead of 404.
 	mux.HandleFunc("GET /items/{item}/thumbnailset", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		if !known(r) {
@@ -326,7 +326,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 		return catalog != nil && (item.ID == catalog.ID || item.ID == catalog.SeriesLibraryID())
 	}
 	// collectionType names the library an item belongs to, for CollectionTypes;
-	// Coach has only movie and TV libraries (#76).
+	// Couch has only movie and TV libraries (#76).
 	collectionType := func(item *media.Item) string {
 		if (catalog != nil && item.ID == catalog.ID) || (!isCollection(item) && item.Type() == "Movie") {
 			return "movies"
@@ -391,7 +391,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			// Every catalogued item is a file on disk: none is missing or a
 			// virtual unaired episode. Playing an episode sends both as false.
 			query["ismissing"] == "true" || query["isvirtualunaired"] == "true" ||
-			// The library is read-only and Coach has no playlists or
+			// The library is read-only and Couch has no playlists or
 			// collections, so the user can edit no item (#77).
 			query["canedititems"] == "true" ||
 			failsMediaFilters(catalog, item, query) ||
@@ -502,7 +502,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 					return 0
 				}
 			case "channelnumber", "officialrating", "productionyear", "premieredate", "communityrating", "criticrating", "director", "lastcontentpremieredate":
-				// Coach has no channels and no such metadata: every item
+				// Couch has no channels and no such metadata: every item
 				// compares equal and the next key decides (#76, #79).
 				comparison = 0
 			default:

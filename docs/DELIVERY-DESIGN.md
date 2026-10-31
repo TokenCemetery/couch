@@ -13,7 +13,7 @@ How the implementation differs from the design below:
 
 ## Current state
 
-- Coach serves only the source file (Direct Stream, `src/internal/server/stream.go`). If the DeviceProfile does not allow it, PlaybackInfo answers `ErrorCode=NoCompatibleStream`, and Emby Web shows "no compatible streams".
+- Couch serves only the source file (Direct Stream, `src/internal/server/stream.go`). If the DeviceProfile does not allow it, PlaybackInfo answers `ErrorCode=NoCompatibleStream`, and Emby Web shows "no compatible streams".
 - At runtime FFmpeg runs only to extract embedded subtitles (`src/internal/media/extract.go`). That code already has a concurrent job limit, waiting on the request context, a timeout, an output limit and output through a pipe without temporary files (#23).
 - In e2e the behavioral check `hls-master-playlist` fails (404); HLS operations are marked `hlsDelivery` in `e2e/known_failures.go`.
 
@@ -49,7 +49,7 @@ The order is:
 3. **Video transcoding to H.264** (`libx264`, preset `veryfast`) with bitrate and resolution limited by the profile and `MaxStreamingBitrate`.
 4. Otherwise, `NoCompatibleStream`, as now.
 
-Response for options 2 and 3: `SupportsTranscoding=true`, `TranscodingSubProtocol=hls`, `TranscodingContainer=ts` and `TranscodingUrl=/videos/{id}/master.m3u8?...` with `MediaSourceId`, `PlaySessionId`, `api_key` and the selected codecs. As with `DirectStreamUrl`, the link is relative, the token is inside, and Coach does not write the URL to the log.
+Response for options 2 and 3: `SupportsTranscoding=true`, `TranscodingSubProtocol=hls`, `TranscodingContainer=ts` and `TranscodingUrl=/videos/{id}/master.m3u8?...` with `MediaSourceId`, `PlaySessionId`, `api_key` and the selected codecs. As with `DirectStreamUrl`, the link is relative, the token is inside, and Couch does not write the URL to the log.
 
 ### 2. Playlists
 
@@ -74,8 +74,8 @@ Response for options 2 and 3: `SupportsTranscoding=true`, `TranscodingSubProtoco
   - FFmpeg runs with a clean environment, input through `fd:`, as with FFprobe.
 - **Release:**
   - `Sessions/Playing/Stopped`, logout or 60 seconds without segment requests: the process ends and the directory is deleted;
-  - stopping Coach ends FFmpeg jobs and keyframe reads;
-  - at startup Coach deletes leftover directories (like temporary state files, #54).
+  - stopping Couch ends FFmpeg jobs and keyframe reads;
+  - at startup Couch deletes leftover directories (like temporary state files, #54).
 - **FFmpeg failure.** The segment request gets 500, and the player shows a playback error. The server keeps running; the item ID and exit code are written to the log.
 
 ### 4. Subtitles

@@ -4,7 +4,7 @@ Date: 2026-09-18. Status: preliminary discovery; the public API and HTML of the 
 
 ## Confirmed facts
 
-- At the start of discovery the `coach` project was empty. The first Go API slice is now implemented; verification boundaries are described in [VALIDATION.md](VALIDATION.md). No Git commits were created.
+- At the start of discovery the `couch` project was empty. The first Go API slice is now implemented; verification boundaries are described in [VALIDATION.md](VALIDATION.md). No Git commits were created.
 - Jellyfin sources are available in `/Users/olegshulyakov/Projects/GitHub/jellyfin/jellyfin`, commit `50866380c95758244f79bd4fbb01b9474e80bd81`.
 - `SharedVersion.cs` contains `13.0.0`. This is the version of the examined checkout, not confirmation of a stable release.
 - `Jellyfin.Api/Controllers` has 60 controllers. Routes of the main scenarios and some models were examined; no full code audit was done.
@@ -13,7 +13,7 @@ Date: 2026-09-18. Status: preliminary discovery; the public API and HTML of the 
 - The name `ds918.local` did not resolve. The address `http://192.168.1.11:8096/` is reachable, including from the sandbox (checked 2026-09-19; earlier, connections from inside the sandbox failed).
 - The built-in browser runs Emby Web 4.10.0.40 without changes to its code. This made browser acceptance possible, which had been blocked by browser runtime refusal.
 - With the user's permission, an authenticated reference contract was captured: 30 sanitized fixtures in `docs/fixtures/emby-4.10.0.40/`. Capture sessions were closed, token revocation confirmed.
-- The reference uses short numeric string `Id`s and a separate `Guid`; for collections `Guid`, `PresentationUniqueKey` and `DisplayPreferencesId` are the same. Dates use the .NET format with seven fractional digits. Coach keeps its own stable hex identifiers: clients treat `Id` as an opaque string.
+- The reference uses short numeric string `Id`s and a separate `Guid`; for collections `Guid`, `PresentationUniqueKey` and `DisplayPreferencesId` are the same. Dates use the .NET format with seven fractional digits. Couch keeps its own stable hex identifiers: clients treat `Id` as an opaque string.
 - `GET /System/Info/Public` and `GET /emby/System/Info/Public` returned HTTP 200 and identical JSON: version `4.10.0.40`, server name `DS918+`, a string `Id`, empty `LocalAddresses` and `RemoteAddresses` arrays. The instance identifier is not stored here.
 - `GET /` returned HTTP 302 with `Location: web/index.html`; the target page returned HTTP 200. The HTML contains `data-appversion="4.10.0.40"`, `data-culture="ru"`, `lang="ru"` and a link `apploader.js?v=4.10.0.40`. This is the version the page declares; JavaScript execution and login were not checked.
 - The page's import map references `modules/emby-apiclient/apiclient.js`, `connectionmanager.js` and `modules/browserdeviceprofile.js`. The API client, fetchhelper and querystring were examined and run against the Go server; connection manager and browser device profile have not been checked yet.
@@ -71,7 +71,7 @@ Proposed initial architecture: one Go process, local data storage, FFprobe/FFmpe
 
 Methods of the original `apiclient.js` were verified by reading from the reference: `getItems(userId, options)` calls `/Users/{id}/Items` or `/Items`; `getItem(userId, itemId)` calls the corresponding item route; `getLatestItems(options)` returns the `/Users/{id}/Items/Latest` response. This is information about client requests, not an authenticated observation of production Emby responses.
 
-Routes and fields were checked against [ItemsService](https://dev.emby.media/reference/RestAPI/ItemsService/getItems.html), [UserLibraryService](https://dev.emby.media/reference/RestAPI/UserLibraryService/getUsersByUseridItemsById.html) and local Jellyfin controllers. Coach implements a limited set of filters; unknown ones return 400. A temporary DateCreated from mtime is not claimed to be identical to Emby's history.
+Routes and fields were checked against [ItemsService](https://dev.emby.media/reference/RestAPI/ItemsService/getItems.html), [UserLibraryService](https://dev.emby.media/reference/RestAPI/UserLibraryService/getUsersByUseridItemsById.html) and local Jellyfin controllers. Couch implements a limited set of filters; unknown ones return 400. A temporary DateCreated from mtime is not claimed to be identical to Emby's history.
 
 Technical metadata comes from [FFprobe](https://ffmpeg.org/ffprobe.html). To pass an open file, the [fd protocol](https://ffmpeg.org/ffmpeg-protocols.html#fd) was chosen: it supports seek on a regular file and allows disabling other protocols. Opening is confined by [os.Root](https://pkg.go.dev/os#Root); this is not protection against native decoder vulnerabilities and not isolation of mounts/hardlinks.
 
@@ -87,10 +87,10 @@ Related documents: [requirements](PRD.md), [roadmap](ROADMAP.md).
 
 ## PlaybackInfo refinement and local UI (2026-09-19)
 
-In the original `apiclient.js`, the `getPlaybackInfo(itemId, options, deviceProfile)` method sends options through the query and the DeviceProfile as JSON. Previously Coach considered only the profile from the body. Now both parameter sources are checked; conflicting values are rejected.
+In the original `apiclient.js`, the `getPlaybackInfo(itemId, options, deviceProfile)` method sends options through the query and the DeviceProfile as JSON. Previously Couch considered only the profile from the body. Now both parameter sources are checked; conflicting values are rejected.
 
 `browserdeviceprofile.js` 4.10.0.40 contains CodecProfiles for Video/VideoAudio: limits on H.264 level/profile, width, bitrate, HEVC tags, audio channel count and IsSecondaryAudio. IsRequired appears as a boolean and as the string `"false"`, Value as a string and as a number. These forms are covered by tests. Schemas and the NoCompatibleStream error code were checked against the [official PlaybackInfo API](https://dev.emby.media/reference/RestAPI/MediaInfoService/postItemsByIdPlaybackinfo.html). The semantics of ApplyConditions and missing required values were checked against local Jellyfin models; they are not considered an authenticated observation of modern Emby.
 
-The user provided `../emby-webui`. SHA-256 hashes of the apiclient/fetchhelper/querystring modules match the previously verified 4.10.0.40 resources. The local index.html contains the original `<html>` without data-appversion; apploader.js reads this attribute for dashboardVersion and the cache version. The `-web-dir` adapter adds the attribute in the HTTP response without changing files. The frontend itself is not copied into the Coach project.
+The user provided `../emby-webui`. SHA-256 hashes of the apiclient/fetchhelper/querystring modules match the previously verified 4.10.0.40 resources. The local index.html contains the original `<html>` without data-appversion; apploader.js reads this attribute for dashboardVersion and the cache version. The `-web-dir` adapter adds the attribute in the HTTP response without changing files. The frontend itself is not copied into the Couch project.
 
 A repeat browser check is unavailable right now: the connection to the built-in browser was refused. Local UI verification is limited to serving resources and running the original API modules without DOM/player.

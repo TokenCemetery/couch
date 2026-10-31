@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 var authParameter = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_-]*)="([^"\r\n]*)"`)
@@ -164,7 +164,7 @@ func (s *Server) verifying(w http.ResponseWriter, r *http.Request) (release func
 
 // changePassword serves the Profile page form, which posts CurrentPw and NewPw.
 // The administrator reset (ResetPassword without the current password) is
-// refused: Coach's single user is not an administrator.
+// refused: Couch's single user is not an administrator.
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 	release, ok := s.verifying(w, r)
 	if !ok {
@@ -185,10 +185,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token st
 		return
 	}
 	// Emby Web hides the current-password field for servers from 4.8.0.38 and
-	// sends it empty. Coach still requires it (#46), and answers in plain text,
+	// sends it empty. Couch still requires it (#46), and answers in plain text,
 	// which the client's error dialog shows as written.
 	if current == "" {
-		failText(w, 400, "Coach requires the current password to change it, and this client did not send one.")
+		failText(w, 400, "Couch requires the current password to change it, and this client did not send one.")
 		return
 	}
 	revoked, err := s.store.ChangePassword(token, current, next)

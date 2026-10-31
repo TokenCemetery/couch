@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 const compatibleProfile = `{"DirectPlayProfiles":[{"Type":"Video","Container":"mp4","VideoCodec":"h264","AudioCodec":"aac,ac3"}]}`

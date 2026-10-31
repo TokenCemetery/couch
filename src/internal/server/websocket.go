@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // Emby Web rewrites its API address to ws://<server>/embywebsocket?api_key=…&deviceId=…
-// and expects a plain RFC 6455 endpoint there. Coach implements the server half
+// and expects a plain RFC 6455 endpoint there. Couch implements the server half
 // on the standard library rather than taking its first external dependency: the
 // server side needs the handshake, unmasking of client frames and the text,
 // close, ping and pong opcodes. No extension is negotiated, so there is no
@@ -31,7 +31,7 @@ const websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 const (
 	// The reference server announces a 60 s timeout in ForceKeepAlive and drops
-	// silent sockets after it. Coach keeps that budget but refreshes it from any
+	// silent sockets after it. Couch keeps that budget but refreshes it from any
 	// frame, not only from the application-level KeepAlive: Emby Web never sends
 	// that message, so protocol pings — which browsers answer inside the network
 	// stack — are what proves a web client is still there.

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // mediaFilters maps the Items filters on stream metadata to the values an
@@ -26,7 +26,7 @@ var mediaFilters = map[string]func(item media.Item) []string{
 	"extendedvideotypes": func(media.Item) []string { return []string{"None"} },
 }
 
-// metadataFilters are Items filters on metadata Coach does not have, so a
+// metadataFilters are Items filters on metadata Couch does not have, so a
 // value given for them matches no item.
 var metadataFilters = []string{"genres", "studios", "tags", "officialratings", "years"}
 
@@ -84,7 +84,7 @@ func failsMediaFilters(catalog *media.Catalog, item *media.Item, query map[strin
 // filterValueList answers the value lists of the library filter dialog:
 // the distinct values of the videos in scope (ParentId, IncludeItemTypes),
 // each as a TagItem with the same Name and Id. values is nil for metadata
-// Coach does not have, which lists nothing.
+// Couch does not have, which lists nothing.
 func (s *Server) filterValueList(values func(media.Item) []string) authenticated {
 	return func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		query := r.URL.Query()
@@ -182,7 +182,7 @@ func (s *Server) filterRoutes(mux *http.ServeMux) {
 		}
 		s.filterValueList(mediaFilters[key])(w, r, token, session)
 	}))
-	// Coach has no genres, studios, tags, ratings or years, and every video
+	// Couch has no genres, studios, tags, ratings or years, and every video
 	// is of the plain type, so these lists are empty. Without music libraries
 	// or people metadata it has no artists or persons either; the home
 	// Favorites tab asks for both (#80).

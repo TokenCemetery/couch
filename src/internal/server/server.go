@@ -10,16 +10,16 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/TokenCemetery/coach/internal/hls"
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/hls"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // CompatibilityVersion selects the API branch used by the reference Emby Web.
-// It is not Coach's product version or a claim of full Emby compatibility.
+// It is not Couch's product version or a claim of full Emby compatibility.
 const CompatibilityVersion = "4.10.0.40"
 
-// Version is the Coach product version.
+// Version is the Couch product version.
 const Version = "0.1.0"
 
 type object map[string]any
@@ -146,7 +146,7 @@ func (s *Server) userDTO(d state.Data, token string) object {
 	return u
 }
 
-// policy mirrors the reference policy shape with values that match what Coach
+// policy mirrors the reference policy shape with values that match what Couch
 // can actually do: direct playback and downloading of the original file, video
 // remux and transcoding to HLS when FFmpeg is available (hls), and no audio
 // transcoding, Live TV, sync or remote control. Emby Web refuses to start
@@ -217,7 +217,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /users/authenticatebyname", s.login)
 	mux.HandleFunc("GET /system/info", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		info := s.publicInfo()
-		info["ProductName"], info["CoachVersion"] = "Coach", Version
+		info["ProductName"], info["CouchVersion"] = "Couch", Version
 		info["SupportsLibraryMonitor"], info["SupportsLocalPortConfiguration"], info["SupportsHttps"] = false, false, false
 		respond(w, 200, info)
 	}))
@@ -301,7 +301,7 @@ func (s *Server) Handler() http.Handler {
 	emptyPage := s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		respond(w, 200, object{"Items": []any{}, "TotalRecordCount": 0})
 	})
-	// Coach has no Live TV, no recommendation engine and no online episode
+	// Couch has no Live TV, no recommendation engine and no online episode
 	// lists, so it knows of no missing episodes; Emby Web hides these rows when
 	// they are empty (series page airings, Movies Suggestions tab).
 	for _, path := range []string{"/shows/upcoming", "/shows/missing", "/livetv/recordings", "/livetv/programs"} {
@@ -313,7 +313,7 @@ func (s *Server) Handler() http.Handler {
 	emptyList := s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		respond(w, 200, []any{})
 	})
-	// Coach has no plugins and no notification services: the user menu's plugin
+	// Couch has no plugins and no notification services: the user menu's plugin
 	// pages and the Notifications settings page list nothing.
 	for _, path := range []string{"/features", "/movies/recommendations", "/web/configurationpages", "/notifications/services/configured", "/notifications/types"} {
 		mux.HandleFunc("GET "+path, emptyList)
@@ -328,7 +328,7 @@ func (s *Server) Handler() http.Handler {
 	s.hlsRoutes(mux)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "NotFound") })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Coach-Version", Version)
+		w.Header().Set("X-Couch-Version", Version)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -342,7 +342,7 @@ func (s *Server) Handler() http.Handler {
 			if s.web != nil {
 				http.Redirect(w, r, "/web/index.html", http.StatusFound)
 			} else {
-				respond(w, 200, object{"ProductName": "Coach", "Version": Version, "WebClientConfigured": false})
+				respond(w, 200, object{"ProductName": "Couch", "Version": Version, "WebClientConfigured": false})
 			}
 			return
 		}

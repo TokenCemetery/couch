@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // largeLibrary has 1000 series of 2 seasons with 10 episodes each: 20 000

@@ -15,12 +15,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/TokenCemetery/coach/internal/hls"
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/hls"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
-// SetHLS enables remux to HLS. Without it Coach offers only Direct Stream.
+// SetHLS enables remux to HLS. Without it Couch offers only Direct Stream.
 // The caller owns the manager and closes it after the HTTP server.
 func (s *Server) SetHLS(m *hls.Manager) {
 	s.hls = m
@@ -372,7 +372,7 @@ func (s *Server) hlsSource(w http.ResponseWriter, r *http.Request, session state
 	}
 	if codecs := query.Get("VideoCodec"); codecs != "" && !member(codecs, video.Codec) {
 		if !member(codecs, "h264") {
-			failText(w, 400, "Coach encodes video only to H.264, and the requested codecs exclude it and the source's "+video.Codec+".")
+			failText(w, 400, "Couch encodes video only to H.264, and the requested codecs exclude it and the source's "+video.Codec+".")
 			return "", source, false
 		}
 		source.VideoEncode = true

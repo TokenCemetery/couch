@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 // culturesJSON is Emby 4.10.0.40's GET /Localization/Cultures response,

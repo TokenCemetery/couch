@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 func TestMovieCatalog(t *testing.T) {
@@ -85,7 +85,7 @@ func TestMovieCatalog(t *testing.T) {
 	for _, query := range []string{"Limit=-1", "Limit=1001", "StartIndex=bad", "StartIndex=999999999999999999999", "Limit=1&limit=2", "Recursive=yes", "SortBy=Studio", "SortOrder=oops", "PersonIds=x", "Filters=IsResumable"} {
 		expectStatus(t, request(h, "GET", "/Items?"+query, "", "", token), 400)
 	}
-	// Coach has no genres: a genre filter is accepted and matches nothing,
+	// Couch has no genres: a genre filter is accepted and matches nothing,
 	// rather than returning the unfiltered catalogue (#78).
 	w = request(h, "GET", "/Items?Recursive=true&Genres=Comedy", "", "", token)
 	expectStatus(t, w, 200)
@@ -160,7 +160,7 @@ func TestItemsQueriesFromEmbyWeb(t *testing.T) {
 		}
 	}
 	expectStatus(t, request(h, "GET", "/Users/"+user+"/Items?CanEditItems=maybe", "", "", token), 400)
-	// The same tab sorts favorite TV channels by channel number; Coach has
+	// The same tab sorts favorite TV channels by channel number; Couch has
 	// none, so the sort falls through to the next key.
 	w := request(h, "GET", "/Users/"+user+"/Items?Recursive=true&IncludeItemTypes=TvChannel&SortBy=ChannelNumber,SortName", "", "", token)
 	expectStatus(t, w, 200)

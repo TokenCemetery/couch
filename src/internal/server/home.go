@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // homeSection mirrors the section descriptor Emby returns from
@@ -32,10 +32,10 @@ func homeSection(id, name, sectionType string, monitor []string, cardSizeOffset 
 	}
 }
 
-// homeSections describes the home screen Coach can actually populate: the
+// homeSections describes the home screen Couch can actually populate: the
 // library tiles, the resume row, and one latest row per library. Titles come
 // from locales/*.yaml by X-Emby-Language (#18). Sections for
-// media Coach does not serve yet (audio, Live TV) are not advertised.
+// media Couch does not serve yet (audio, Live TV) are not advertised.
 func (s *Server) homeSections(serverID, language string) []object {
 	sections := []object{
 		homeSection("smalllibrarytiles", translate(language, "HeaderMyMedia"), "userviews", []string{}, -1),
@@ -91,7 +91,7 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 	case section == "resume":
 		items = s.resumeItems(limit, token)
 	case section == "resumeaudio":
-		// Coach serves no audio library, so this row is always empty.
+		// Couch serves no audio library, so this row is always empty.
 	case strings.HasPrefix(section, "latestmedia_") && slices.Contains(s.libraryIDs(), strings.TrimPrefix(section, "latestmedia_")):
 		series := strings.TrimPrefix(section, "latestmedia_") == catalog.SeriesLibraryID()
 		latest := make([]*media.Item, 0, len(catalog.Items))

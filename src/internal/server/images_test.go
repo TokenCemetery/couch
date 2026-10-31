@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 func TestSignedImageHTTP(t *testing.T) {

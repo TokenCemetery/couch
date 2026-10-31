@@ -16,7 +16,7 @@ type Request struct {
 }
 
 // URL returns the request target under the Emby-compatible /emby prefix,
-// except for Coach-only routes served at the root.
+// except for Couch-only routes served at the root.
 func (r Request) URL(base string) string {
 	prefix := "/emby"
 	if r.Path == "/healthz" {

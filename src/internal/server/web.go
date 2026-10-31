@@ -17,7 +17,7 @@ const (
 )
 
 // WebAssets serves a user-supplied Emby installation's static files. API calls
-// never pass through this handler. The client uses Coach's same-origin API.
+// never pass through this handler. The client uses Couch's same-origin API.
 func WebAssets(origin string) (http.Handler, error) {
 	u, err := url.Parse(origin)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {

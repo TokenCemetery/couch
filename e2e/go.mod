@@ -1,4 +1,4 @@
-module github.com/TokenCemetery/coach/e2e
+module github.com/TokenCemetery/couch/e2e
 
 go 1.25.0
 

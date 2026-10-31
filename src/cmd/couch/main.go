@@ -1,4 +1,4 @@
-// Command coach serves an Emby-compatible API, Emby Web assets, and local media.
+// Command couch serves an Emby-compatible API, Emby Web assets, and local media.
 package main
 
 import (
@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/hls"
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/procusage"
-	"github.com/TokenCemetery/coach/internal/server"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/hls"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/procusage"
+	"github.com/TokenCemetery/couch/internal/server"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 func run() error {
 	data := flag.String("data", "./data", "private state directory")
 	listen := flag.String("listen", "127.0.0.1:8097", "HTTP listen address")
-	name := flag.String("name", "Coach", "server display name")
+	name := flag.String("name", "Couch", "server display name")
 	upstream := flag.String("web-upstream", "", "optional Emby origin supplying only /web static assets")
 	webDir := flag.String("web-dir", "", "optional local Emby Web directory containing index.html")
 	mediaDir := flag.String("media-dir", "", "optional read-only movie/series directory; scanned at startup with ffprobe and again on SIGHUP")
@@ -120,7 +120,7 @@ func run() error {
 		}
 	}
 	if catalog != nil {
-		// Registered before serving: an unhandled SIGHUP would stop Coach.
+		// Registered before serving: an unhandled SIGHUP would stop Couch.
 		hangup := make(chan os.Signal, 1)
 		signal.Notify(hangup, syscall.SIGHUP)
 		defer signal.Stop(hangup)
@@ -129,7 +129,7 @@ func run() error {
 	httpServer := &http.Server{Addr: *listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
-	slog.Info("Coach starting", "address", *listen, "version", server.Version)
+	slog.Info("Couch starting", "address", *listen, "version", server.Version)
 	select {
 	case err := <-errCh:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -149,7 +149,7 @@ func run() error {
 	}
 }
 
-// logUsage records what Coach itself and, separately, its finished FFmpeg
+// logUsage records what Couch itself and, separately, its finished FFmpeg
 // and FFprobe runs cost over the process's life.
 func logUsage() {
 	cpu, peak, err := procusage.Self(syscall.RUSAGE_SELF)
@@ -157,7 +157,7 @@ func logUsage() {
 	if err != nil || childErr != nil {
 		return
 	}
-	slog.Info("Coach stopped", "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak,
+	slog.Info("Couch stopped", "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak,
 		"children_cpu", childCPU.Round(time.Millisecond), "children_peak_rss_kib", childPeak)
 }
 

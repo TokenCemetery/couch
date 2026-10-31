@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 func TestSeriesCatalog(t *testing.T) {
@@ -47,7 +47,7 @@ func TestSeriesCatalog(t *testing.T) {
 		{"/Shows/show/Episodes?SeasonId=season&Limit=1&StartIndex=1", "e2"},
 		{"/Items?Recursive=true&IncludeItemTypes=Episode&SearchTerm=Two", "e2"},
 		{"/Users/" + store.Snapshot().User.ID + "/Sections/latestmedia_movies/Items", "movie"},
-		// Premieres row of the TV Suggestions tab; Coach has no premiere dates.
+		// Premieres row of the TV Suggestions tab; Couch has no premiere dates.
 		{"/Items?IncludeItemTypes=Episode&Recursive=true&SortBy=ProductionYear,PremiereDate,SortParentIndexNumber,SortIndexNumber&SortOrder=Descending,Descending,Ascending,Ascending&MinPremiereDate=2026-09-20T08:35:05.677Z&IsUnaired=false&ParentId=" + catalog.SeriesLibraryID() + "&Limit=12", ""},
 		{"/Items?Recursive=true&IncludeItemTypes=Episode&IsUnaired=true", ""},
 		{"/Items?Recursive=true&IncludeItemTypes=Episode&IsUnaired=false&SortBy=ParentIndexNumber,IndexNumber", "sp1,e1,e2"},

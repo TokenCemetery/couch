@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 func openEventSocket(t *testing.T, server *httptest.Server, token string) (net.Conn, *bufio.Reader) {

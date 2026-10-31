@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // Emby serialises dates with seven fractional digits and a literal Z. Go would
@@ -22,7 +22,7 @@ func embyDate(t time.Time) string { return t.UTC().Format(embyDateLayout) + "Z" 
 // derive produces a stable secondary identifier from an item ID.
 //
 // In the captured responses a collection folder's Guid, PresentationUniqueKey
-// and DisplayPreferencesId all hold the same value, so Coach emits one derived
+// and DisplayPreferencesId all hold the same value, so Couch emits one derived
 // value for the three. They are opaque to clients; only stability matters.
 func derive(purpose, id string) string {
 	sum := sha256.Sum256([]byte(purpose + "\x00" + id))
@@ -145,7 +145,7 @@ func (s *Server) collectionDTO(id, serverID string, detail bool) object {
 	dto["PrimaryImageAspectRatio"] = 1.7777777777777777
 	if detail {
 		dto["ChildCount"] = s.childCount(id)
-		// Only the subviews Coach can actually serve are advertised.
+		// Only the subviews Couch can actually serve are advertised.
 		dto["Subviews"] = []string{subview}
 	}
 	return dto
@@ -454,7 +454,7 @@ func itoa(v int) string {
 // createStreamInfo then uses that path as the media URL; a browser cannot do
 // that, and a server that claims it without sending Path leaves the client with
 // no URL at all ("no compatible streams"). Serving the unmodified file over
-// HTTP is Direct Stream, which is what Coach does. Coach never transcodes, so
+// HTTP is Direct Stream, which is what Couch does. Couch never transcodes, so
 // that is reported as unsupported rather than advertised and then refused.
 func mediaSource(item media.Item, streams []object) object {
 	source := object{

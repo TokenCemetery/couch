@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 func (s *Server) imageRoutes(mux *http.ServeMux) {
@@ -54,7 +54,7 @@ func primaryImage(r *http.Request) bool {
 }
 
 // imageKind is the image type the route names when it is the first of its
-// type, or "": Coach keeps at most one image per type.
+// type, or "": Couch keeps at most one image per type.
 func imageKind(r *http.Request) string {
 	if r.PathValue("index") != "" && r.PathValue("index") != "0" {
 		return ""

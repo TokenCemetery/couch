@@ -13,13 +13,13 @@ This made it possible, for the first time, to check the client as a whole rather
 
 ## Reference contract
 
-The user authorized an authenticated capture (reply 2026-09-19, account `oleg`; all accounts have `HasPassword=false`). Only GET requests and one POST `PlaybackInfo` were made; sessions were closed via `/Sessions/Logout`, and token revocation was confirmed by a 401 response. The capture ran in three short sessions with the device `Coach Contract Capture`.
+The user authorized an authenticated capture (reply 2026-09-19, account `oleg`; all accounts have `HasPassword=false`). Only GET requests and one POST `PlaybackInfo` were made; sessions were closed via `/Sessions/Logout`, and token revocation was confirmed by a 401 response. The capture ran in three short sessions with the device `Couch Contract Capture`.
 
 30 sanitized fixtures: [docs/fixtures/emby-4.10.0.40/](fixtures/emby-4.10.0.40/). Sanitization replaces names, paths and opaque identifiers with consistent aliases; structure, types, date formats and numeric units are preserved. Verified that no real ServerId, user names, NAS paths or tokens remain.
 
-## Browser acceptance Emby Web → Coach
+## Browser acceptance Emby Web → Couch
 
-The unmodified client, served through the `/web/` adapter, works against Coach:
+The unmodified client, served through the `/web/` adapter, works against Couch:
 
 | Scenario | Result |
 |---|---|
@@ -83,24 +83,24 @@ Checked in this run:
 - `go vet ./...`, native macOS arm64 build and Linux amd64 cross-build (`CGO_ENABLED=0`): passed. The Linux binary was not run.
 - Stream regressions: GET/HEAD, ranges from the start/middle/end, 416, 304, validator update after file change, safe refusal of a weak `If-Range`.
 - A loopback test with slowed writing exceeds the 100 ms global HTTP timeout without losing bytes. Separately checked: deadline renewal on each block, deadline-setting error, and timeout of a blocked write via `net.Pipe`. Timeouts were reduced for test speed; this is not a sustained load check.
-- `COACH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs`: passed with Emby Web 4.10.0.40. The original API modules check sign-in, catalog and settings; additional HTTP checks cover PlaybackInfo, SHA-256 of the served video, HEAD/Range/416/401, position/Resume after a normal restart, and playback completion.
+- `COUCH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs`: passed with Emby Web 4.10.0.40. The original API modules check sign-in, catalog and settings; additional HTTP checks cover PlaybackInfo, SHA-256 of the served video, HEAD/Range/416/401, position/Resume after a normal restart, and playback completion.
 
-The integration test used temporary Coach data and a synthetic video. Only static resources were read from Emby, without authentication and without modifying its data. The browser UI was not checked in this run.
+The integration test used temporary Couch data and a synthetic video. Only static resources were read from Emby, without authentication and without modifying its data. The browser UI was not checked in this run.
 
 ## PlaybackInfo and local Emby Web (2026-09-19)
 
-Added `-web-dir` for the provided copy `../emby-webui`. The apiclient/fetchhelper/querystring API modules match the 4.10.0.40 reference by SHA-256. The original index.html receives data-appversion only in the HTTP response; UI files are neither modified nor copied into Coach.
+Added `-web-dir` for the provided copy `../emby-webui`. The apiclient/fetchhelper/querystring API modules match the 4.10.0.40 reference by SHA-256. The original index.html receives data-appversion only in the HTTP response; UI files are neither modified nor copied into Couch.
 
 Checked:
 
 - Local static files: HTML/JS MIME, GET/HEAD/Range, loader version, integrity of the original index.html, API working alongside static files. Rejected: path traversal, symlinks pointing outside, hidden files, FIFOs, directories, unsupported extensions and methods.
 - PlaybackInfo: query and JSON, case of query names, conflicting/repeated parameters, invalid numbers and encoding, another user's UserId, source, track validity, choosing the default audio instead of the first track, Direct Stream disallowed, bitrate and channel limits.
 - Profile: empty format list, codec/container conditions, ApplyConditions, H.264 level/profile, resolution, fps, audio channels, sample rate, IsSecondaryAudio and unknown required/optional metadata. Boolean/string IsRequired and numeric/string Value from Emby Web are supported.
-- Integration: `COACH_WEB_DIR=../emby-webui COACH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs` passes without requests to the production Emby. The original getPlaybackInfo checks the positive scenario and NoCompatibleStream with Direct Stream disallowed, low bitrate, width limit and empty profile. Checks of video bytes, Range, restart, Resume and playback completion are retained.
+- Integration: `COUCH_WEB_DIR=../emby-webui COUCH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs` passes without requests to the production Emby. The original getPlaybackInfo checks the positive scenario and NoCompatibleStream with Direct Stream disallowed, low bitrate, width limit and empty profile. Checks of video bytes, Range, restart, Resume and playback completion are retained.
 - `go vet ./...`, macOS arm64 and Linux amd64 builds: passed. The Linux binary was not run.
 - Final `go test -race -cover ./...`: passed; media 73.9%, server 75.6%, state 70.8%, cmd 0%.
 
-Limitations: this is not a full model of the Emby DeviceProfile. HDR and other missing metadata are not inferred from assumptions; rotation is read from FFprobe since 2026-10-11 (#22). Without a profile, discovery mode remains; an average bitrate from size/duration does not guarantee the peak limit is respected. A non-first audio track that the client profile does not accept in the source file (`IsSecondaryAudio`) is served via remux to HLS; without FFmpeg such a choice does not play. Selected subtitles that Coach cannot serve as WebVTT (image-based, no FFmpeg) are skipped: the video plays without them.
+Limitations: this is not a full model of the Emby DeviceProfile. HDR and other missing metadata are not inferred from assumptions; rotation is read from FFprobe since 2026-10-11 (#22). Without a profile, discovery mode remains; an average bitrate from size/duration does not guarantee the peak limit is respected. A non-first audio track that the client profile does not accept in the source file (`IsSecondaryAudio`) is served via remux to HLS; without FFmpeg such a choice does not play. Selected subtitles that Couch cannot serve as WebVTT (image-based, no FFmpeg) are skipped: the video plays without them.
 
 Browser acceptance of the new changes was not performed: the browser skill could not connect to the built-in browser, and the diagnostics interface was also unavailable. API module checks do not confirm rendering, the service worker, track switching or playback in the browser. The historical acceptance above refers to the previous slice.
 
@@ -117,7 +117,7 @@ Broadcasting is implemented after a successful save of favorites, played state a
 - The original ApiClient 4.10.0.40 opens a real WebSocket, receives favorite/progress/playback completion events, reconnects after a restart, and loses the connection after logout from another client instance with the same token.
 - Targeted Go event tests passed three times. The final `go test -race -cover ./...` passed: media 73.9%, server 78.8%, state 70.8%, cmd 0%. `go vet ./...`, macOS arm64/Linux amd64 builds and Node integration with the local UI passed; the Linux binary was not run.
 
-Boundaries: DOM/screens and the player were not checked in this run. Other server events, remote control and redelivery after reconnect are not implemented. The integration used only a temporary Coach, the local UI and a synthetic video; the production Emby was not involved.
+Boundaries: DOM/screens and the player were not checked in this run. Other server events, remote control and redelivery after reconnect are not implemented. The integration used only a temporary Couch, the local UI and a synthetic video; the production Emby was not involved.
 
 ## Checkpoint after the M2 audit (2026-09-21)
 
@@ -125,7 +125,7 @@ Automated checks of the current slice:
 
 - `go test -race -cover ./...`: passed; media 83.1%, server 82.2%, state 71.7%, cmd 0%. Coverage excludes the external Node scenario.
 - `go vet ./...`, native macOS arm64 build, Linux amd64 cross-build (`CGO_ENABLED=0`) and `node --check scripts/check-emby-client.mjs`: passed. The Linux binary was not run.
-- `COACH_WEB_DIR=../emby-webui COACH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs`: passed, without the production Emby. The original ApiClient checks the full getSearchResults with ItemTypes, series/seasons/episodes, PlaybackInfo, WebSocket and signed cover URLs. HTTP checks confirm video/cover bytes, Range, denial of access without a signature, link persistence after restart and revocation after logout.
+- `COUCH_WEB_DIR=../emby-webui COUCH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs`: passed, without the production Emby. The original ApiClient checks the full getSearchResults with ItemTypes, series/seasons/episodes, PlaybackInfo, WebSocket and signed cover URLs. HTTP checks confirm video/cover bytes, Range, denial of access without a signature, link persistence after restart and revocation after logout.
 - Go regressions: filters by saved UserData, Resume pagination, missing/negative position, PlaySessionId window robustness to repeats and restart, series hierarchy; ItemTypes respects search/filters but not pagination, requires authentication and rejects invalid boolean parameters.
 - Image checks: limits on files/headers/sizes, symlinks pointing outside and FIFOs, forged signatures/signatures transferred to another object, expiry/logout, revision change, HTTP cache. Separate targeted image tests passed without skips.
 - The real HTTP stream cancellation test passed three times: the handler exits and closes the file; a missing file returns 404. A 64 MiB sparse file was used, not loading the whole file into RAM.
@@ -134,7 +134,7 @@ Browser check:
 
 - The installed Chrome is not connected to the tool; the built-in browser was used.
 - In `-web-dir` mode loading stops: the provided copy lacks `modules/apphost.js`. UI files were not modified. Three API modules matching the reference does not prove the distribution is complete.
-- Via `-web-upstream`, unmodified Emby Web signs in to a temporary Coach and shows Movies/TV Shows, Latest Episodes and the local movie cover via a signed ImageTag. The production Emby served only static resources; authentication and the catalog were handled by Coach.
+- Via `-web-upstream`, unmodified Emby Web signs in to a temporary Couch and shows Movies/TV Shows, Latest Episodes and the local movie cover via a signed ImageTag. The production Emby served only static resources; authentication and the catalog were handled by Couch.
 - Search revealed a missing ItemTypes and the rejection of GroupProgramsBySeries. The backend was fixed, and getSearchResults passed API integration. The page was not reloaded after the fix: the tool's automatic permission check hit its usage limit. This is a tool limitation, not a search acceptance result.
 - The player was not checked in this run. The full "search → item page → play → seek → stop → restart → resume" scenario on a long H.264/AAC file and the series scenario remain open. The temporary browser server was stopped.
 
@@ -142,24 +142,24 @@ M2 remains open. There are no comparative resource measurements, no acceptance o
 
 ## M2 browser acceptance (2026-10-03)
 
-Environment: Go 1.27.1, macOS arm64, FFmpeg 9.0.1, built-in browser. Coach was started with `-web-upstream http://192.168.1.11:8096`, a separate data directory and a temporary media folder; the production Emby served only static resources. Media are synthetic: `Long Movie.mp4` (600 s, H.264 640×360 + AAC, 134 MB, faststart) with a poster, and `Test Show/Season 01` with two 60-second episodes.
+Environment: Go 1.27.1, macOS arm64, FFmpeg 9.0.1, built-in browser. Couch was started with `-web-upstream http://192.168.1.11:8096`, a separate data directory and a temporary media folder; the production Emby served only static resources. Media are synthetic: `Long Movie.mp4` (600 s, H.264 640×360 + AAC, 134 MB, faststart) with a poster, and `Test Show/Season 01` with two 60-second episodes.
 
 Passed in unmodified Emby Web 4.10.0.40:
 
-- Sign-in, home (Movies/TV Shows, Latest Movies with a local poster, Latest Episodes), session persistence after each Coach restart.
+- Sign-in, home (Movies/TV Shows, Latest Movies with a local poster, Latest Episodes), session persistence after each Couch restart.
 - Search: suggestions and the full page with tabs find the movie, the series and the episodes.
 - Series: TV Shows library → item page (season, episodes) → "Play". Episode 1 plays via Direct Stream (206); after it ends, the client moves on to episode 2. PlaybackInfo 200, start/progress/stop — 204. Episode 1 is marked played, episode 2 appeared in Continue Watching.
 - Movie: search → item page (codecs, size, duration) → play → seek to 5:00. The browser buffer contains only [0–23] and [300–331] s, i.e. the file is not downloaded in full. Stop saved position 5:15.
-- Coach restart → Continue Watching shows the movie with progress → "Resume" continues from 5:15.
+- Couch restart → Continue Watching shows the movie with progress → "Resume" continues from 5:15.
 
 Found and fixed:
 
 - `GET /Shows/{id}/Seasons?IsSpecialSeason=false` was rejected (`UnsupportedQuery`), and the series page did not open. The parameter now filters out Season 00.
-- "Play" on a series requests `Items` with `Filters=IsNotFolder`, `IsStandaloneSpecial=false`, `ExcludeLocationTypes=Virtual`, `CollapseBoxSetItems=false` and received 400. Folder and special filters are implemented (without data on special placement, each Season 00 episode counts as standalone). Excluding Virtual/Offline/Remote and collapsing collections are no-ops, since Coach has no such objects; other values are rejected.
+- "Play" on a series requests `Items` with `Filters=IsNotFolder`, `IsStandaloneSpecial=false`, `ExcludeLocationTypes=Virtual`, `CollapseBoxSetItems=false` and received 400. Folder and special filters are implemented (without data on special placement, each Season 00 episode counts as standalone). Excluding Virtual/Offline/Remote and collapsing collections are no-ops, since Couch has no such objects; other values are rejected.
 
-Not implemented: search history. `POST /Users/{id}/SearchedItems` returns 404, and `Items?WasSearched=true&SortBy=DateLastSearched` returns 400. The client does not wait for the first request; the empty search page stays empty without an error message. On 2026-10-04 search history was implemented and checked in the browser (`-web-upstream`, synthetic files): opening a movie from search results sends `SearchedItems` (204), the empty search page shows it under "Recently Searched", and the "Clear" button (`POST /Users/{id}/RecentlySearched/Delete`) clears the list; before this route was added the client showed a 404 error. Also noted there: the TV Shows "Suggestions" tab requests `Items/Resume?IncludeItemTypes=Episode&ParentId=…` rather than `Shows/NextUp`, so Next Up is not visible in this client; the premieres row (`MinPremiereDate`, `IsUnaired`) received 400; it now receives an empty 200 response, since Coach items have no premiere date, and is still hidden.
+Not implemented: search history. `POST /Users/{id}/SearchedItems` returns 404, and `Items?WasSearched=true&SortBy=DateLastSearched` returns 400. The client does not wait for the first request; the empty search page stays empty without an error message. On 2026-10-04 search history was implemented and checked in the browser (`-web-upstream`, synthetic files): opening a movie from search results sends `SearchedItems` (204), the empty search page shows it under "Recently Searched", and the "Clear" button (`POST /Users/{id}/RecentlySearched/Delete`) clears the list; before this route was added the client showed a 404 error. Also noted there: the TV Shows "Suggestions" tab requests `Items/Resume?IncludeItemTypes=Episode&ParentId=…` rather than `Shows/NextUp`, so Next Up is not visible in this client; the premieres row (`MinPremiereDate`, `IsUnaired`) received 400; it now receives an empty 200 response, since Couch items have no premiere date, and is still hidden.
 
-Automated checks after the fixes: `go test -race -cover ./...` passed (media 83.1%, server 82.4%, state 71.7%); `go vet ./...`, gofmt, Linux amd64 cross-build and `COACH_WEB_DIR=../emby-webui COACH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs` passed. The Linux binary was not run.
+Automated checks after the fixes: `go test -race -cover ./...` passed (media 83.1%, server 82.4%, state 71.7%); `go vet ./...`, gofmt, Linux amd64 cross-build and `COUCH_WEB_DIR=../emby-webui COUCH_CHECK_MEDIA=1 node scripts/check-emby-client.mjs` passed. The Linux binary was not run.
 
 Boundaries: one synthetic container and codec set; seek was performed by setting the video element position, not by dragging the slider; local `-web-dir` mode, other clients and resource measurements were not checked.
 
@@ -180,9 +180,9 @@ Not checked in the browser: file download (saving in the browser requires a sepa
 
 Same setup. A `fetch` interceptor recording responses of 400 and above was installed on the page; walked through: home, movie playback, movie, series, season and episode pages, all tabs of the Movies and TV Shows libraries.
 
-Found and fixed ([#47](https://github.com/TokenCemetery/coach/issues/47)): `IsSpecialEpisode` (400, series specials row), `LiveTv/Programs` (404), `Movies/Recommendations` (404, "Suggestions" tab), `SortBy=IsFolder,Filename` (400, the "Folders" tab was empty) and `SortBy=SeriesSortName,ParentIndexNumber,IndexNumber,SortName` (400, favorite episodes). After the fix the same route produced no responses of 400 and above; the "Folders" tabs show the movie and the series.
+Found and fixed ([#47](https://github.com/TokenCemetery/couch/issues/47)): `IsSpecialEpisode` (400, series specials row), `LiveTv/Programs` (404), `Movies/Recommendations` (404, "Suggestions" tab), `SortBy=IsFolder,Filename` (400, the "Folders" tab was empty) and `SortBy=SeriesSortName,ParentIndexNumber,IndexNumber,SortName` (400, favorite episodes). After the fix the same route produced no responses of 400 and above; the "Folders" tabs show the movie and the series.
 
-User settings pages ([#48](https://github.com/TokenCemetery/coach/issues/48)): "Display" requested `web/configurationpages` (404), "Notifications" requested `Notifications/Services/Configured` and then `Notifications/Types` (404). All three now respond with an empty list (200): there are no plugins or notification services. "Home Screen", "Playback" and "Subtitles" produced no errors.
+User settings pages ([#48](https://github.com/TokenCemetery/couch/issues/48)): "Display" requested `web/configurationpages` (404), "Notifications" requested `Notifications/Services/Configured` and then `Notifications/Types` (404). All three now respond with an empty list (200): there are no plugins or notification services. "Home Screen", "Playback" and "Subtitles" produced no errors.
 
 The remaining screens produced no errors. The `#!/search` page, opened directly, stayed empty; search was accepted earlier via the header field and was not rechecked here.
 
@@ -190,19 +190,19 @@ The remaining screens produced no errors. The `#!/search` page, opened directly,
 
 Same setup, a 20 s H.264/AAC movie. From the movie page, "Play" starts direct delivery; `PlaybackInfo` 200, `Sessions/Playing` and `Playing/Progress` 204, the video plays. Going back sends `Playing/Stopped` with `PositionTicks` and the same `PlaySessionId` (204); the 43% position is saved, and the page shows "Resume", a progress bar and "0:11 remaining". Playing again after resetting the position starts from 0. There were no responses of 400 and above.
 
-The first attempt at the same scenario did not save the position (0 with `Stopped` 204); the request body was not recorded, and two retries did not reproduce the error: [#49](https://github.com/TokenCemetery/coach/issues/49).
+The first attempt at the same scenario did not save the position (0 with `Stopped` 204); the request body was not recorded, and two retries did not reproduce the error: [#49](https://github.com/TokenCemetery/couch/issues/49).
 
 ## WebSocket in the browser (2026-10-04)
 
 Same setup, two tabs of the same user on the movie page; "favorite" changes were sent both from a tab and from a separate client via the API (`POST /Users/{id}/FavoriteItems/{item}` and `.../Delete`).
 
 - An open socket (`ApiClient.isWebSocketOpen()`) receives `UserDataChanged`: the favorite button in the second tab changes without a reload, including after a change made outside the browser.
-- After a Coach restart, the open tab loses its socket and does not reconnect within 40 s. This is Emby Web 4.10.0.40 behavior: when the socket closes, the client only clears it, and `ensureWebSocket()` is called later — after connectivity is restored on a request error, or when playback starts. Calling `ensureWebSocket()` opens a socket with the saved session, and the next change reaches the tab again.
+- After a Couch restart, the open tab loses its socket and does not reconnect within 40 s. This is Emby Web 4.10.0.40 behavior: when the socket closes, the client only clears it, and `ensureWebSocket()` is called later — after connectivity is restored on a request error, or when playback starts. Calling `ensureWebSocket()` opens a socket with the saved session, and the next change reaches the tab again.
 - A tab loaded before the server restart may therefore not receive events until it starts playback or is reloaded.
 
 ## Episode from its page and moving to the next (2026-10-04)
 
-Same setup, 20 s episodes. "Play" on the S01E01 page hung on the loading indicator: the queue is built by a `Shows/{id}/Episodes?IsVirtualUnaired=false&IsMissing=false` request, which Coach rejected with 400 ([#50](https://github.com/TokenCemetery/coach/issues/50)). After the fix the episode plays; at the end the client sends `Playing/Stopped` with a position equal to the duration, requests `PlaybackInfo` for S01E02 and starts it on its own (`Sessions/Playing` for S01E02, 204).
+Same setup, 20 s episodes. "Play" on the S01E01 page hung on the loading indicator: the queue is built by a `Shows/{id}/Episodes?IsVirtualUnaired=false&IsMissing=false` request, which Couch rejected with 400 ([#50](https://github.com/TokenCemetery/couch/issues/50)). After the fix the episode plays; at the end the client sends `Playing/Stopped` with a position equal to the duration, requests `PlaybackInfo` for S01E02 and starts it on its own (`Sessions/Playing` for S01E02, 204).
 
 ## Playback entry points (2026-10-04)
 
@@ -220,7 +220,7 @@ The TV Shows library has no "Play"/"Shuffle" buttons. "View missing episodes" wa
 
 ## Error format (2026-10-04, #52)
 
-For anonymous GETs without a token (user permission, without sign-in), the reference Emby responds with `text/plain`: 401 — `Access token is invalid or expired.`, 404 — a file-not-found message localized to the server language. Emby Web (`modules/common/responsehelper.js`) parses JSON only when `Content-Type: application/json` exactly, otherwise it shows the response text as is. Coach responds the same way: `text/plain` with a clear English message. In the browser, Emby Web's `getErrorInfo` for a Coach 401 gives the title "Sign-in error" and the text `Access token is invalid or expired.`.
+For anonymous GETs without a token (user permission, without sign-in), the reference Emby responds with `text/plain`: 401 — `Access token is invalid or expired.`, 404 — a file-not-found message localized to the server language. Emby Web (`modules/common/responsehelper.js`) parses JSON only when `Content-Type: application/json` exactly, otherwise it shows the response text as is. Couch responds the same way: `text/plain` with a clear English message. In the browser, Emby Web's `getErrorInfo` for a Couch 401 gives the title "Sign-in error" and the text `Access token is invalid or expired.`.
 
 ## E2E against the OpenAPI contract (2026-10-04)
 
@@ -230,7 +230,7 @@ Environment: Go 1.27.1, macOS arm64, FFmpeg 9.0.2, Allure CLI 3.14.3. `make e2e`
 - **440 marked as expected failures** in `e2e/known_failures.go`. Almost all of them are 404 on unimplemented routes. Besides those:
   - 4 administrative operations `/Users/Query|Prefixes|ItemAccess|CopyDataOptions` give 403;
   - 2 behavioral checks fail for their own reasons: HLS and WebVTT — 404 (`Resume?IncludeNextUp` passes since 2026-10-04; WebVTT and 4 `Videos/…/Subtitles/…/Stream.{Format}` operations pass with embedded subtitle extraction, #24);
-  - the first run found 4 implemented operations diverging from the contract ([#44](https://github.com/TokenCemetery/coach/issues/44)): the `OwnerId` type in ThemeMedia, the `SearchedItems/` route with a trailing slash, the bodies of `POST /UserSettings/{id}` and `/Users/{id}/Configuration/Partial`. In all four cases Emby Web 4.10.0.40 (`modules/emby-apiclient/apiclient.js`, `modules/thememediaplayer.js`) behaves like Coach, so the contract was fixed with an `x-coach-source` annotation.
+  - the first run found 4 implemented operations diverging from the contract ([#44](https://github.com/TokenCemetery/couch/issues/44)): the `OwnerId` type in ThemeMedia, the `SearchedItems/` route with a trailing slash, the bodies of `POST /UserSettings/{id}` and `/Users/{id}/Configuration/Partial`. In all four cases Emby Web 4.10.0.40 (`modules/emby-apiclient/apiclient.js`, `modules/thememediaplayer.js`) behaves like Couch, so the contract was fixed with an `x-couch-source` annotation.
 
 Strictness of the map was checked manually:
 
@@ -250,7 +250,7 @@ Strictness of the map was checked manually:
 
 ## "Next Up" on the series page (2026-10-04, #40)
 
-Emby Web requests `Items/Resume?ParentId=<series>&IncludeItemTypes=Episode` without `IncludeNextUp`; the reference Emby adds next episodes in this case too. After Coach started doing the same, on the setup with S1:E1 and S1:E2 played, the series page shows "S1:E3 - Show.S01E03". The reference behavior with `IncludeNextUp=false` was not captured; in that case Coach does not add next episodes.
+Emby Web requests `Items/Resume?ParentId=<series>&IncludeItemTypes=Episode` without `IncludeNextUp`; the reference Emby adds next episodes in this case too. After Couch started doing the same, on the setup with S1:E1 and S1:E2 played, the series page shows "S1:E3 - Show.S01E03". The reference behavior with `IncludeNextUp=false` was not captured; in that case Couch does not add next episodes.
 
 ## "Mark played" on a series (2026-10-04, #53)
 
@@ -286,21 +286,21 @@ The behavioral check `storage-error-is-reported` in `make e2e` makes the data di
 
 ## Data backup and upgrade (2026-10-11, #32)
 
-The behavioral check `backup-restores-after-forced-stop` in `make e2e` follows the procedure from the README. After a "favorite" mark, Coach is stopped with `SIGTERM`, the data directory files are copied, and Coach is started. Then "favorite" is removed, "played" is set, the avatar is deleted, and the process is killed with `SIGKILL`. After that Coach is stopped again, the directory files are replaced with the copy, and it is started. The session token from the copy is valid, the movie is a favorite again and not played, and the avatar is served (200 `image/png`). If the replacement is skipped, the check fails on both conditions.
+The behavioral check `backup-restores-after-forced-stop` in `make e2e` follows the procedure from the README. After a "favorite" mark, Couch is stopped with `SIGTERM`, the data directory files are copied, and Couch is started. Then "favorite" is removed, "played" is set, the avatar is deleted, and the process is killed with `SIGKILL`. After that Couch is stopped again, the directory files are replaced with the copy, and it is started. The session token from the copy is valid, the movie is a favorite again and not played, and the avatar is served (200 `image/png`). If the replacement is skipped, the check fails on both conditions.
 
 Upgrade: the first release (172bee0) was built from `git archive`, and used to run `-init`, sign-in, "favorite" and a position report. The current binary on this directory accepted the same token, showed the position and "favorite", and wrote a change. The written file is in `src/internal/state/testdata/state-172bee0.json`; `TestOpenFirstReleaseState` opens it, signs in, writes and opens it again. This check catches a rename of the `PositionTicks` field in JSON. There is no other schema version yet: a v1 → v2 migration will need to be checked on this same file.
 
 ## External subtitles in the browser (2026-10-04, #24)
 
-`-web-upstream` setup; `Sample Movie.ru.srt` (CRLF, Cyrillic) was temporarily placed next to `Sample Movie.mp4`. After a scan, the item page shows a `ru SRT` track (`IsExternal=true`). Playback with the track selected: PlaybackInfo with `SubtitleStreamIndex=2` gives a direct stream, Emby Web adds a `<track>` linking to `stream.vtt`, loads both cues (0.5–5 s and 5.5–9 s) and shows "Проверка субтитров Coach" from 0.5 to 4.7 s; after 5 s the text disappears. The subtitle file was then removed.
+`-web-upstream` setup; `Sample Movie.ru.srt` (CRLF, Cyrillic) was temporarily placed next to `Sample Movie.mp4`. After a scan, the item page shows a `ru SRT` track (`IsExternal=true`). Playback with the track selected: PlaybackInfo with `SubtitleStreamIndex=2` gives a direct stream, Emby Web adds a `<track>` linking to `stream.vtt`, loads both cues (0.5–5 s and 5.5–9 s) and shows "Проверка субтитров Couch" from 0.5 to 4.7 s; after 5 s the text disappears. The subtitle file was then removed.
 
 ## Embedded subtitles in the browser (2026-10-04, #24)
 
-`-web-upstream` setup; `Subbed.mp4` with a `mov_text` track (rus, "Встроенные субтитры Coach", 0.5–5 s) was temporarily added to the media directory. Playback with `SubtitleStreamIndex=2`: direct stream, no error dialogs; Emby Web shows the cue from about 1 to 4.7 s; after 5 s the text disappears. The first appearance later than 0.5 s corresponds to FFmpeg extraction time. In `make e2e` the behavioral check `subtitle-webvtt` and 4 `Videos/…/Subtitles/…/Stream.{Format}` operations pass. The file was then removed.
+`-web-upstream` setup; `Subbed.mp4` with a `mov_text` track (rus, "Встроенные субтитры Couch", 0.5–5 s) was temporarily added to the media directory. Playback with `SubtitleStreamIndex=2`: direct stream, no error dialogs; Emby Web shows the cue from about 1 to 4.7 s; after 5 s the text disappears. The first appearance later than 0.5 s corresponds to FFmpeg extraction time. In `make e2e` the behavioral check `subtitle-webvtt` and 4 `Videos/…/Subtitles/…/Stream.{Format}` operations pass. The file was then removed.
 
 ## Language list for settings (2026-10-04, #55)
 
-With the user's permission, the `GET /Localization/Cultures` response of the reference Emby 4.10.0.40 was captured: sign-in as `oleg` with a separate device `coach-capture-cultures`, one GET, `Sessions/Logout` (204), token revocation confirmed by a 401 response. The response (196 entries, only ISO 639 language codes and names) is stored unchanged in `src/internal/server/cultures.json` and served by Coach. In the browser, the "Subtitles" page shows 196 languages; selecting Russian saves `SubtitleLanguagePreference=ru`. The "Playback" page uses the same call for the audio language.
+With the user's permission, the `GET /Localization/Cultures` response of the reference Emby 4.10.0.40 was captured: sign-in as `oleg` with a separate device `couch-capture-cultures`, one GET, `Sessions/Logout` (204), token revocation confirmed by a 401 response. The response (196 entries, only ISO 639 language codes and names) is stored unchanged in `src/internal/server/cultures.json` and served by Couch. In the browser, the "Subtitles" page shows 196 languages; selecting Russian saves `SubtitleLanguagePreference=ru`. The "Playback" page uses the same call for the audio language.
 
 ## Remux to HLS (2026-10-06, #21)
 
@@ -312,13 +312,13 @@ Not confirmed: smooth picture after seeking. The browser pane was hidden, and Ch
 
 ## External subtitles with remux to HLS (2026-10-06, #21, #24)
 
-`-web-dir ../emby-webui` setup, Chromium, browser pane visible. A synthetic `Subbed.mkv` (H.264 + AC3 mono, 60 s, keyframes every 2 s) with `Subbed.srt` next to it: 30 cues "Coach cue N" of 1.5 s each, starting every 2 s. On the item page the `SRT` track is selected, "Play": the MKV plays via remux to HLS (hls.js, `blob:` source), the client adds a `<track>` with `subtitles/2/stream.vtt` and loads all 30 cues; Emby Web draws them in its own `.videoSubtitles` layer. Sync was checked against the timestamp in the `testsrc2` frame: at 14.4 s cue 8 (14–15.5 s) is active; after seeking to 42.2 s — frame 46.200, `currentTime` 46.17, cue 24 (46–47.5 s); after seeking to 50.3 s the screenshot shows frame 51.280 and the text "Coach cue 26" (50–51.5 s). Seeking restarts FFmpeg; there is no subtitle offset. Playback reached the end; no errors in the Coach log.
+`-web-dir ../emby-webui` setup, Chromium, browser pane visible. A synthetic `Subbed.mkv` (H.264 + AC3 mono, 60 s, keyframes every 2 s) with `Subbed.srt` next to it: 30 cues "Couch cue N" of 1.5 s each, starting every 2 s. On the item page the `SRT` track is selected, "Play": the MKV plays via remux to HLS (hls.js, `blob:` source), the client adds a `<track>` with `subtitles/2/stream.vtt` and loads all 30 cues; Emby Web draws them in its own `.videoSubtitles` layer. Sync was checked against the timestamp in the `testsrc2` frame: at 14.4 s cue 8 (14–15.5 s) is active; after seeking to 42.2 s — frame 46.200, `currentTime` 46.17, cue 24 (46–47.5 s); after seeking to 50.3 s the screenshot shows frame 51.280 and the text "Couch cue 26" (50–51.5 s). Seeking restarts FFmpeg; there is no subtitle offset. Playback reached the end; no errors in the Couch log.
 
 This closes the open item of the "Remux to HLS" entry: with the pane visible, frames are rendered after seeking (the timestamps in the frame advance together with `currentTime`).
 
-Not checked: subtitles inside HLS (`ManifestSubtitles`, the `subtitles.m3u8` playlist) — Coach did not serve them then, and the client used external WebVTT. They are served since 2026-10-11, see "Subtitles inside HLS".
+Not checked: subtitles inside HLS (`ManifestSubtitles`, the `subtitles.m3u8` playlist) — Couch did not serve them then, and the client used external WebVTT. They are served since 2026-10-11, see "Subtitles inside HLS".
 
-Embedded subtitles: `Embedded.mkv` with the same 30 cues as a SubRip track (`rus`) inside the MKV. The track is selected, playback via remux to HLS; Coach extracts the track with FFmpeg to WebVTT, the client loads 30 cues; after seeking to 30.3 s the screen shows "Coach cue 16" (30–31.5 s).
+Embedded subtitles: `Embedded.mkv` with the same 30 cues as a SubRip track (`rus`) inside the MKV. The track is selected, playback via remux to HLS; Couch extracts the track with FFmpeg to WebVTT, the client loads 30 cues; after seeking to 30.3 s the screen shows "Couch cue 16" (30–31.5 s).
 
 Observed once and not reproduced: after seeking from 9.8 to 30.3 s, the picture froze on frame 9.840 (`getVideoPlaybackQuality` — 251 frames per session), while `currentTime` ran about 2.7 times faster than real time with a buffer of 0–59.94 s; seeking back 3 s restored frame output. Repeated in three new sessions (7 seeks, including from 9.9 to 30.3 s, back by 10 s and to 48 s) — each time about 25 frames per second and normal time progression. The cause was not found; it resembles the earlier observation in the "Remux to HLS" entry.
 
@@ -326,43 +326,43 @@ Observed once and not reproduced: after seeking from 9.8 to 30.3 s, the picture 
 
 Reference Emby 4.10.0.40 (read-only): with HLS, text subtitles for Emby Web come with `DeliveryMethod=Hls`, `TranscodingUrl` contains `SubtitleStreamIndexes` and `ManifestSubtitles=vtt`, `master.m3u8` contains an `EXT-X-MEDIA:TYPE=SUBTITLES` group linking to `subtitles.m3u8`, and WebVTT segments are 6 s each with `X-TIMESTAMP-MAP`.
 
-`-web-dir ../emby-webui` setup, Chromium, matrix set: `MKV H264 AC3.mkv` (`testsrc2` 25 fps) and `MKV H264 AC3.srt` — cues "Cue N" of 1.5 s each, starting every 2 s. On the item page the SRT track is selected, "Resume": PlaybackInfo with `SubtitleStreamIndex=2`, then `master.m3u8` with `SubtitleStreamIndexes=2&ManifestSubtitles=vtt`, `subtitles.m3u8` and `hls1/subs/0.vtt` (all 200); hls.js created an `SRT` track with 60 cues. Frame 39.000 shows "Cue 20" (38–39.5 s). On the player timeline cue 20 starts at 37.943, and at `currentTime` 40.000 frame 40.040 is rendered: video and cues are shifted equally, within a frame. In the player's "Subtitles" menu, "Off" removed the text and selecting SRT brought it back ("Cue 37" on frame 1:13.280); no new PlaybackInfo or playlists were requested. No errors in the Coach log. In `make e2e` the behavioral check `hls-subtitle-playlist` and the `Videos/{id}/subtitles.m3u8` operation pass.
+`-web-dir ../emby-webui` setup, Chromium, matrix set: `MKV H264 AC3.mkv` (`testsrc2` 25 fps) and `MKV H264 AC3.srt` — cues "Cue N" of 1.5 s each, starting every 2 s. On the item page the SRT track is selected, "Resume": PlaybackInfo with `SubtitleStreamIndex=2`, then `master.m3u8` with `SubtitleStreamIndexes=2&ManifestSubtitles=vtt`, `subtitles.m3u8` and `hls1/subs/0.vtt` (all 200); hls.js created an `SRT` track with 60 cues. Frame 39.000 shows "Cue 20" (38–39.5 s). On the player timeline cue 20 starts at 37.943, and at `currentTime` 40.000 frame 40.040 is rendered: video and cues are shifted equally, within a frame. In the player's "Subtitles" menu, "Off" removed the text and selecting SRT brought it back ("Cue 37" on frame 1:13.280); no new PlaybackInfo or playlists were requested. No errors in the Couch log. In `make e2e` the behavioral check `hls-subtitle-playlist` and the `Videos/{id}/subtitles.m3u8` operation pass.
 
 Not checked: several tracks in one playlist in the browser (ordering is covered by a unit test), embedded subtitles via HLS in the browser, files with a non-zero `start_time` in the browser (the formula is covered by a test on MPEG-TS), other clients (#26, #27).
 
 ## Audio track switching in the browser (2026-10-06, #24)
 
-`-web-dir ../emby-webui` setup, Chromium. A synthetic MP4 H.264 + two mono AAC tracks (`eng` 440 Hz default, `rus` 880 Hz), 60 s. Playback starts with the direct stream `stream.mp4`. Chromium without `AudioTrack` does not switch tracks within a file, so selecting `rus` in the "Audio" menu sends PlaybackInfo with `AudioStreamIndex=2` and the current position. The Emby Web profile for AAC contains the condition `IsSecondaryAudio Equals false`, so the direct stream is rejected and Coach returns a `TranscodingUrl` with `AudioStreamIndex=2`. The client calls `POST Videos/ActiveEncodings/Delete` (204), loads `master.m3u8` and `main.m3u8` (200), and hls.js continues playback from the switch point. The audio frequency in the served segment is 880 Hz, i.e. the selected track is playing.
+`-web-dir ../emby-webui` setup, Chromium. A synthetic MP4 H.264 + two mono AAC tracks (`eng` 440 Hz default, `rus` 880 Hz), 60 s. Playback starts with the direct stream `stream.mp4`. Chromium without `AudioTrack` does not switch tracks within a file, so selecting `rus` in the "Audio" menu sends PlaybackInfo with `AudioStreamIndex=2` and the current position. The Emby Web profile for AAC contains the condition `IsSecondaryAudio Equals false`, so the direct stream is rejected and Couch returns a `TranscodingUrl` with `AudioStreamIndex=2`. The client calls `POST Videos/ActiveEncodings/Delete` (204), loads `master.m3u8` and `main.m3u8` (200), and hls.js continues playback from the switch point. The audio frequency in the served segment is 880 Hz, i.e. the selected track is playing.
 
 Found: before `Videos/ActiveEncodings` was supported (#21), this request received 404, the client aborted the switch and continued the previous stream; on a second switch the player closed.
 
 Not confirmed: by ear (sound in the pane was not checked).
 
-Later the same day: the selected track was encoded to AAC even though it is the only one in the segments. The HLS profile is now evaluated against the video and the selected track, so the track is copied: `TranscodingUrl` without `MaxAudioChannels`, the segment is AAC mono, as in the source, 880 Hz (checked by requests to Coach with the same `IsSecondaryAudio` condition, without a browser).
+Later the same day: the selected track was encoded to AAC even though it is the only one in the segments. The HLS profile is now evaluated against the video and the selected track, so the track is copied: `TranscodingUrl` without `MaxAudioChannels`, the segment is AAC mono, as in the source, 880 Hz (checked by requests to Couch with the same `IsSecondaryAudio` condition, without a browser).
 
 ## Container image (2026-10-06, #62)
 
 Podman 6.1.3, machine applehv, linux/arm64. `podman build` from `Dockerfile`: Go 1.27.1 on `golang:1.27-alpine3.24`, final image `alpine:3.24` with FFmpeg 8.1.2 (`fd` protocol, `libx264`, `aac`), 127 MB. State and the library were kept in named volumes, the library mounted read-only. `-init` via stdin created a user; `/data` files are owned by UID 10001 and have 0600 permissions. The log has no "FFmpeg not found" line, so HLS is enabled. A synthetic MKV H.264 + AC3 (30 s): FFprobe inside the container detected `h264`/`ac3`. For a profile with DirectPlay of only `h264`/`aac` and an HLS profile `ts`, PlaybackInfo returned `SupportsDirectPlay=false` and a `TranscodingUrl` to `master.m3u8`. FFprobe read the stream as `h264` + `aac`, and segments appeared in `/data/transcode`. `podman stop` (SIGTERM) ended the container with code 0 in 0.2 s, and the `transcode` directory was removed. In a second run, Emby Web from a directory mounted at `/web` (`-web-dir /web`) served `index.html` with `data-appversion="4.10.0.40"`; after adding a file, `podman kill -s HUP` produced `Media rescan complete videos=1`.
 
-Not checked: the linux/amd64 image, a Docker build, the browser scenario against the container, `make e2e` inside Linux. Video transcoding (#22) is not yet implemented in Coach: the image only provides FFmpeg with `libx264` for it.
+Not checked: the linux/amd64 image, a Docker build, the browser scenario against the container, `make e2e` inside Linux. Video transcoding (#22) is not yet implemented in Couch: the image only provides FFmpeg with `libx264` for it.
 
 ## Rescan without restart (2026-10-06, #39)
 
-`-web-upstream` setup, `-media-dir` with the synthetic e2e set (4 videos, 2 series folders). `Rescanned Movie.mp4` was copied into the directory and `SIGHUP` was sent to the Coach process: the log shows `Rescanning media directory` and `Media rescan complete videos=5`. Without a restart, Emby Web shows the movie first in "Latest Movies", the item page shows "Added 06.10.2026, 09:20" (scan time), and the movie plays. The file was deleted, another `SIGHUP`: `videos=4`, the API no longer returns the movie, and after a page reload it is gone from home; before the reload the open home page still showed it (there is no `LibraryChanged` notification). The process keeps running after the signals. Unit tests cover FFprobe reuse, keeping ID and date, deletion, walk error and an empty volume; `src/cmd/coach` — publishing on signal and refusing to publish an empty directory.
+`-web-upstream` setup, `-media-dir` with the synthetic e2e set (4 videos, 2 series folders). `Rescanned Movie.mp4` was copied into the directory and `SIGHUP` was sent to the Couch process: the log shows `Rescanning media directory` and `Media rescan complete videos=5`. Without a restart, Emby Web shows the movie first in "Latest Movies", the item page shows "Added 06.10.2026, 09:20" (scan time), and the movie plays. The file was deleted, another `SIGHUP`: `videos=4`, the API no longer returns the movie, and after a page reload it is gone from home; before the reload the open home page still showed it (there is no `LibraryChanged` notification). The process keeps running after the signals. Unit tests cover FFprobe reuse, keeping ID and date, deletion, walk error and an empty volume; `src/cmd/couch` — publishing on signal and refusing to publish an empty directory.
 
 ## Local Emby Web via `-web-dir` (2026-10-06, #19)
 
-With the user's permission, four missing files (`modules/apphost.js`, `modules/input/keyboard.js`, `modules/virtual-scroller/virtual-scroller.js` and `.css`) were downloaded via anonymous GETs from `/web/` of the reference Emby 4.10.0.40 (all 200) into `../emby-webui`; they are not part of the Coach repository. Coach with `-web-dir ../emby-webui`, without `-web-upstream`: the client loads; sign-in, home, the episode page, episode playback (video plays), the series page and "Settings" open; all 229 loaded `/web/` files are served without errors, no server errors. The console shows one 404 and two `Uncaught (in promise)` — the same was observed the same day on the `-web-upstream` setup, i.e. unrelated to the UI copy. Not checked: administrative pages (#33), Live TV and music.
+With the user's permission, four missing files (`modules/apphost.js`, `modules/input/keyboard.js`, `modules/virtual-scroller/virtual-scroller.js` and `.css`) were downloaded via anonymous GETs from `/web/` of the reference Emby 4.10.0.40 (all 200) into `../emby-webui`; they are not part of the Couch repository. Couch with `-web-dir ../emby-webui`, without `-web-upstream`: the client loads; sign-in, home, the episode page, episode playback (video plays), the series page and "Settings" open; all 229 loaded `/web/` files are served without errors, no server errors. The console shows one 404 and two `Uncaught (in promise)` — the same was observed the same day on the `-web-upstream` setup, i.e. unrelated to the UI copy. Not checked: administrative pages (#33), Live TV and music.
 
 ## Transcoding to H.264 (2026-10-07, #22)
 
-`-web-dir ../emby-webui` setup, Chromium, browser pane visible, a separate data directory and a new user. Synthetic files of 120 s each, `testsrc2` 640×360, 25 fps: `Mpeg4.avi` (MPEG-4 Part 2, keyframes every 2 s, MP3) and `Hevc10.mkv` (HEVC 10-bit, keyframes every 2 s, AC3 mono). The Emby Web profile accepts neither video even in HLS, so PlaybackInfo returns a `TranscodingUrl` with `VideoCodec=h264` and `VideoBitrate`; `master.m3u8`, `main.m3u8` and segments — 200, hls.js shows the full duration (119.9 s) and renders frames. The timestamp in the frame matches the player position: AVI — 11.200 at 11.12 s, after seeking to 80 s — 1:24.040 at 83.94 s; resuming from 89.5 s (`StartTimeTicks`) starts FFmpeg from the middle of the file — frame 1:34.960 at 94.88 s; HEVC — 6.560 at 6.49 s. MP3 is copied, AC3 is encoded to AAC mono. After `Sessions/Playing/Stopped` the `transcode` directory is empty, there are no FFmpeg processes; no warnings in the Coach log.
+`-web-dir ../emby-webui` setup, Chromium, browser pane visible, a separate data directory and a new user. Synthetic files of 120 s each, `testsrc2` 640×360, 25 fps: `Mpeg4.avi` (MPEG-4 Part 2, keyframes every 2 s, MP3) and `Hevc10.mkv` (HEVC 10-bit, keyframes every 2 s, AC3 mono). The Emby Web profile accepts neither video even in HLS, so PlaybackInfo returns a `TranscodingUrl` with `VideoCodec=h264` and `VideoBitrate`; `master.m3u8`, `main.m3u8` and segments — 200, hls.js shows the full duration (119.9 s) and renders frames. The timestamp in the frame matches the player position: AVI — 11.200 at 11.12 s, after seeking to 80 s — 1:24.040 at 83.94 s; resuming from 89.5 s (`StartTimeTicks`) starts FFmpeg from the middle of the file — frame 1:34.960 at 94.88 s; HEVC — 6.560 at 6.49 s. MP3 is copied, AC3 is encoded to AAC mono. After `Sessions/Playing/Stopped` the `transcode` directory is empty, there are no FFmpeg processes; no warnings in the Couch log.
 
 Unit test with FFmpeg (HEVC 10-bit 161×121 with closed GOPs in MKV and MPEG-TS): segments are H.264 `yuv420p` 160 wide, every segment except the first starts exactly on plan, a job restarted from segments 3 and 1 writes the same timestamps, a second transcoding session is refused, while remux remains available.
 
-Size limit (2026-10-07): an Emby Web profile with `Width LessThanEqual 320` added to its `h264` conditions was requested from Coach over HTTP for `Hevc10.mkv` (640×360). `TranscodingUrl` contains `MaxWidth=320`, the first segment is H.264 320×180 `yuv420p`; after `Videos/ActiveEncodings/Delete` the `transcode` directory is empty. Not checked in the browser: on this Mac, Emby Web does not set a `Width` condition because 4K decodes smoothly.
+Size limit (2026-10-07): an Emby Web profile with `Width LessThanEqual 320` added to its `h264` conditions was requested from Couch over HTTP for `Hevc10.mkv` (640×360). `TranscodingUrl` contains `MaxWidth=320`, the first segment is H.264 320×180 `yuv420p`; after `Videos/ActiveEncodings/Delete` the `transcode` directory is empty. Not checked in the browser: on this Mac, Emby Web does not set a `Width` condition because 4K decodes smoothly.
 
-H.264 level (2026-10-07): an 8-second HEVC 3840×2160, Emby Web profile with `VideoLevel LessThanEqual 42` — `MaxWidth=1982`, `MaxHeight=1114`, H.264 segment 1980×1114 at level 4.2 (`libx264` chose it); with `62` — no size limit, 3840×2160, level 5.1. After `Videos/ActiveEncodings/Delete` the `transcode` directory is empty. Checked by requests to Coach, without a browser.
+H.264 level (2026-10-07): an 8-second HEVC 3840×2160, Emby Web profile with `VideoLevel LessThanEqual 42` — `MaxWidth=1982`, `MaxHeight=1114`, H.264 segment 1980×1114 at level 4.2 (`libx264` chose it); with `62` — no size limit, 3840×2160, level 5.1. After `Videos/ActiveEncodings/Delete` the `transcode` directory is empty. Checked by requests to Couch, without a browser.
 
 Macroblock rate (2026-10-07): HEVC 1920×1080, 60 fps, 6 s; with `VideoLevel LessThanEqual 41` — `MaxWidth=1360`, `MaxHeight=764`, H.264 segment 1358×764, 60 fps, level 4.0; with `42` — 1920×1080, 60 fps, level 4.2. The `transcode` directory is empty after stopping.
 
@@ -370,13 +370,13 @@ Not checked: long files and real CPU load (#29), sound by ear, other clients (#2
 
 ## Rotated video (2026-10-11, #22)
 
-FFprobe 9.0.2 reports rotation from the display matrix (`side_data_list`, `rotation` counterclockwise); when copying into MPEG-TS the matrix is lost, and remux would show the frame sideways. `-web-dir ../emby-webui` setup, Chromium, synthetic 20 s `testsrc2` 1280×720 files rotated 90°: `MOV HEVC rotated.mov` (HEVC, AAC) and `MP4 H264 rotated.mp4` (H.264, AAC). The Emby Web profile accepts HEVC only in HLS, so the MOV used to be served via remux; now PlaybackInfo returns a `TranscodingUrl` with `VideoCodec=h264` and `VideoBitrate`, the player renders a 720×1280 frame, and after seeking to 14 s also 720×1280. The MP4 goes via Direct Stream (`stream.mp4`) and the browser applies the rotation itself — also 720×1280, with the frame oriented the same as after transcoding. After stopping, the `transcode` directory is empty, there are no FFmpeg processes, and no errors in the Coach log.
+FFprobe 9.0.2 reports rotation from the display matrix (`side_data_list`, `rotation` counterclockwise); when copying into MPEG-TS the matrix is lost, and remux would show the frame sideways. `-web-dir ../emby-webui` setup, Chromium, synthetic 20 s `testsrc2` 1280×720 files rotated 90°: `MOV HEVC rotated.mov` (HEVC, AAC) and `MP4 H264 rotated.mp4` (H.264, AAC). The Emby Web profile accepts HEVC only in HLS, so the MOV used to be served via remux; now PlaybackInfo returns a `TranscodingUrl` with `VideoCodec=h264` and `VideoBitrate`, the player renders a 720×1280 frame, and after seeking to 14 s also 720×1280. The MP4 goes via Direct Stream (`stream.mp4`) and the browser applies the rotation itself — also 720×1280, with the frame oriented the same as after transcoding. After stopping, the `transcode` directory is empty, there are no FFmpeg processes, and no errors in the Couch log.
 
 Unit tests: rotation −90 is read as 270; rotated video is excluded from remux; the H.264 level limits the size of the already rotated frame (`MaxWidth` < `MaxHeight`); the condition `VideoRotation Equals 0` (Emby Web on Tizen) accepts only unrotated video. Not checked: Tizen and other clients, resume position for rotated files.
 
 ## Emby Web screen walkthrough (2026-10-07, #76)
 
-`-web-dir ../emby-webui` setup, Chromium, Movies and TV Shows libraries from the matrix set. API responses with status 400 and above were intercepted in the page. Walked through: home ("Home" and "Favorites" tabs), the Movies and TV Shows libraries with all tabs, movie, series, season and episode pages, a "Matrix" search and all nine settings pages. Found and fixed: the "Favorites" tab received 400 on four `Users/{id}/Items` requests — with `CollectionTypes=music`/`audiobooks` and with `ChannelNumber` sorting for channels. After the fix there are no API errors except 404 for `/Artists` and `/Persons` on the same tab: Coach has no music or people, and these operations are not ranked (#34). The Coach log has no errors. Later they started responding with an empty list (#80): the "Favorites" tab makes two `/Artists` requests and one `/Persons` request, all 200, and it has no more API errors.
+`-web-dir ../emby-webui` setup, Chromium, Movies and TV Shows libraries from the matrix set. API responses with status 400 and above were intercepted in the page. Walked through: home ("Home" and "Favorites" tabs), the Movies and TV Shows libraries with all tabs, movie, series, season and episode pages, a "Matrix" search and all nine settings pages. Found and fixed: the "Favorites" tab received 400 on four `Users/{id}/Items` requests — with `CollectionTypes=music`/`audiobooks` and with `ChannelNumber` sorting for channels. After the fix there are no API errors except 404 for `/Artists` and `/Persons` on the same tab: Couch has no music or people, and these operations are not ranked (#34). The Couch log has no errors. Later they started responding with an empty list (#80): the "Favorites" tab makes two `/Artists` requests and one `/Persons` request, all 200, and it has no more API errors.
 
 Continued: playback of MP4 (Direct Stream), AVI (transcoding) and an episode (remux) with seeking and exiting the player — no API errors (one `ThemeMedia` request was aborted by the client itself when leaving the page). The movie's "More" menu offers "Add to Playlist" for any video (the client decides by item type); the dialog received 400 on `CanEditItems=true` (#77). After the fix the playlist list is empty and error-free; creating a playlist was not checked — playlists are not implemented.
 
@@ -392,7 +392,7 @@ Additionally: before showing a section, the client requests each list with `Limi
 
 ## Library added by rescan (2026-10-07, #75)
 
-`-web-dir ../emby-webui` setup, Chromium. Coach was started without the series (`Media scan complete videos=7 folders=0`), then `Matrix Show` was returned to the media directory and `SIGHUP` was sent (`videos=9 folders=2`). Before the fix, `GET /Items/{id}` compared the requested ID against the libraries of the catalog captured at route registration, and responded 404 for the newly appeared TV Shows library (reproduced by a server test). After the fix, in a freshly loaded Emby Web "TV Shows" opens (`Users/{id}/Items/{library id}` — 200) and shows the series.
+`-web-dir ../emby-webui` setup, Chromium. Couch was started without the series (`Media scan complete videos=7 folders=0`), then `Matrix Show` was returned to the media directory and `SIGHUP` was sent (`videos=9 folders=2`). Before the fix, `GET /Items/{id}` compared the requested ID against the libraries of the catalog captured at route registration, and responded 404 for the newly appeared TV Shows library (reproduced by a server test). After the fix, in a freshly loaded Emby Web "TV Shows" opens (`Users/{id}/Items/{library id}` — 200) and shows the series.
 
 ## UserConfigurationUpdated across tabs (2026-10-07, #25)
 
@@ -400,11 +400,11 @@ Additionally: before showing a section, the client requests each list with `Limi
 
 ## ServerShuttingDown on stop (2026-10-07, #25)
 
-`-web-dir ../emby-webui` setup, Chromium. With a WebSocket open, SIGTERM was sent to the Coach process: a subscription to Emby Web API client messages received `ServerShuttingDown` before the connection dropped, and the process exited with code 0. No visible notification appeared in this browser: notification permission is denied, and the toast did not show even when the same message was passed to the client handler directly — this is client behavior in this environment, not a delivery issue. Unit tests check the message and the 1001 close frame for several connections.
+`-web-dir ../emby-webui` setup, Chromium. With a WebSocket open, SIGTERM was sent to the Couch process: a subscription to Emby Web API client messages received `ServerShuttingDown` before the connection dropped, and the process exited with code 0. No visible notification appeared in this browser: notification permission is denied, and the toast did not show even when the same message was passed to the client handler directly — this is client behavior in this environment, not a delivery issue. Unit tests check the message and the 1001 close frame for several connections.
 
 ## Transcoding load (2026-10-07, #22, #29)
 
-Apple M1 (4 performance and 4 efficiency cores), FFmpeg 9.0.2. The FFmpeg command uses the same encoding parameters as Coach (`libx264` `veryfast`, CRF 23, forced keyframes, `segment` muxer), without rate limiting; sources are synthetic 60 s `testsrc2` (AVI — 120 s from `scripts/matrix-media.sh`). "Cores" is CPU time (user + sys) per second of video, i.e. how many cores are busy during real-time playback: Coach pauses FFmpeg once it is 10 segments ahead.
+Apple M1 (4 performance and 4 efficiency cores), FFmpeg 9.0.2. The FFmpeg command uses the same encoding parameters as Couch (`libx264` `veryfast`, CRF 23, forced keyframes, `segment` muxer), without rate limiting; sources are synthetic 60 s `testsrc2` (AVI — 120 s from `scripts/matrix-media.sh`). "Cores" is CPU time (user + sys) per second of video, i.e. how many cores are busy during real-time playback: Couch pauses FFmpeg once it is 10 segments ahead.
 
 | Source → output | Speed | Cores | Peak RSS |
 |---|---|---|---|
@@ -417,11 +417,11 @@ A synthetic image is easier to encode than a real movie, so the figures are a lo
 
 ## LibraryChanged after rescan (2026-10-07, #39, #25)
 
-`-web-dir ../emby-webui` setup, Chromium, a library of two movies. With the Movies library open, `Fresh.mp4` was added to the folder and `SIGHUP` was sent to the Coach process: the log shows `Media rescan complete videos=3`, and the list showed three items on its own, without navigation or reload. After moving the file out of the folder and `SIGHUP`, the list returned to two items on its own; the update arrives with a delay of a few seconds — the client defers redrawing. On home, the "Latest Movies" row showed `Fresh` on its own after the file was returned and `SIGHUP`. A unit test checks the message lists (added, updated, removed, parent folders, libraries) and that an unchanged catalog sends no event. Series and season screens and other clients were not checked.
+`-web-dir ../emby-webui` setup, Chromium, a library of two movies. With the Movies library open, `Fresh.mp4` was added to the folder and `SIGHUP` was sent to the Couch process: the log shows `Media rescan complete videos=3`, and the list showed three items on its own, without navigation or reload. After moving the file out of the folder and `SIGHUP`, the list returned to two items on its own; the update arrives with a delay of a few seconds — the client defers redrawing. On home, the "Latest Movies" row showed `Fresh` on its own after the file was returned and `SIGHUP`. A unit test checks the message lists (added, updated, removed, parent folders, libraries) and that an unchanged catalog sends no event. Series and season screens and other clients were not checked.
 
 ## Undeliverable subtitles in the browser (2026-10-06, #24)
 
-`-web-upstream` setup, Coach started with a `PATH` without `ffmpeg` (only `ffprobe`), `Subbed.mp4` with a `mov_text` track temporarily added to the media directory. On the item page the `rus MOV_TEXT` track is selected, playback: PlaybackInfo with `SubtitleStreamIndex=2` gives a direct stream without `ErrorCode`, the video plays (206, `Sessions/Playing` and progress reports), no `<track>` is added, no error dialog; the log shows `Subtitle not deliverable, playing without it`. The file was then removed.
+`-web-upstream` setup, Couch started with a `PATH` without `ffmpeg` (only `ffprobe`), `Subbed.mp4` with a `mov_text` track temporarily added to the media directory. On the item page the `rus MOV_TEXT` track is selected, playback: PlaybackInfo with `SubtitleStreamIndex=2` gives a direct stream without `ErrorCode`, the video plays (206, `Sessions/Playing` and progress reports), no `<track>` is added, no error dialog; the log shows `Subtitle not deliverable, playing without it`. The file was then removed.
 
 ## Subtitle auto-selection in the browser (2026-10-04, #24)
 
@@ -429,15 +429,15 @@ A synthetic image is easier to encode than a real movie, so the figures are a lo
 
 ## Sustained load (2026-10-04, #30)
 
-`COACH_SOAK=5m`, 8 workers, macOS arm64, synthetic e2e media set: 193,834 requests in 5 minutes (about 650 per second), no errors. RSS: 15.2 MiB at start, 25.1 MiB at the end (same peak); a 20-second run before that reached 23.3 MiB, i.e. growth slows down, but 5 minutes is not enough to rule out a slow leak. Open files: 13 before and 14 after; FFmpeg child processes appeared during subtitle requests and did not linger; the data directory contents did not change. Not covered: WebSocket reconnects, scanning during playback (there is no scanning at runtime, #39), the duration and concurrency from #15.
+`COUCH_SOAK=5m`, 8 workers, macOS arm64, synthetic e2e media set: 193,834 requests in 5 minutes (about 650 per second), no errors. RSS: 15.2 MiB at start, 25.1 MiB at the end (same peak); a 20-second run before that reached 23.3 MiB, i.e. growth slows down, but 5 minutes is not enough to rule out a slow leak. Open files: 13 before and 14 after; FFmpeg child processes appeared during subtitle requests and did not linger; the data directory contents did not change. Not covered: WebSocket reconnects, scanning during playback (there is no scanning at runtime, #39), the duration and concurrency from #15.
 
-A repeat run with WebSocket reconnects (every fifth worker cycle, alternating clean close and TCP drop): `COACH_SOAK=5m`, 8 workers — 195,965 requests and connections, no errors; RSS 15.1 → peak 24.4 → 22.7 MiB at the end, open files 13 before and 14 after, no child processes or new files. That the check catches a failure was confirmed by substituting the WebSocket path: every connection was marked as an error.
+A repeat run with WebSocket reconnects (every fifth worker cycle, alternating clean close and TCP drop): `COUCH_SOAK=5m`, 8 workers — 195,965 requests and connections, no errors; RSS 15.1 → peak 24.4 → 22.7 MiB at the end, open files 13 before and 14 after, no child processes or new files. That the check catches a failure was confirmed by substituting the WebSocket path: every connection was marked as an error.
 
-With HLS and rescans (2026-10-07): workers 0 and 1 play the first remux-to-HLS segment every fourth cycle, worker 2 a transcoding one, and they close the session with `ActiveEncodings/Delete`; throughout the load, `SIGHUP` is sent to the process every 75 s. `COACH_SOAK=10m`, 8 workers, Apple M1, FFmpeg 9.0.2: 365,131 requests, no errors, 8 rescans. FFmpeg was running in 12 of 22 samples, with no more than three processes at once (two remux and one transcoding — the limits held); at the end there are no child processes, open files 13 → 14, the data directory contents are unchanged (no segments left). RSS 15.5 MiB at start, 24.4 after 30 s, then slow growth to 26.3 MiB by the end (about 0.2 MiB per minute, +0.1 MiB over the last 2 minutes). A leak is not established, but not ruled out either: a longer run with the duration from #15 is needed.
+With HLS and rescans (2026-10-07): workers 0 and 1 play the first remux-to-HLS segment every fourth cycle, worker 2 a transcoding one, and they close the session with `ActiveEncodings/Delete`; throughout the load, `SIGHUP` is sent to the process every 75 s. `COUCH_SOAK=10m`, 8 workers, Apple M1, FFmpeg 9.0.2: 365,131 requests, no errors, 8 rescans. FFmpeg was running in 12 of 22 samples, with no more than three processes at once (two remux and one transcoding — the limits held); at the end there are no child processes, open files 13 → 14, the data directory contents are unchanged (no segments left). RSS 15.5 MiB at start, 24.4 after 30 s, then slow growth to 26.3 MiB by the end (about 0.2 MiB per minute, +0.1 MiB over the last 2 minutes). A leak is not established, but not ruled out either: a longer run with the duration from #15 is needed.
 
 The same test for 30 minutes (2026-10-07): 1,071,888 requests, no errors, 7 rescans, FFmpeg was running in 13 of 21 samples, no child processes at the end, open files 13 → 14, no segments left. RSS 15.5 MiB at start, 24.9 after 1.5 minutes, slow growth to a peak of 26.7 MiB by minute 23, then a decline to 25.2 and 25.6 MiB at the end — below the peak. This is a plateau around 25–27 MiB, not unbounded growth: no signs of a memory leak over 30 minutes. The duration and concurrency for acceptance are still not agreed (#15).
 
-A repeat run on Linux after the 2026-10-31 changes (images, folder listing cache, resource log; #95): `COACH_SOAK=10m`, 8 workers, `golang:1.25-alpine3.24` container with FFmpeg 8.1, AMD Ryzen 7 255. 848,742 requests, no errors, 8 rescans. RSS 10.9 MiB at start, 16.6 after 30 s, then a plateau of 16.5–17.3 MiB until the end (peak 17.3, 16.6 at the end); open descriptors 10 → 11; no more than three FFmpeg processes at once, no child processes at the end. A run before the sampling fix on the same system showed RSS 0 and other processes' files: BusyBox `ps` does not support `-p`, and `lsof` lists the files of all processes. On Linux the sampling now reads `/proc`, and the test fails if RSS or descriptors could not be read.
+A repeat run on Linux after the 2026-10-31 changes (images, folder listing cache, resource log; #95): `COUCH_SOAK=10m`, 8 workers, `golang:1.25-alpine3.24` container with FFmpeg 8.1, AMD Ryzen 7 255. 848,742 requests, no errors, 8 rescans. RSS 10.9 MiB at start, 16.6 after 30 s, then a plateau of 16.5–17.3 MiB until the end (peak 17.3, 16.6 at the end); open descriptors 10 → 11; no more than three FFmpeg processes at once, no child processes at the end. A run before the sampling fix on the same system showed RSS 0 and other processes' files: BusyBox `ps` does not support `-p`, and `lsof` lists the files of all processes. On Linux the sampling now reads `/proc`, and the test fails if RSS or descriptors could not be read.
 
 ## Response time on a large library (2026-10-05, #61)
 
@@ -463,13 +463,13 @@ Setup: image from `Dockerfile` (Docker build, linux/amd64) with `-media-dir` and
 - Home: "Latest Episodes" shows the series Thumb (series `Images/Thumb`, 200).
 - Movie page: poster, logo instead of the title, dimmed backdrop; requests for `Primary`, `Logo`, `Thumb`, `Backdrop/0` — 200.
 - Episode page: the episode image is the series Thumb, with the series logo and backdrop; requests for series images — 200.
-- All `/emby` requests during the run — 2xx; no warnings in the Coach log. The console shows one 404 error without an API request (later established: the Emby Premiere registration check on `mb3admin.com`, see below).
+- All `/emby` requests during the run — 2xx; no warnings in the Couch log. The console shows one 404 error without an API request (later established: the Emby Premiere registration check on `mb3admin.com`, see below).
 
 Repeat run on a new image (same day, after #88):
 
 - Series page: poster, logo, series Thumb on episodes; the series `Backdrop/0` is displayed (the `displayingBackdropImage` element, appears after a fade-in delay).
 - Season page: no cover of its own, the series poster is shown (series `Images/Primary` by `SeriesPrimaryImageTag`, 200), with the series logo and backdrop, and the series Thumb on episodes.
-- No warnings in the Coach log. The console again shows one 404 error. This is not Coach: after a full reload no page resource returned 4xx, and the client log names the source — the Emby Premiere registration check on `mb3admin.com` (`ConnectionManager response status: 404`, `getRegistrationInfo response: 404`).
+- No warnings in the Couch log. The console again shows one 404 error. This is not Couch: after a full reload no page resource returned 4xx, and the client log names the source — the Emby Premiere registration check on `mb3admin.com` (`ConnectionManager response status: 404`, `getRegistrationInfo response: 404`).
 
 Not checked: NAS.
 
@@ -489,13 +489,13 @@ Setup: image from `Dockerfile` (FFmpeg 8.1, x264 `veryfast`, CRF 23), container 
 | Remux: video copied, AC3 → AAC | 15 | 1.5 s | 2.0 s | 47 MiB |
 | Transcoding to H.264 1280×720, 4 Mbit/s, AC3 → AAC | 15 | 14.5 s | 57.4 s | 453 MiB |
 
-Coach: RSS 9.3 MiB idle after the scan, peak 11.1 MiB after both sessions. Segments on disk after both sessions: 65 MiB (removed on idle or stop).
+Couch: RSS 9.3 MiB idle after the scan, peak 11.1 MiB after both sessions. Segments on disk after both sessions: 65 MiB (removed on idle or stop).
 
-For #15: transcoding 1080p to 720p costs about 0.5 seconds of CPU per second of video (half a core in real time) and almost half a gigabyte of memory per job: 29 times more CPU than remux, and 10 times more memory than remux and 40 times more than Coach itself. In this run the log line still wrote a single `encode` field (remux had `encode=true` because of audio encoding); video and audio are now reported separately: `video=copy audio=aac` and `video=h264 audio=aac`. The `testsrc2` test pattern is easier to encode than real video, so CPU on real files will be higher.
+For #15: transcoding 1080p to 720p costs about 0.5 seconds of CPU per second of video (half a core in real time) and almost half a gigabyte of memory per job: 29 times more CPU than remux, and 10 times more memory than remux and 40 times more than Couch itself. In this run the log line still wrote a single `encode` field (remux had `encode=true` because of audio encoding); video and audio are now reported separately: `video=copy audio=aac` and `video=h264 audio=aac`. The `testsrc2` test pattern is easier to encode than real video, so CPU on real files will be higher.
 
 ## FFmpeg threads during transcoding (2026-10-31, #92)
 
-Same file and image as in the section above; FFmpeg was run directly with Coach's encoding parameters (x264 `veryfast`, CRF 23, `-maxrate 4000000`, scaling to 1280×720, AC3 → AAC) and `-benchmark`. `-threads` before `-i` limits the decoder, after it the encoder. Host: 16 logical CPUs.
+Same file and image as in the section above; FFmpeg was run directly with Couch's encoding parameters (x264 `veryfast`, CRF 23, `-maxrate 4000000`, scaling to 1280×720, AC3 → AAC) and `-benchmark`. `-threads` before `-i` limits the decoder, after it the encoder. Host: 16 logical CPUs.
 
 | Threads (decoder / encoder) | Container CPU limit | Time | CPU (user + sys) | Peak RSS | Output size |
 |---|---|---|---|---|---|
@@ -507,21 +507,21 @@ Same file and image as in the section above; FFmpeg was run directly with Coach'
 | auto / auto (current) | none | 5.5 s | 58.6 s | 453 MiB | — |
 | 4 / 4 | none | 10.0 s | 48.3 s | 221 MiB | — |
 
-FFmpeg picks the thread count from the visible CPUs, not from the container quota. Under a quota, extra threads only add memory and contention; without a quota they make encoding twice as fast, and therefore also the wait for the first segment and for the segment after a seek. All variants encode much faster than real time. Fewer x264 threads give a 10% smaller file at the same CRF; quality (PSNR/VMAF) was not compared. The decision to limit depends on the target hardware (#15, #28); Coach behavior was not changed.
+FFmpeg picks the thread count from the visible CPUs, not from the container quota. Under a quota, extra threads only add memory and contention; without a quota they make encoding twice as fast, and therefore also the wait for the first segment and for the segment after a seek. All variants encode much faster than real time. Fewer x264 threads give a 10% smaller file at the same CRF; quality (PSNR/VMAF) was not compared. The decision to limit depends on the target hardware (#15, #28); Couch behavior was not changed.
 
 ## FFprobe cost during scanning (2026-10-31, #93)
 
 Same image and set: 4 videos (a 1080p MKV movie of 106 MiB, a movie and two 720p MP4 episodes of 20 s each). Log lines: `Media scan complete ... probes=4 probe_cpu=141ms probe_peak_rss_kib=48264`; after `SIGHUP` without changes — `Media rescan complete ... probes=0 probe_cpu=0s probe_peak_rss_kib=0`. One FFprobe run takes about 35 ms of CPU and up to 47 MiB of memory; runs are sequential, so the scan peak equals the peak of one run. For the #61 library (20,000 episodes) this is about 12 minutes of CPU on the first scan, if the files are similar to the synthetic ones; real files and a network volume were not measured.
 
-Stop line (#94), same container after the scan and `docker stop`: `Coach stopped cpu=31ms peak_rss_kib=11832 children_cpu=174ms children_peak_rss_kib=48184`, exit code 0. `children_cpu` also includes the FFprobe protocol check at startup, so it is larger than the scan's `probe_cpu` (145 ms).
+Stop line (#94), same container after the scan and `docker stop`: `Couch stopped cpu=31ms peak_rss_kib=11832 children_cpu=174ms children_peak_rss_kib=48184`, exit code 0. `children_cpu` also includes the FFprobe protocol check at startup, so it is larger than the scan's `probe_cpu` (145 ms).
 
-## Coach cost of Direct Stream (2026-10-31, #94, #14)
+## Couch cost of Direct Stream (2026-10-31, #94, #14)
 
-Same image and set, no CPU limit. A 106 MiB file (`stream.mkv?Static=true`) was downloaded in full over loopback, from the OS page cache; a new container for each run, figures from the `Coach stopped` line. The baseline run (start, scan, sign-in, stop with no downloads) — 106 ms CPU, peak 11.6 MiB; it is subtracted in the table.
+Same image and set, no CPU limit. A 106 MiB file (`stream.mkv?Static=true`) was downloaded in full over loopback, from the OS page cache; a new container for each run, figures from the `Couch stopped` line. The baseline run (start, scan, sign-in, stop with no downloads) — 106 ms CPU, peak 11.6 MiB; it is subtracted in the table.
 
-| Load | Served | Coach CPU above baseline | Coach peak RSS |
+| Load | Served | Couch CPU above baseline | Couch peak RSS |
 |---|---|---|---|
 | 1 worker, 5 downloads in a row | 531 MiB | 0.27 s | 11.3 MiB |
 | 8 workers concurrently, 3 times | 2549 MiB | 1.52 s | 12.4 MiB |
 
-Coach spends about 0.5–0.6 s of CPU per gibibyte of served file, and memory barely grows with the number of workers. For playback at 20 Mbit/s this is on the order of 1.5 ms of CPU per second per stream. Not checked: reading from disk or a network volume instead of the cache, TLS, slow clients.
+Couch spends about 0.5–0.6 s of CPU per gibibyte of served file, and memory barely grows with the number of workers. For playback at 20 Mbit/s this is on the order of 1.5 ms of CPU per second per stream. Not checked: reading from disk or a network volume instead of the cache, TLS, slow clients.

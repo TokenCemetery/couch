@@ -19,7 +19,7 @@ var (
 	backup               = knownFailure{32, "backup and restore are not implemented"}
 	unranked             = knownFailure{34, "not implemented; not ranked by real usage yet"}
 	notCalledByWeb       = knownFailure{34, "Emby Web 4.10.0.40 does not call it; use by other clients is not ranked yet"}
-	notOfferedByWeb      = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags or media types Coach does not send; not ranked yet"}
+	notOfferedByWeb      = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags or media types Couch does not send; not ranked yet"}
 )
 
 // knownFailures lists contract operations (by operationId) and behavior

@@ -2,7 +2,7 @@
 
 Status: draft, updated 2026-10-31. This is the work order and completion criteria, without unconfirmed calendar estimates. Requirements: [PRD](PRD.md); facts: [discovery](DISCOVERY.md).
 
-M0 is partially done: the reference contract is captured (30 scrubbed fixtures), resource measurements remain open. M1 accepted: Emby Web works against Coach in the browser. M2 accepted 2026-10-03 on a synthetic H.264/AAC MP4: the browser passed "sign in → search → item page → play → seek → stop → restart → resume" for a movie and the TV series scenario. The media set is not agreed, the full local UI is not verified. M3 is in progress (see below), M4–M6 are not started. Verification boundaries: [VALIDATION.md](VALIDATION.md).
+M0 is partially done: the reference contract is captured (30 scrubbed fixtures), resource measurements remain open. M1 accepted: Emby Web works against Couch in the browser. M2 accepted 2026-10-03 on a synthetic H.264/AAC MP4: the browser passed "sign in → search → item page → play → seek → stop → restart → resume" for a movie and the TV series scenario. The media set is not agreed, the full local UI is not verified. M3 is in progress (see below), M4–M6 are not started. Verification boundaries: [VALIDATION.md](VALIDATION.md).
 
 Mandatory clients (user's answer 2026-09-19): Emby Web (first), Android/Android TV, iOS/Apple TV. Kodi and DLNA are not part of the mandatory scope.
 
@@ -10,7 +10,7 @@ Mandatory clients (user's answer 2026-09-19): Emby Web (first), Android/Android 
 
 Outcome: Emby/client versions, a list of scenarios, scrubbed exchange samples, a media set and baseline measurements.
 
-- Connection verified: `http://192.168.1.11:8096/`, server/frontend version `4.10.0.40`. Public and authenticated responses captured; the browser scenario against Coach is verified.
+- Connection verified: `http://192.168.1.11:8096/`, server/frontend version `4.10.0.40`. Public and authenticated responses captured; the browser scenario against Couch is verified.
 - Choose the first client and the mandatory scenarios. Pin down how the web client connects to the new backend.
 - Map requests against the Emby documentation and the Jellyfin sources. Record confirmed differences instead of assuming the APIs are identical.
 - Measure RSS/CPU/I/O at idle, during scanning and during playback; API p50/p95 and start/seek time. Record the file set, cache, quality, acceleration and concurrency.
@@ -28,7 +28,7 @@ Depends on M0. Outcome: the first working Go server that the target client conne
 
 Done when the unmodified target client signs in, shows a correct empty state, restores a valid session after restart and loses access after logout. Any auxiliary APIs are implemented according to observed need.
 
-Accepted 2026-09-19. Unmodified Emby Web 4.10.0.40 in the browser connects to Coach, signs in, restores the session after restart and loses access after logout. A basic WebSocket was added later; browser check 2026-10-04: UserDataChanged reaches a second tab and after a Coach restart, client reconnection is lazy ([VALIDATION](VALIDATION.md)).
+Accepted 2026-09-19. Unmodified Emby Web 4.10.0.40 in the browser connects to Couch, signs in, restores the session after restart and loses access after logout. A basic WebSocket was added later; browser check 2026-10-04: UserDataChanged reaches a second tab and after a Couch restart, client reconnection is lazy ([VALIDATION](VALIDATION.md)).
 
 ## M2. Library and first Direct Play
 
@@ -47,11 +47,11 @@ Not done in this stage: localization of home screen strings, browser acceptance 
 
 Audit 2026-09-20–21: [gaps and results](M2-AUDIT.md). Fixed the Played/Favorite filters, Latest and Resume pagination, and position loss without PositionTicks; added a bounded durable replay window for PlaySessionId. The API client verified the Series/Season/Episode hierarchy, signed covers with revocation and full getSearchResults. The browser showed sign-in, home and a cover through `-web-upstream`; further acceptance was stopped by the tool's access limit. M2 is not closed: HTTP integration does not replace player acceptance.
 
-Accepted 2026-10-03. Unmodified Emby Web through `-web-upstream`: search finds a movie and a TV series; on a 10-minute H.264/AAC file, seeking to 5:00 loads only the needed ranges; after stop and a Coach restart the movie resumes from the saved position 5:15. The TV series page shows the season and episodes, "Play" plays both episodes in a row, progress and the played mark are saved. Acceptance found and fixed `IsSpecialSeason` for seasons and the episode query parameters when playing a TV series. Open: the "recent searches" row (`SearchedItems`, `WasSearched`) implemented and verified in the browser 2026-10-04; home screen headings localized 2026-10-04 (ru, de, fr, es, it; #18); full local UI; media set. Details: [VALIDATION](VALIDATION.md).
+Accepted 2026-10-03. Unmodified Emby Web through `-web-upstream`: search finds a movie and a TV series; on a 10-minute H.264/AAC file, seeking to 5:00 loads only the needed ranges; after stop and a Couch restart the movie resumes from the saved position 5:15. The TV series page shows the season and episodes, "Play" plays both episodes in a row, progress and the played mark are saved. Acceptance found and fixed `IsSpecialSeason` for seasons and the episode query parameters when playing a TV series. Open: the "recent searches" row (`SearchedItems`, `WasSearched`) implemented and verified in the browser 2026-10-04; home screen headings localized 2026-10-04 (ru, de, fr, es, it; #18); full local UI; media set. Details: [VALIDATION](VALIDATION.md).
 
 Images (2026-10-31): besides Primary, local Backdrop, Logo and Thumb; seasons and episodes get the TV series images (`Parent*`, `SeriesPrimaryImageTag`), as in the reference responses. Verified in the browser on the container image (#85, #86, #88); image lookup does not slow down the screens of a large library (#87).
 
-Additionally: local Emby Web via `-web-dir`; PlaybackInfo takes into account query/JSON, limits, source, audio track and basic CodecProfiles. Integration of API modules runs without a live Emby via `COACH_WEB_DIR`. A standalone browser run with `-web-dir` was confirmed 2026-10-06, after four missing files were added to the copy (#19).
+Additionally: local Emby Web via `-web-dir`; PlaybackInfo takes into account query/JSON, limits, source, audio track and basic CodecProfiles. Integration of API modules runs without a live Emby via `COUCH_WEB_DIR`. A standalone browser run with `-web-dir` was confirmed 2026-10-06, after four missing files were added to the copy (#19).
 
 ## M3. Playback on target devices
 
@@ -88,8 +88,8 @@ Status as of 2026-10-31 (comparison with Emby not started, #29):
 - Recovery ([summary](VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. Open: power loss (needs a test bench) and a library unavailable at startup (#39).
 - Backup/restore and data upgrades between versions are verified (#32).
 - Sustained load: 30 minutes with no process, file or memory leaks; the acceptance duration is not agreed (#30, #15).
-- Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Coach itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.
-- First Coach measurements without comparison to Emby ([VALIDATION](VALIDATION.md)): Coach up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory; the decision waits for the hardware (#92).
+- Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Couch itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.
+- First Couch measurements without comparison to Emby ([VALIDATION](VALIDATION.md)): Couch up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory; the decision waits for the hardware (#92).
 - A container image with FFmpeg is built and checked in CI; administration and NAS packaging are not started (#33).
 
 ## M5. Compatibility expansion
@@ -110,6 +110,6 @@ Done when the agreed scenarios pass in the custom frontend and the checks of the
 
 ## Compatibility matrix rules
 
-Each row records: reference server version, client/version/platform, scenario, media, requests/events, expected result, check and status. Statuses: not investigated, contract recorded, implemented, verified, partial, blocked. The public API/HTML were read from Emby; sign-in, settings and the initial catalog were verified by its API client against Coach. Authenticated comparison with the Emby server, screens and playback remain open.
+Each row records: reference server version, client/version/platform, scenario, media, requests/events, expected result, check and status. Statuses: not investigated, contract recorded, implemented, verified, partial, blocked. The public API/HTML were read from Emby; sign-in, settings and the initial catalog were verified by its API client against Couch. Authenticated comparison with the Emby server, screens and playback remain open.
 
 The contract is checked first, then the real client. Comparison allows only explicitly described transformations of dynamic values: IDs with relationships preserved, times and test bench addresses. Differences in types, required fields, event order, permissions and errors must not be hidden.

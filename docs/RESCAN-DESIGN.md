@@ -4,7 +4,7 @@ Status: stages 1–3 implemented 2026-10-06, stage 5 (`LibraryChanged`) on 2026-
 
 ## Current state
 
-- `src/cmd/coach/main.go` scans `-media-dir` before starting HTTP: sequentially, FFprobe up to 15 s per file, up to 10 minutes in total; on error the server does not start.
+- `src/cmd/couch/main.go` scans `-media-dir` before starting HTTP: sequentially, FFprobe up to 15 s per file, up to 10 minutes in total; on error the server does not start.
 - The catalog (`media.Catalog`) lives in memory and is passed to `server.New`. Handlers read the `s.media` field 41 times in 6 files (`catalog.go`, `dto.go`, `home.go`, `images.go`, `playback.go`, `series.go`), sometimes several times per request.
 - `Catalog` holds an open `os.Root` of the media directory; streams and posters are opened through it.
 - An item ID is a hash of the absolute library path and the file's relative path; series and season IDs are a hash of the folder path. Rescanning the same paths yields the same IDs; user state (`state.json`) is stored by ID and does not depend on the catalog.
@@ -37,7 +37,7 @@ Broken files, as now, are skipped and counted. Traversal errors (unreadable root
 
 - At startup: if a saved index exists (item 4), the server starts immediately with it and the scan runs in the background; without an index, as now, before starting HTTP.
 - Periodically: the `-rescan-interval` flag (for example, `30m`; `0` means off).
-- Manually: `SIGHUP` to the process. No HTTP route is proposed: Emby Web 4.10.0.40 does not call `Library/Refresh` (#34), library scanning there lives on the admin pages (#33), and Coach has a single user without those rights.
+- Manually: `SIGHUP` to the process. No HTTP route is proposed: Emby Web 4.10.0.40 does not call `Library/Refresh` (#34), library scanning there lives on the admin pages (#33), and Couch has a single user without those rights.
 - At most one scan runs at a time; a scan request during an ongoing scan is deferred until it ends.
 
 Watching file system events (inotify/kqueue) is not proposed in the first version: on NAS network volumes (SMB/NFS) it is unreliable and requires a dependency.

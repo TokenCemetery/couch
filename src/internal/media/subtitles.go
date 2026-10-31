@@ -20,7 +20,7 @@ const (
 	maxSubtitleBytes    = 10 << 20
 )
 
-// sidecarCodec returns the codec of a subtitle file Coach can deliver, or "".
+// sidecarCodec returns the codec of a subtitle file Couch can deliver, or "".
 func sidecarCodec(ext string) string {
 	switch ext {
 	case ".srt":

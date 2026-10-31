@@ -70,7 +70,7 @@ var behaviors = []behavior{
 				check.Errorf("subtitle: %v", err)
 				return
 			}
-			if resp.Status != 200 || !bytes.HasPrefix(resp.Body, []byte("WEBVTT")) || !bytes.Contains(resp.Body, []byte("Coach e2e subtitle")) {
+			if resp.Status != 200 || !bytes.HasPrefix(resp.Body, []byte("WEBVTT")) || !bytes.Contains(resp.Body, []byte("Couch e2e subtitle")) {
 				check.Errorf("subtitle: status %d, body %q, want 200 WebVTT with the cue text", resp.Status, snippet(resp.Body))
 			}
 		},
@@ -126,7 +126,7 @@ var behaviors = []behavior{
 			}
 			resp, err = inst.Send(segment, false)
 			if err != nil || resp.Status != 200 || !bytes.HasPrefix(resp.Body, []byte("WEBVTT")) ||
-				!bytes.Contains(resp.Body, []byte("\nX-TIMESTAMP-MAP=MPEGTS:")) || !bytes.Contains(resp.Body, []byte("Coach e2e subtitle")) {
+				!bytes.Contains(resp.Body, []byte("\nX-TIMESTAMP-MAP=MPEGTS:")) || !bytes.Contains(resp.Body, []byte("Couch e2e subtitle")) {
 				check.Errorf("subtitle segment: status %d, err %v, body %q, want WebVTT with X-TIMESTAMP-MAP and the cue text", resp.Status, err, snippet(resp.Body))
 			}
 		},
@@ -268,7 +268,7 @@ var behaviors = []behavior{
 				return
 			}
 			resp, err := inst.Send(favorite, true)
-			if err := os.Chmod(inst.data, 0o700); err != nil { //nolint:gosec // the mode Coach creates the data directory with
+			if err := os.Chmod(inst.data, 0o700); err != nil { //nolint:gosec // the mode Couch creates the data directory with
 				check.Errorf("restore data permissions: %v", err)
 				return
 			}
@@ -296,9 +296,9 @@ var behaviors = []behavior{
 				check.Errorf("favorite: status %d, err %v, want 200", resp.Status, err)
 				return
 			}
-			// The README procedure: stop Coach, copy the files of the data
-			// directory, start Coach.
-			backup, err := os.MkdirTemp("", "coach-e2e-backup-")
+			// The README procedure: stop Couch, copy the files of the data
+			// directory, start Couch.
+			backup, err := os.MkdirTemp("", "couch-e2e-backup-")
 			if err != nil {
 				check.Errorf("backup directory: %v", err)
 				return
@@ -324,7 +324,7 @@ var behaviors = []behavior{
 				check.Errorf("restart after SIGKILL: %v", err)
 				return
 			}
-			// Restore: stop Coach, replace the files with the copy, start Coach.
+			// Restore: stop Couch, replace the files with the copy, start Couch.
 			restore := func(data string) error {
 				entries, err := os.ReadDir(data)
 				if err != nil {

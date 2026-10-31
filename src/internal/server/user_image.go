@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // Avatar limits match local covers: the file is stored and served as uploaded,

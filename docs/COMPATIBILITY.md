@@ -6,7 +6,7 @@ Status: draft, updated 2026-10-07. Row and status rules: [ROADMAP](ROADMAP.md#co
 
 - Reference: Emby Server and Emby Web 4.10.0.40.
 - Client: unmodified Emby Web 4.10.0.40 via `-web-dir`, Chromium 152 (built-in browser, macOS), hls.js, Russian UI.
-- Server: Coach `main` 2026-10-07 with FFmpeg 9.0.2; segments in `<data>/transcode`.
+- Server: Couch `main` 2026-10-07 with FFmpeg 9.0.2; segments in `<data>/transcode`.
 - Media: `scripts/matrix-media.sh DIR` — 120 s of `testsrc2` 640×360, 25 fps, keyframes every 2 s; each frame shows its timestamp.
 
 ## Row scenario
@@ -30,7 +30,7 @@ Status: draft, updated 2026-10-07. Row and status rules: [ROADMAP](ROADMAP.md#co
 | `MOV HEVC rotated.mov` (90° rotation, 20 s) | HEVC / AAC | transcode to H.264 with rotation | yes, 720×1280 | at 14 s, 720×1280 | cleaned up | not checked | partial 2026-10-11 (#22) |
 | `MP4 H264 rotated.mp4` (90° rotation, 20 s) | H.264 / AAC | Direct Stream, browser applies rotation | yes, 720×1280 | not checked | not checked | not checked | partial 2026-10-11 (#22) |
 
-The Coach log for the run has no errors or warnings.
+The Couch log for the run has no errors or warnings.
 
 ### Series
 
@@ -49,7 +49,7 @@ Quality switching was verified 2026-10-07 on the set above, the other rows earli
 | External SRT selected on the item page | external WebVTT with Direct Stream; with remux, WebVTT inside HLS (`subtitles.m3u8`) | verified 2026-10-04 and 2026-10-06; inside HLS on 2026-10-11 on `MKV H264 AC3.mkv`: cues match the frame, turning off and on in the player without a new PlaybackInfo (#21) |
 | Embedded SubRip in MKV | extraction to WebVTT | verified 2026-10-04 and 2026-10-06 |
 | Automatic subtitle selection by user mode | `DefaultSubtitleStreamIndex` | verified 2026-10-04 |
-| A track Coach cannot serve (`mov_text` without FFmpeg) | playback without it, no error | verified 2026-10-06 ("Undeliverable subtitles in the browser") |
+| A track Couch cannot serve (`mov_text` without FFmpeg) | playback without it, no error | verified 2026-10-06 ("Undeliverable subtitles in the browser") |
 | Image-based subtitles (PGS, VobSub) | burn-in not implemented | not investigated |
 
 ## Not investigated
@@ -57,5 +57,5 @@ Quality switching was verified 2026-10-07 on the set above, the other rows earli
 - Android, Android TV (#26), iOS, Apple TV (#27).
 - Other browsers and Emby Web on TVs (Tizen, webOS).
 - Real library files (#16), long movies and CPU load during transcoding (#29).
-- A browser whose profile limits H.264 to 1920 width: the limit was verified only with requests to Coach (VALIDATION, "Transcoding to H.264").
+- A browser whose profile limits H.264 to 1920 width: the limit was verified only with requests to Couch (VALIDATION, "Transcoding to H.264").
 - HEVC with open GOPs in MPEG-TS with copied audio: a restart from the middle may begin later than planned (#81); with encoded audio this is fixed and covered by a unit test, not checked in the browser.

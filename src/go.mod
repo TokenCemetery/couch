@@ -1,4 +1,4 @@
-module github.com/TokenCemetery/coach
+module github.com/TokenCemetery/couch
 
 go 1.25.0
 

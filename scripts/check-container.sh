@@ -1,12 +1,12 @@
 #!/bin/sh
-# Smoke-checks a Coach container image: -init, scan with FFprobe, and HLS remux
+# Smoke-checks a Couch container image: -init, scan with FFprobe, and HLS remux
 # of an H.264 + AC3 movie through FFmpeg. Usage: check-container.sh IMAGE
 # CONTAINER selects the engine (docker or podman, default docker).
 set -eu
 
 image=${1:?usage: check-container.sh IMAGE}
 engine=${CONTAINER:-docker}
-name=coach-check-$$
+name=couch-check-$$
 port=18097
 
 cleanup() {

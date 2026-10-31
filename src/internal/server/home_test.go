@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 // TestHomeSectionTitlesFollowLanguage covers #18: row titles follow

@@ -51,7 +51,7 @@ type Fixtures struct {
 	EpisodeID     string
 }
 
-// Instance is one running coach process with a logged-in session.
+// Instance is one running couch process with a logged-in session.
 type Instance struct {
 	URL   string
 	Token string
@@ -66,25 +66,25 @@ type Instance struct {
 
 var instanceCount atomic.Int64
 
-// NewSuite builds the binary (unless COACH_BINARY is set), generates media
+// NewSuite builds the binary (unless COUCH_BINARY is set), generates media
 // with FFmpeg and initializes the template state under dir.
 func NewSuite(dir string) (*Suite, error) {
-	s := &Suite{Binary: os.Getenv("COACH_BINARY"), Media: filepath.Join(dir, "media"), Template: filepath.Join(dir, "template")}
+	s := &Suite{Binary: os.Getenv("COUCH_BINARY"), Media: filepath.Join(dir, "media"), Template: filepath.Join(dir, "template")}
 	if s.Binary == "" {
-		s.Binary = filepath.Join(dir, "coach")
-		build := exec.CommandContext(context.Background(), "go", "build", "-o", s.Binary, "./cmd/coach") //nolint:gosec // output path is a temp dir created by the test
+		s.Binary = filepath.Join(dir, "couch")
+		build := exec.CommandContext(context.Background(), "go", "build", "-o", s.Binary, "./cmd/couch") //nolint:gosec // output path is a temp dir created by the test
 		build.Dir = "../src"
 		if out, err := build.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("build coach: %w\n%s", err, out)
+			return nil, fmt.Errorf("build couch: %w\n%s", err, out)
 		}
 	}
 	if err := generateMedia(s.Media); err != nil {
 		return nil, err
 	}
-	initCmd := exec.CommandContext(context.Background(), s.Binary, "-init", "-data", s.Template, "-username", testUser) //nolint:gosec // binary is built by the test or chosen by COACH_BINARY
+	initCmd := exec.CommandContext(context.Background(), s.Binary, "-init", "-data", s.Template, "-username", testUser) //nolint:gosec // binary is built by the test or chosen by COUCH_BINARY
 	initCmd.Stdin = strings.NewReader(testPassword + "\n")
 	if out, err := initCmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("init coach: %w\n%s", err, out)
+		return nil, fmt.Errorf("init couch: %w\n%s", err, out)
 	}
 	return s, nil
 }
@@ -92,7 +92,7 @@ func NewSuite(dir string) (*Suite, error) {
 // Start launches a fresh instance on a copy of the template state, logs in
 // and discovers fixture IDs. The caller must Stop it.
 func (s *Suite) Start() (*Instance, error) {
-	data, err := os.MkdirTemp("", "coach-e2e-data-")
+	data, err := os.MkdirTemp("", "couch-e2e-data-")
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (inst *Instance) KillAndRestart() error {
 }
 
 // Restart stops the process with SIGTERM, runs offline on its data directory,
-// as an operator would with Coach stopped, and starts it again on the same
+// as an operator would with Couch stopped, and starts it again on the same
 // state, address and media.
 func (inst *Instance) Restart(offline func(data string) error) error {
 	inst.terminate()
@@ -206,12 +206,12 @@ func (inst *Instance) waitReady() error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return errors.New("coach did not become ready")
+	return errors.New("couch did not become ready")
 }
 
 // AuthHeader is the client identification Emby clients send on every request.
 func (inst *Instance) AuthHeader() string {
-	return fmt.Sprintf(`Emby Client="Coach e2e", Device="e2e", DeviceId=%q, Version="0.1.0"`, inst.IDs.DeviceID)
+	return fmt.Sprintf(`Emby Client="Couch e2e", Device="e2e", DeviceId=%q, Version="0.1.0"`, inst.IDs.DeviceID)
 }
 
 // Response is a fully read HTTP response.
@@ -270,7 +270,7 @@ func (inst *Instance) Get(path string, out any) error {
 }
 
 func (inst *Instance) login() error {
-	inst.IDs.DeviceID = fmt.Sprintf("coach-e2e-%d", instanceCount.Add(1))
+	inst.IDs.DeviceID = fmt.Sprintf("couch-e2e-%d", instanceCount.Add(1))
 	form := url.Values{"Username": {testUser}, "Pw": {testPassword}}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, inst.URL+"/emby/Users/AuthenticateByName", strings.NewReader(form.Encode()))
 	if err != nil {

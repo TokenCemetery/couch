@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 const testPassword = "test-only-password-not-a-real-secret"
@@ -27,7 +27,7 @@ func newTestServer(t testing.TB) (*state.Store, http.Handler, string) {
 	if err := s.Initialize("viewer", testPassword); err != nil {
 		t.Fatal(err)
 	}
-	return s, New(s, "Coach test", nil, nil).Handler(), dir
+	return s, New(s, "Couch test", nil, nil).Handler(), dir
 }
 
 func request(h http.Handler, method, path, contentType, body, token string) *httptest.ResponseRecorder {
@@ -123,7 +123,7 @@ func TestEmbyLoginSettingsRestartLogout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = reopened.Close() }()
-	h = New(reopened, "Coach test", nil, nil).Handler()
+	h = New(reopened, "Couch test", nil, nil).Handler()
 	if reopened.Snapshot().ServerID != initial.ServerID || reopened.Snapshot().User.ID != uid {
 		t.Fatal("identity changed on restart")
 	}
@@ -235,7 +235,7 @@ func TestLoginLimit(t *testing.T) {
 }
 
 // TestSettingsPageLists covers lists Emby Web settings pages request: plugin
-// pages for the user menu and the Notifications page. Coach has neither.
+// pages for the user menu and the Notifications page. Couch has neither.
 func TestSettingsPageLists(t *testing.T) {
 	store, h, _ := newTestServer(t)
 	token := login(t, h)

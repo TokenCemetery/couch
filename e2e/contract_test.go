@@ -48,7 +48,7 @@ func getEnv(t *testing.T) *environment {
 		if e.contract, envErr = LoadContract(contractPath); envErr != nil {
 			return
 		}
-		if e.dir, envErr = os.MkdirTemp("", "coach-e2e-"); envErr != nil {
+		if e.dir, envErr = os.MkdirTemp("", "couch-e2e-"); envErr != nil {
 			return
 		}
 		env = e

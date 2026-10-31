@@ -1,4 +1,4 @@
-// Package e2e checks a running coach binary against api/openapi.yaml.
+// Package e2e checks a running couch binary against api/openapi.yaml.
 package e2e
 
 import (

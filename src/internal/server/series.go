@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
-	"github.com/TokenCemetery/coach/internal/state"
+	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 func (s *Server) seriesRoutes(mux *http.ServeMux) {
@@ -72,7 +72,7 @@ func (s *Server) seriesRoutes(mux *http.ServeMux) {
 
 // nextUp lists, per series the user has started, the first unplayed episode
 // after the furthest played one, most recently watched series first. Specials
-// (Season 00) are skipped because Coach has no airing-order metadata for them.
+// (Season 00) are skipped because Couch has no airing-order metadata for them.
 func (s *Server) nextUp(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 	query, err := catalogQuery(r)
 	if err != nil {

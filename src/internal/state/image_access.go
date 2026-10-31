@@ -10,7 +10,7 @@ import (
 
 func imageMAC(key, sessionID, itemID, revision string) string {
 	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write([]byte("coach-image-v1\x00" + sessionID + "\x00" + itemID + "\x00" + revision))
+	mac.Write([]byte("couch-image-v1\x00" + sessionID + "\x00" + itemID + "\x00" + revision))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

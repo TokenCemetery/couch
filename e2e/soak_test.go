@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-// TestSoak runs mixed client load against one instance for COACH_SOAK (a Go
+// TestSoak runs mixed client load against one instance for COUCH_SOAK (a Go
 // duration such as "10m") and samples the process. It is skipped otherwise.
 // Workers 0 and 1 also remux to HLS and worker 2 transcodes, which fills the
 // FFmpeg session limits, and the media directory is rescanned (SIGHUP)
@@ -30,12 +30,12 @@ import (
 // on leftovers: child processes, file descriptors or files in the data
 // directory that outlive the load.
 func TestSoak(t *testing.T) {
-	duration, err := time.ParseDuration(os.Getenv("COACH_SOAK"))
+	duration, err := time.ParseDuration(os.Getenv("COUCH_SOAK"))
 	if err != nil {
-		t.Skip("set COACH_SOAK to a duration, for example COACH_SOAK=10m")
+		t.Skip("set COUCH_SOAK to a duration, for example COUCH_SOAK=10m")
 	}
 	workers := 8
-	if n, err := strconv.Atoi(os.Getenv("COACH_SOAK_WORKERS")); err == nil && n > 0 {
+	if n, err := strconv.Atoi(os.Getenv("COUCH_SOAK_WORKERS")); err == nil && n > 0 {
 		workers = n
 	}
 	inst, err := getEnv(t).suite.Start()

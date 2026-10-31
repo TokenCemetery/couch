@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/procusage"
+	"github.com/TokenCemetery/couch/internal/procusage"
 )
 
 const (

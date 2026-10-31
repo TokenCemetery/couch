@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 func TestSidecarSubtitleDelivery(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TokenCemetery/coach/internal/hls"
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/hls"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 // hlsProfile is the shape of Emby Web's browser profile: MP4 direct play and
@@ -100,7 +100,7 @@ func TestPlaybackInfoRemux(t *testing.T) {
 	if q := transcoding(info("", width)); q.Get("MaxWidth") != "1280" || q.Get("MaxHeight") != "1000" || q.Get("VideoBitrate") != "3000000" {
 		t.Fatalf("width-limited transcoding query %v", q)
 	}
-	// Coach encodes only to H.264 and only into HLS.
+	// Couch encodes only to H.264 and only into HLS.
 	for name, profile := range map[string]string{
 		"codec":  strings.Replace(hlsProfile, `"h264,hevc"`, `"hevc"`, 1),
 		"no hls": strings.Replace(hlsProfile, `"Protocol":"hls"`, `"Protocol":"http"`, 1),

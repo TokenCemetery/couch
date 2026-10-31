@@ -39,7 +39,7 @@ func TestParseProbe(t *testing.T) {
 }
 
 func TestProbeProcess(t *testing.T) {
-	if len(os.Args) < 3 || os.Args[len(os.Args)-2] != "coach-probe-helper" {
+	if len(os.Args) < 3 || os.Args[len(os.Args)-2] != "couch-probe-helper" {
 		return
 	}
 	switch os.Args[len(os.Args)-1] {
@@ -69,7 +69,7 @@ func TestProbeExecutionLimits(t *testing.T) {
 	var stats ProbeStats
 	for _, mode := range []string{"overflow", "wait", "crash"} {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, err := runProbe(ctx, binary, &stats, nil, "-test.run=TestProbeProcess", "coach-probe-helper", mode)
+		_, err := runProbe(ctx, binary, &stats, nil, "-test.run=TestProbeProcess", "couch-probe-helper", mode)
 		cancel()
 		if err == nil {
 			t.Fatalf("%s limit not enforced", mode)
@@ -79,7 +79,7 @@ func TestProbeExecutionLimits(t *testing.T) {
 		t.Fatalf("stats %+v", stats)
 	}
 	t.Setenv("FFREPORT", "test-only-value")
-	output, err := runProbe(context.Background(), binary, nil, nil, "-test.run=TestProbeProcess", "coach-probe-helper", "environment")
+	output, err := runProbe(context.Background(), binary, nil, nil, "-test.run=TestProbeProcess", "couch-probe-helper", "environment")
 	if err != nil || string(output) != "clean" {
 		t.Fatal("child inherited report environment")
 	}

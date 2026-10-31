@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/TokenCemetery/coach/internal/media"
+	"github.com/TokenCemetery/couch/internal/media"
 )
 
 const streamWriteTimeout = 30 * time.Second
