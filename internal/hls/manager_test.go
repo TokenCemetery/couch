@@ -3,12 +3,14 @@ package hls
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -630,5 +632,71 @@ func TestIdleSessionIsReaped(t *testing.T) {
 	}
 	if !activeOpen || !exists(active.dir) {
 		t.Fatal("the active session was reaped")
+	}
+}
+
+func TestProcessUsageUnits(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", "true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	cpu, peak := processUsage(cmd.ProcessState)
+	// A shell's peak RSS is some hundreds of KiB to a few MiB; bytes taken
+	// for KiB would be over 100 000.
+	if cpu < 0 || peak < 100 || peak > 100_000 {
+		t.Fatalf("cpu %v, peak %d KiB", cpu, peak)
+	}
+}
+
+// lockedBuffer collects log output written from job goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestJobEndLogsUsage(t *testing.T) {
+	path := fixture(t, "in.mkv")
+	m, err := NewManager("ffmpeg", "ffprobe", filepath.Join(t.TempDir(), "transcode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	var logged lockedBuffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	defer slog.SetDefault(previous)
+	source := Source{ItemID: "movie", Version: "1", Duration: 40, VideoStream: 0, AudioStream: 1, AudioEncode: true, AudioChannels: 2,
+		Open: func() (*os.File, error) { return os.Open(path) }}
+	ctx := context.Background()
+	bounds, _, err := m.bounds(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := range bounds {
+		if _, err := m.Segment(ctx, "a", "owner", source, n); err != nil {
+			t.Fatalf("segment %d: %v", n, err)
+		}
+	}
+	want := `msg="HLS job ended" item=movie encode=true segments=` + strconv.Itoa(len(bounds)) + " cpu="
+	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logged.String(), want); {
+		if time.Now().After(deadline) {
+			t.Fatalf("log %q, want %q", logged.String(), want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(logged.String(), "peak_rss_kib=") {
+		t.Fatalf("log %q", logged.String())
 	}
 }

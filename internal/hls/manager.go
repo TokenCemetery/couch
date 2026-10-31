@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -681,6 +682,14 @@ func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int
 		if err != nil && ctx.Err() == nil {
 			slog.Warn("HLS job failed", "item", s.source.ItemID, "error", err)
 		}
+		if cmd.ProcessState != nil {
+			cpu, peak := processUsage(cmd.ProcessState)
+			j.mu.Lock()
+			segments := j.completed - j.start + 1
+			j.mu.Unlock()
+			slog.Info("HLS job ended", "item", s.source.ItemID, "encode", s.source.VideoEncode || s.source.AudioEncode,
+				"segments", segments, "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak)
+		}
 		if err != nil {
 			j.err = err
 		}
@@ -800,4 +809,19 @@ func (s *session) close() {
 	s.stopJob()
 	s.mu.Unlock()
 	_ = os.RemoveAll(s.dir)
+}
+
+// processUsage reports a finished process's CPU time (user and system) and
+// peak resident memory in KiB, which macOS reports in bytes.
+func processUsage(state *os.ProcessState) (time.Duration, int64) {
+	cpu := state.UserTime() + state.SystemTime()
+	usage, ok := state.SysUsage().(*syscall.Rusage)
+	if !ok {
+		return cpu, 0
+	}
+	peak := usage.Maxrss
+	if runtime.GOOS == "darwin" {
+		peak /= 1024
+	}
+	return cpu, peak
 }
