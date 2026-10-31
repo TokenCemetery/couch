@@ -16,7 +16,35 @@ Outcome: Emby/client versions, a list of scenarios, scrubbed exchange samples, a
 - Measure RSS/CPU/I/O at idle, during scanning and during playback; API p50/p95 and start/seek time. Record the file set, cache, quality, acceleration and concurrency.
 - Define resource budgets, load and the duration of the stability check.
 
-Done when the scenario reproduces against the recorded contract, dependencies are known and numeric criteria are agreed. The contract is captured; baseline measurements and resource budgets are not defined yet.
+Done when the scenario reproduces against the recorded contract, dependencies are known and numeric criteria are agreed. The contract and the baseline ([BASELINE](BASELINE.md), #14) are captured; the budgets below are proposed and not yet approved.
+
+### Proposed budgets (2026-10-31, awaiting the owner's approval, #15)
+
+Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: same host, the real media set, Emby Web's Chromium profile, and the small (1 CPU, 1 GiB), average (2 CPU, 2 GiB) and large (4 CPU, 4 GiB) containers. Couch meets a budget when its figure is no higher on every profile, measured with `scripts/baseline.sh`. "Now" is Couch at f5f9eed.
+
+| Phase | Measure | Budget (Emby) | Now |
+|---|---|---|---|
+| Idle 60 s | anonymous memory / server RSS / CPU | 71 MiB / 202 MiB / 0.13–0.35 s | met: 4 MiB / 11 MiB / 0 s |
+| Startup and scan of 18 files | wall / CPU / reads | 3.4–5.1 s / 2.3 s / 18 MiB | wall and CPU met (1.2 s / 0.8 s); reads not met (85 MiB) |
+| API, seven endpoints | p95 per profile | Emby's p95, 0.9–5.1 ms | met, except Movies on large: 2.8 ms against 2.6 ms |
+| API, 100 PlaybackInfo calls | reads | 0 MiB | not met: 195–202 MiB (#98) |
+| Direct Stream | CPU / memory / seek to first byte | 0.22–0.58 s / 72–89 MiB / 1.7–2.7 ms | met |
+| Remux, 120 s of video | CPU / memory / first segment / seek | 1.9–2.1 s / 86–99 MiB / 0.33–0.34 s / 0.14–0.23 s | memory and first segment met; CPU (2.13–2.18 s) and seek (0.21–0.34 s) not met, by up to 0.2 s |
+| Transcode HEVC 720p, 120 s of video | CPU / memory | 33–35 s / 368 MiB | memory met (303 MiB); CPU not met (36–37 s) |
+| | first segment / seek to 50 % | 1.4 / 0.8 / 0.5 s; 1.5 / 0.76 / 0.36 s | not met: 3.4 / 2.0 / 1.4 s; 4.5 / 2.4 / 1.25 s (#99) |
+| | reads | 39 MiB | not met: 321 MiB (#98) |
+| | temp folder peak | 96–97 MiB | met: 9 MiB |
+| 4K HEVC 10-bit, large | first segment | 4.4 s, and within Emby Web's 10 s wait | not met: 18.2 s (#97) |
+
+Picture quality is a condition, not a budget: a transcode change must stay within 0.01 SSIM of the previous Couch encode on R06, as measured in [VALIDATION](VALIDATION.md). The FFmpeg builds differ (Emby's 5.1, Couch's Alpine 8.1), so FFmpeg-bound budgets compare the whole container, which is what users pay for.
+
+Stability (G-3), proposed:
+
+- Load: the existing soak test (`COUCH_SOAK`, 8 workers) with two remux sessions and one transcode running at once, which are Couch's limits, and a rescan every 75 s, on the large profile.
+- Duration: 8 hours. Pass: no request errors, no child processes or segments left at the end, open files back to the start count, and RSS flat over the last 4 hours (no growth above the peak of the first 4).
+- Acceptable progress loss after a forced stop: the last confirmed `Progress` report, which Emby Web sends every 10 s. This is what `forced-stop-keeps-confirmed-state` already checks.
+
+Explicit limits (NFR-02), already in place: scan up to 10,000 videos, 100,000 entries, depth 64 and 10 minutes; one FFprobe at a time, 15 s and 1 MiB of output per file; 2 remux and 1 transcode sessions, then 503 `Retry-After`; 2 GiB of segments per session; 2 keyframe listings at once; idle sessions end after 60 s; 16 upstream requests for `-web-upstream`.
 
 ## M1. Connection and sign-in through the Emby frontend
 
