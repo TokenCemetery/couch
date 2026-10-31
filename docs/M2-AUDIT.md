@@ -1,99 +1,99 @@
-# Аудит M2 — 2026-09-20–21
+# M2 audit — 2026-09-20–21
 
-Объём: критерии M2 из [roadmap](../ROADMAP.md), FR-03–FR-09 из
-[PRD](../PRD.md). База: `172bee0` и незакоммиченный WebSocket-этап.
+Scope: M2 criteria from the [roadmap](../ROADMAP.md), FR-03–FR-09 from the
+[PRD](../PRD.md). Baseline: `172bee0` and the uncommitted WebSocket stage.
 
-## Сильные стороны
+## Strengths
 
-- Каталог ограничивает обход и FFprobe; файлы открываются через `os.Root`.
-- Поток использует `ServeContent`, не загружает файл целиком; есть тесты Range,
-  HEAD, 416, изменения файла и медленного клиента.
-- Состояние записывается атомарно. WebSocket отправляет UserDataChanged после
-  сохранения; очереди ограничены, logout и shutdown закрывают соединения.
-- Оригинальный API-клиент проверяет вход, PlaybackInfo, прогресс и рестарт.
-  Это не проверка DOM или декодирования видео браузером.
+- The catalog limits traversal and FFprobe; files are opened via `os.Root`.
+- Streaming uses `ServeContent` and does not load the whole file; there are tests for Range,
+  HEAD, 416, file changes and a slow client.
+- State is written atomically. WebSocket sends UserDataChanged after
+  saving; queues are bounded, logout and shutdown close connections.
+- The original API client verifies login, PlaybackInfo, progress and restart.
+  This is not a check of the DOM or of video decoding by the browser.
 
-## Дефекты начального среза
+## Defects in the initial snapshot
 
-Ниже исходные находки; исправления и остаточные пробелы перечислены отдельно.
+Below are the original findings; fixes and remaining gaps are listed separately.
 
-| Приоритет | Место | Подтверждение и минимальное исправление |
+| Priority | Location | Evidence and minimal fix |
 |---|---|---|
-| P1 | `internal/server/catalog.go`, `listItems` | IsPlayed/IsFavorite=true всегда исключают объект, false не учитывает состояние. Фильтровать по сохранённому UserData, добавить тесты после изменения флагов. |
-| P1 | `internal/server/dto.go`, `movieDTO`; маршруты сервера | ImageTags всегда пуст; выдачи изображений нет. Нужны локальные обложки, авторизация, ограничения размера и актуальные валидаторы кеша. |
-| P1 | `internal/media/catalog.go`; `internal/server/catalog.go` | Любой видеофайл — Movie. Нет Series/Season/Episode и маршрутов сезонов/эпизодов. Это явный пробел M2/FR-03–04, не функция M3. |
-| P2 | `internal/server/playback.go`, `reportPlaystate` | Отчёт без PositionTicks обнуляет позицию. Сохранять прежнюю позицию, если поле отсутствует; проверять отрицательные значения одинаково для JSON/query. |
-| P2 | `internal/server/playback.go`, `reportPlaystate` | Повтор start увеличивает PlayCount; поздний progress после stop восстанавливает позицию. Нет учёта PlaySessionId; FR-08 ещё не выполнен полностью. |
-| P2 | `internal/server/playback.go`, маршрут Resume | Limit/StartIndex игнорируются, TotalRecordCount обрезан до 24. Нужны фильтры и пагинация до построения DTO. |
-| P2 | `internal/server/home.go`, `sectionItems` | Latest Movies рекламирует IsPlayed=false, но включает просмотренные фильмы. Использовать сохранённый флаг. |
+| P1 | `internal/server/catalog.go`, `listItems` | IsPlayed/IsFavorite=true always exclude the item, false ignores the state. Filter by the saved UserData, add tests after the flags change. |
+| P1 | `internal/server/dto.go`, `movieDTO`; server routes | ImageTags is always empty; images are not served. Needs local posters, authorization, size limits and correct cache validators. |
+| P1 | `internal/media/catalog.go`; `internal/server/catalog.go` | Every video file is a Movie. No Series/Season/Episode and no season/episode routes. This is an explicit M2/FR-03–04 gap, not an M3 feature. |
+| P2 | `internal/server/playback.go`, `reportPlaystate` | A report without PositionTicks resets the position to zero. Keep the previous position when the field is missing; validate negative values the same way for JSON/query. |
+| P2 | `internal/server/playback.go`, `reportPlaystate` | A repeated start increments PlayCount; a late progress after stop restores the position. PlaySessionId is not tracked; FR-08 is not yet fully met. |
+| P2 | `internal/server/playback.go`, Resume route | Limit/StartIndex are ignored, TotalRecordCount is truncated to 24. Needs filters and pagination before building DTOs. |
+| P2 | `internal/server/home.go`, `sectionItems` | Latest Movies advertises IsPlayed=false but includes played movies. Use the saved flag. |
 
-## Пробелы проверки
+## Verification gaps
 
-- Нет текущей браузерной приёмки «поиск → карточка → play → seek → stop →
-  рестарт → resume» на длинном видео. 2026-09-21 встроенный браузер показал
-  вход, главную и обложку; после исправления поиска повторная проверка
-  остановлена лимитом автоматического разрешения доступа инструмента.
-- Серийный сценарий ещё не принят оригинальным UI.
-- В предоставленной копии UI отсутствует `modules/apphost.js`: загрузка
-  останавливается. Браузерные проверки выполнены через `-web-upstream`;
-  автономная проверка API-модулей не подтверждает полноту UI.
-- Не согласован полный медианабор. Синтетический MP4 не подтверждает все кодеки.
-- Нет сравнительных замеров ресурсов с Emby; это M0/M4, не доказанное улучшение M2.
+- No current browser acceptance of "search → item page → play → seek → stop →
+  restart → resume" on a long video. On 2026-09-21 the built-in browser showed
+  login, the home page and a poster; after the search fix, the recheck was
+  stopped by the tool's automatic access-permission limit.
+- The series scenario has not yet been accepted by the original UI.
+- The provided UI copy lacks `modules/apphost.js`: loading
+  stops. Browser checks were run via `-web-upstream`;
+  a standalone check of the API modules does not confirm the UI is complete.
+- The full media set is not agreed. A synthetic MP4 does not confirm all codecs.
+- No comparative resource measurements against Emby; that is M0/M4, not a proven M2 improvement.
 
-## Исправлено в ходе аудита
+## Fixed during the audit
 
-- Played/Favorite/IsUnplayed учитывают сохранённое состояние; Latest Movies
-  исключает просмотренное. Resume применяет фильтры, сортировку, Limit/StartIndex
-  и возвращает общее количество до обрезания страницы.
-- Отсутствующая позиция сохраняется, отрицательная отклоняется. Проверка 90 %
-  больше не умножает int64 runtime с риском переполнения.
-- Последние 64 PlaySessionId на клиентскую сессию сохраняются атомарно с UserData.
-  Повтор start не увеличивает счётчик; progress/stop принимаются только для
-  последнего незавершённого просмотра. Без ID остаётся порядок получения;
-  вытесненный из окна start считается новым. Seek назад допускается.
-- SetItem теперь возвращает ErrStateLimit при исчерпании лимита, вместо успеха
-  без изменения. Публикация UserDataChanged остаётся после записи.
-- Добавлены Series/Season/Episode, отдельная TV Shows, Seasons/Episodes API,
-  карточки/поиск и прямое воспроизведение эпизодов. Распознаётся только
-  `Show/Season 01/Show.S01E02.mp4`; неоднозначные имена остаются фильмами.
-  ID и иерархия стабильны после повторного сканирования.
-- Добавлен тест отмены реального HTTP-потока: обработчик завершает работу,
-  закрывает файл; последующее удаление тестового файла даёт 404. Тест пройден
-  трижды. Sparse-файл 64 MiB не загружается целиком в RAM.
+- Played/Favorite/IsUnplayed respect the saved state; Latest Movies
+  excludes played items. Resume applies filters, sorting, Limit/StartIndex
+  and returns the total count before the page is truncated.
+- A missing position is kept, a negative one is rejected. The 90% check
+  no longer multiplies the int64 runtime with an overflow risk.
+- The last 64 PlaySessionIds per client session are saved atomically with UserData.
+  A repeated start does not increment the counter; progress/stop are accepted only for
+  the last unfinished playback. Without an ID, arrival order applies;
+  a start evicted from the window counts as new. Seeking backward is allowed.
+- SetItem now returns ErrStateLimit when the limit is exhausted, instead of success
+  without a change. UserDataChanged is still published after the write.
+- Added Series/Season/Episode, a separate TV Shows, Seasons/Episodes API,
+  item pages/search and Direct Play of episodes. Only
+  `Show/Season 01/Show.S01E02.mp4` is recognized; ambiguous names remain movies.
+  IDs and the hierarchy are stable after a rescan.
+- Added a test for cancelling a real HTTP stream: the handler finishes and
+  closes the file; deleting the test file afterwards yields 404. The test passed
+  three times. A 64 MiB sparse file is not loaded fully into RAM.
 
-### Изображения и поиск
+### Images and search
 
-Оригинальный `getImageUrl` не добавляет API-токен. Пользователь согласовал
-подписанные ImageTags: реализован доступ к конкретной ревизии Primary-обложки
-до logout/истечения сессии, с сохранением после рестарта. Локальные JPEG/PNG
-ограничены по размеру и заголовку, открываются внутри корня медиатеки.
-Выдаётся оригинал без resize; ревизия по пути/размеру/mtime — не хеш содержимого.
-Тесты проверяют изоляцию, подделку, отзыв, рестарт и HTTP-кеш; оригинальный
-API-клиент формирует рабочую ссылку, браузер показывает обложку.
+The original `getImageUrl` does not add the API token. The user approved
+signed ImageTags: access to a specific revision of the Primary poster is implemented
+until logout/session expiry, and persists across restarts. Local JPEG/PNG files
+are limited by size and header and are opened inside the media library root.
+The original is served without resize; the revision is by path/size/mtime, not a content hash.
+Tests cover isolation, forgery, revocation, restart and HTTP caching; the original
+API client builds a working URL, and the browser shows the poster.
 
-Глобальный поиск UI выявил недостающий ItemTypes и отклонение параметров
-GroupProgramsBySeries/IncludeSearchTypes. Добавлены маршрут и валидация;
-типы считаются по отфильтрованной выборке до пагинации. Полный getSearchResults
-проверяется оригинальным API-клиентом; повторная браузерная проверка открыта.
+The UI's global search revealed a missing ItemTypes and the rejection of the
+GroupProgramsBySeries/IncludeSearchTypes parameters. A route and validation were added;
+types are counted over the filtered set before pagination. The full getSearchResults
+is verified by the original API client; the browser recheck is still open.
 
-## Рекомендации
+## Recommendations
 
-1. Завершить браузерную приёмку поиска, сериалов и длинного видео после
-   восстановления доступа инструмента; только затем закрыть M2.
-2. Проверить автономный запуск с полным комплектом ресурсов Emby Web.
-3. Согласовать медианабор и отдельно выполнить сравнительные замеры ресурсов.
+1. Complete browser acceptance of search, series and long video after
+   the tool's access is restored; only then close M2.
+2. Verify a standalone launch with the full set of Emby Web resources.
+3. Agree on the media set and separately run comparative resource measurements.
 
-DRY: подтверждённого дублирования, требующего рефакторинга для M2, не найдено.
-YAGNI: транскодирование, провайдеры метаданных и постоянный индекс не добавляются
-в этот этап; для них есть отдельные требования и последующие этапы.
+DRY: no confirmed duplication requiring refactoring for M2 was found.
+YAGNI: transcoding, metadata providers and a persistent index are not added
+in this stage; they have separate requirements and later stages.
 
-Вердикт: backend зафиксирован как проверенная контрольная точка; M2 открыт
-до полной клиентской приёмки. Результаты — [VALIDATION](VALIDATION.md).
+Verdict: the backend is recorded as a verified checkpoint; M2 stays open
+until full client acceptance. Results: [VALIDATION](VALIDATION.md).
 
-## Закрытие (2026-10-03)
+## Closure (2026-10-03)
 
-Рекомендация 1 выполнена: браузерная приёмка поиска, сериала и длинного видео
-пройдена после исправления `IsSpecialSeason` и параметров выборки эпизодов
-сериала. M2 принят на синтетическом H.264/AAC MP4. Рекомендации 2–3 и история
-поиска (`SearchedItems`/`WasSearched`) остаются открытыми. Подробности —
-[VALIDATION](VALIDATION.md#браузерная-приёмка-m2-2026-10-03).
+Recommendation 1 is done: browser acceptance of search, series and long video
+passed after fixing `IsSpecialSeason` and the series episode query
+parameters. M2 is accepted on a synthetic H.264/AAC MP4. Recommendations 2–3 and search
+history (`SearchedItems`/`WasSearched`) remain open. Details:
+[VALIDATION](VALIDATION.md#m2-browser-acceptance-2026-10-03).

@@ -1,61 +1,61 @@
-# Матрица совместимости (#20)
+# Compatibility matrix (#20)
 
-Статус: черновик, обновлён 2026-10-07. Правила строк и статусов — [ROADMAP](../ROADMAP.md#правила-матрицы-совместимости). Совместимость заявляется только для строк со статусом «проверено». Медианабор не согласован (#16): строки ниже проверены на синтетических файлах и не заменяют проверку на реальной библиотеке.
+Status: draft, updated 2026-10-07. Row and status rules: [ROADMAP](../ROADMAP.md#compatibility-matrix-rules). Compatibility is claimed only for rows with the "verified" status. The media set is not agreed (#16): the rows below were verified on synthetic files and do not replace verification on a real library.
 
-## Стенд
+## Test bench
 
-- Эталон: Emby Server и Emby Web 4.10.0.40.
-- Клиент: немодифицированный Emby Web 4.10.0.40 через `-web-dir`, Chromium 152 (встроенный браузер, macOS), hls.js, интерфейс на русском.
-- Сервер: Coach `main` 2026-10-07 с FFmpeg 9.0.2; сегменты в `<data>/transcode`.
-- Медиа: `scripts/matrix-media.sh DIR` — 120 с `testsrc2` 640×360, 25 кадр/с, ключевые кадры через 2 с; в кадре выводится его отметка времени.
+- Reference: Emby Server and Emby Web 4.10.0.40.
+- Client: unmodified Emby Web 4.10.0.40 via `-web-dir`, Chromium 152 (built-in browser, macOS), hls.js, Russian UI.
+- Server: Coach `main` 2026-10-07 with FFmpeg 9.0.2; segments in `<data>/transcode`.
+- Media: `scripts/matrix-media.sh DIR` — 120 s of `testsrc2` 640×360, 25 fps, keyframes every 2 s; each frame shows its timestamp.
 
-## Сценарий строки
+## Row scenario
 
-1. **Старт:** «Воспроизвести» на странице фильма. Способ доставки определяется по запросам: `stream.<контейнер>` — Direct Stream; `master.m3u8` без `VideoBitrate` — remux в HLS; с `VideoBitrate` — транскодирование видео в H.264. Кадры выводятся (`getVideoPlaybackQuality`).
-2. **Перемотка** на 70 с: отметка времени в кадре совпадает с `currentTime` в пределах кадра.
-3. **Стоп:** выход из плеера. `Sessions/Playing/Stopped` — 204, позиция сохранена; для HLS каталог сегментов пуст и процессов FFmpeg нет.
-4. **Продолжение:** «Возобновить» начинает с сохранённой позиции, отметка в кадре совпадает с `currentTime`.
+1. **Start:** "Play" on the movie page. The delivery method is determined from the requests: `stream.<container>` — Direct Stream; `master.m3u8` without `VideoBitrate` — remux to HLS; with `VideoBitrate` — video transcode to H.264. Frames are rendered (`getVideoPlaybackQuality`).
+2. **Seek** to 70 s: the timestamp in the frame matches `currentTime` to within one frame.
+3. **Stop:** exit the player. `Sessions/Playing/Stopped` — 204, position saved; for HLS the segment directory is empty and no FFmpeg processes remain.
+4. **Resume:** "Resume" starts from the saved position, the timestamp in the frame matches `currentTime`.
 
 ## Emby Web 4.10.0.40, Chromium 152, macOS
 
-| Файл | Видео / аудио | Доставка | Старт | Перемотка | Стоп | Продолжение | Статус |
+| File | Video / audio | Delivery | Start | Seek | Stop | Resume | Status |
 |---|---|---|---|---|---|---|---|
-| `MP4 H264 AAC.mp4` | H.264 / AAC | Direct Stream | да | 1:12,920 при 72,95 с | 204; позиция не считана | 1:21,720 при 81,73 с | проверено 2026-10-07 |
-| `MKV H264 two AAC.mkv` | H.264 / 2× AAC | Direct Stream (`stream.mkv`) | да | 1:14,920 при 74,92 с | 74,73 с | 1:15,840 при 75,87 с | проверено 2026-10-07 |
-| `WebM VP9 Opus.webm` | VP9 / Opus | Direct Stream | да | 1:14,880 при 74,88 с | 75,25 с | 1:15,840 при 75,86 с | проверено 2026-10-07 |
-| `MKV H264 AC3.mkv` + `.srt` | H.264 / AC3 | remux в HLS, AC3 → AAC | да | 1:21,160 при 81,11 с | 81,08 с, очищено | 1:25,640 при 85,59 с | проверено 2026-10-07 |
-| `TS H264 AAC.ts` | H.264 / AAC | remux в HLS, AAC копируется | да | 1:14,880 при 74,93 с | 74,71 с | 1:15,600 при 75,65 с | проверено 2026-10-07 |
-| `AVI MPEG4 MP3.avi` | MPEG-4 Part 2 / MP3 | транскодирование в H.264, MP3 копируется | да | 1:16,000 при 75,92 с | 75,77 с, очищено | 1:16,520 при 76,45 с | проверено 2026-10-07 |
-| `MKV HEVC10 AC3.mkv` | HEVC 10-bit / AC3 | транскодирование в H.264, AC3 → AAC | да | 1:15,960 при 75,91 с | 75,78 с, очищено | 1:16,480 при 76,45 с | проверено 2026-10-07 |
-| `MOV HEVC rotated.mov` (поворот 90°, 20 с) | HEVC / AAC | транскодирование в H.264 с поворотом | да, 720×1280 | на 14 с, 720×1280 | очищено | не проверялось | частично 2026-10-11 (#22) |
-| `MP4 H264 rotated.mp4` (поворот 90°, 20 с) | H.264 / AAC | Direct Stream, поворот применяет браузер | да, 720×1280 | не проверялось | не проверялось | не проверялось | частично 2026-10-11 (#22) |
+| `MP4 H264 AAC.mp4` | H.264 / AAC | Direct Stream | yes | 1:12.920 at 72.95 s | 204; position not read | 1:21.720 at 81.73 s | verified 2026-10-07 |
+| `MKV H264 two AAC.mkv` | H.264 / 2× AAC | Direct Stream (`stream.mkv`) | yes | 1:14.920 at 74.92 s | 74.73 s | 1:15.840 at 75.87 s | verified 2026-10-07 |
+| `WebM VP9 Opus.webm` | VP9 / Opus | Direct Stream | yes | 1:14.880 at 74.88 s | 75.25 s | 1:15.840 at 75.86 s | verified 2026-10-07 |
+| `MKV H264 AC3.mkv` + `.srt` | H.264 / AC3 | remux to HLS, AC3 → AAC | yes | 1:21.160 at 81.11 s | 81.08 s, cleaned up | 1:25.640 at 85.59 s | verified 2026-10-07 |
+| `TS H264 AAC.ts` | H.264 / AAC | remux to HLS, AAC copied | yes | 1:14.880 at 74.93 s | 74.71 s | 1:15.600 at 75.65 s | verified 2026-10-07 |
+| `AVI MPEG4 MP3.avi` | MPEG-4 Part 2 / MP3 | transcode to H.264, MP3 copied | yes | 1:16.000 at 75.92 s | 75.77 s, cleaned up | 1:16.520 at 76.45 s | verified 2026-10-07 |
+| `MKV HEVC10 AC3.mkv` | HEVC 10-bit / AC3 | transcode to H.264, AC3 → AAC | yes | 1:15.960 at 75.91 s | 75.78 s, cleaned up | 1:16.480 at 76.45 s | verified 2026-10-07 |
+| `MOV HEVC rotated.mov` (90° rotation, 20 s) | HEVC / AAC | transcode to H.264 with rotation | yes, 720×1280 | at 14 s, 720×1280 | cleaned up | not checked | partial 2026-10-11 (#22) |
+| `MP4 H264 rotated.mp4` (90° rotation, 20 s) | H.264 / AAC | Direct Stream, browser applies rotation | yes, 720×1280 | not checked | not checked | not checked | partial 2026-10-11 (#22) |
 
-Журнал Coach за прогон — без ошибок и предупреждений.
+The Coach log for the run has no errors or warnings.
 
-### Сериал
+### Series
 
-| Сценарий | Доставка | Результат | Статус |
+| Scenario | Delivery | Result | Status |
 |---|---|---|---|
-| `Matrix Show` S01E01 → S01E02 (H.264 / AC3, по 30 с): воспроизведение E01 со страницы, перемотка на 24 с, автопереход | remux в HLS для обоих эпизодов | E01 доигран (`Stopped` на 29,9 с), отмечен просмотренным, позиция сброшена; клиент запросил PlaybackInfo для E02 и запустил его (отметка 0:03,320 при 3,37 с); после стопа E02 сохранено 12,99 с; сегментов и FFmpeg не осталось | проверено 2026-10-07 |
+| `Matrix Show` S01E01 → S01E02 (H.264 / AC3, 30 s each): play E01 from the page, seek to 24 s, auto-advance | remux to HLS for both episodes | E01 played to the end (`Stopped` at 29.9 s), marked as played, position reset; the client requested PlaybackInfo for E02 and started it (timestamp 0:03.320 at 3.37 s); after stopping E02, 12.99 s was saved; no segments or FFmpeg left | verified 2026-10-07 |
 
-## Дорожки и субтитры (Emby Web, Chromium)
+## Tracks and subtitles (Emby Web, Chromium)
 
-Смена качества проверена 2026-10-07 на наборе выше, остальные строки — раньше, на других синтетических файлах; подробности — в [VALIDATION](VALIDATION.md).
+Quality switching was verified 2026-10-07 on the set above, the other rows earlier on other synthetic files; details in [VALIDATION](VALIDATION.md).
 
-| Сценарий | Доставка | Статус |
+| Scenario | Delivery | Status |
 |---|---|---|
-| Смена качества в плеере (420 кбит/с на `MKV H264 two AAC.mkv`) | новый PlaybackInfo с `MaxStreamingBitrate`, транскодирование (`VideoBitrate=228000`, `MaxWidth=854`); отметка в кадре 0:31,630 при 31,8 с | проверено 2026-10-07: после двух смен подряд (420 и 320 кбит/с, обе с транскодированием) отчёты под новыми ID приняты, сохранено 68,51 с при 68,71 с (#73) |
-| Выбор второй аудиодорожки в плеере | новый PlaybackInfo, remux в HLS с выбранной дорожкой | проверено 2026-10-06 («Смена аудиодорожки в браузере»); 2026-10-07 на `MKV H264 two AAC.mkv`: после смены на дорожку 2 отчёты под новым ID приняты, сохранено 28,76 с при 28,99 с (#73) |
-| Внешние SRT, выбранные в карточке | внешний WebVTT при Direct Stream; при remux — WebVTT внутри HLS (`subtitles.m3u8`) | проверено 2026-10-04 и 2026-10-06; внутри HLS — 2026-10-11 на `MKV H264 AC3.mkv`: реплики совпадают с кадром, выключение и включение в плеере без нового PlaybackInfo (#21) |
-| Встроенные SubRip в MKV | извлечение в WebVTT | проверено 2026-10-04 и 2026-10-06 |
-| Автовыбор субтитров по режиму пользователя | `DefaultSubtitleStreamIndex` | проверено 2026-10-04 |
-| Дорожка, которую Coach не может выдать (`mov_text` без FFmpeg) | воспроизведение без неё, без ошибки | проверено 2026-10-06 («Невыдаваемые субтитры в браузере») |
-| Графические субтитры (PGS, VobSub) | прожиг не реализован | не исследовано |
+| Quality switch in the player (420 kbps on `MKV H264 two AAC.mkv`) | new PlaybackInfo with `MaxStreamingBitrate`, transcode (`VideoBitrate=228000`, `MaxWidth=854`); timestamp in the frame 0:31.630 at 31.8 s | verified 2026-10-07: after two switches in a row (420 and 320 kbps, both transcoded) reports under the new IDs were accepted, 68.51 s saved at 68.71 s (#73) |
+| Selecting the second audio track in the player | new PlaybackInfo, remux to HLS with the selected track | verified 2026-10-06 ("Audio track switching in the browser"); 2026-10-07 on `MKV H264 two AAC.mkv`: after switching to track 2 reports under the new ID were accepted, 28.76 s saved at 28.99 s (#73) |
+| External SRT selected on the item page | external WebVTT with Direct Stream; with remux, WebVTT inside HLS (`subtitles.m3u8`) | verified 2026-10-04 and 2026-10-06; inside HLS on 2026-10-11 on `MKV H264 AC3.mkv`: cues match the frame, turning off and on in the player without a new PlaybackInfo (#21) |
+| Embedded SubRip in MKV | extraction to WebVTT | verified 2026-10-04 and 2026-10-06 |
+| Automatic subtitle selection by user mode | `DefaultSubtitleStreamIndex` | verified 2026-10-04 |
+| A track Coach cannot serve (`mov_text` without FFmpeg) | playback without it, no error | verified 2026-10-06 ("Undeliverable subtitles in the browser") |
+| Image-based subtitles (PGS, VobSub) | burn-in not implemented | not investigated |
 
-## Не исследовано
+## Not investigated
 
 - Android, Android TV (#26), iOS, Apple TV (#27).
-- Другие браузеры и Emby Web на ТВ (Tizen, webOS).
-- Реальные файлы библиотеки (#16), длинные фильмы и нагрузка CPU при транскодировании (#29).
-- Браузер, которому профиль ограничивает H.264 шириной 1920: ограничение проверено только запросами к Coach (VALIDATION, «Транскодирование в H.264»).
-- HEVC с открытыми GOP в MPEG-TS при копируемом аудио: перезапуск с середины может начаться позже плана (#81); при кодируемом аудио исправлено и покрыто модульным тестом, в браузере не проверялось.
+- Other browsers and Emby Web on TVs (Tizen, webOS).
+- Real library files (#16), long movies and CPU load during transcoding (#29).
+- A browser whose profile limits H.264 to 1920 width: the limit was verified only with requests to Coach (VALIDATION, "Transcoding to H.264").
+- HEVC with open GOPs in MPEG-TS with copied audio: a restart from the middle may begin later than planned (#81); with encoded audio this is fixed and covered by a unit test, not checked in the browser.

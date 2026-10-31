@@ -1,115 +1,115 @@
 # Roadmap
 
-Статус: черновик, обновлён 2026-10-31. Это порядок работ и критерии завершения, без неподтверждённых календарных оценок. Требования: [PRD](PRD.md); факты: [исследование](docs/DISCOVERY.md).
+Status: draft, updated 2026-10-31. This is the work order and completion criteria, without unconfirmed calendar estimates. Requirements: [PRD](PRD.md); facts: [discovery](docs/DISCOVERY.md).
 
-M0 частично выполнен: снят эталонный контракт (30 очищенных фикстур), замеры ресурсов остаются открытыми. M1 принят: Emby Web работает против Coach в браузере. M2 принят 2026-10-03 на синтетическом H.264/AAC MP4: браузер прошёл «вход → поиск → карточка → play → seek → stop → рестарт → resume» для фильма и сценарий сериала. Медианабор не согласован, полный локальный UI не проверен. M3 в работе (см. ниже), M4–M6 не начаты. Границы проверки: [VALIDATION.md](docs/VALIDATION.md).
+M0 is partially done: the reference contract is captured (30 scrubbed fixtures), resource measurements remain open. M1 accepted: Emby Web works against Coach in the browser. M2 accepted 2026-10-03 on a synthetic H.264/AAC MP4: the browser passed "sign in → search → item page → play → seek → stop → restart → resume" for a movie and the TV series scenario. The media set is not agreed, the full local UI is not verified. M3 is in progress (see below), M4–M6 are not started. Verification boundaries: [VALIDATION.md](docs/VALIDATION.md).
 
-Обязательные клиенты (ответ пользователя 2026-09-19): Emby Web (первый), Android/Android TV, iOS/Apple TV. Kodi и DLNA в обязательный объём не входят.
+Mandatory clients (user's answer 2026-09-19): Emby Web (first), Android/Android TV, iOS/Apple TV. Kodi and DLNA are not part of the mandatory scope.
 
-## M0. Зафиксировать цель совместимости
+## M0. Pin down the compatibility target
 
-Результат: версии Emby/клиентов, перечень сценариев, очищенные образцы обмена, медианабор и исходные замеры.
+Outcome: Emby/client versions, a list of scenarios, scrubbed exchange samples, a media set and baseline measurements.
 
-- Подключение проверено: `http://192.168.1.11:8096/`, версия сервера/frontend `4.10.0.40`. Сняты публичные и авторизованные ответы; браузерный сценарий против Coach проверен.
-- Выбрать первый клиент и обязательные сценарии. Зафиксировать способ подключения web-клиента к новому backend.
-- Сопоставить запросы с документацией Emby и исходниками Jellyfin. Отмечать подтверждённые различия, а не считать API идентичными.
-- Снять RSS/CPU/I/O в простое, при сканировании и воспроизведении; p50/p95 API и время старта/seek. Зафиксировать набор файлов, кеш, качество, ускорение и параллелизм.
-- Определить бюджеты ресурсов, нагрузку и длительность проверки стабильности.
+- Connection verified: `http://192.168.1.11:8096/`, server/frontend version `4.10.0.40`. Public and authenticated responses captured; the browser scenario against Coach is verified.
+- Choose the first client and the mandatory scenarios. Pin down how the web client connects to the new backend.
+- Map requests against the Emby documentation and the Jellyfin sources. Record confirmed differences instead of assuming the APIs are identical.
+- Measure RSS/CPU/I/O at idle, during scanning and during playback; API p50/p95 and start/seek time. Record the file set, cache, quality, acceleration and concurrency.
+- Define resource budgets, load and the duration of the stability check.
 
-Готово, когда сценарий воспроизводится по записанному контракту, зависимости известны и численные критерии согласованы. Контракт снят; исходные замеры и бюджеты ресурсов ещё не определены.
+Done when the scenario reproduces against the recorded contract, dependencies are known and numeric criteria are agreed. The contract is captured; baseline measurements and resource budgets are not defined yet.
 
-## M1. Подключение и вход через Emby frontend
+## M1. Connection and sign-in through the Emby frontend
 
-Зависит от M0. Результат: первый работающий Go-сервер, к которому подключается целевой клиент.
+Depends on M0. Outcome: the first working Go server that the target client connects to.
 
-- Минимальная структура проекта, конфигурация, постоянное хранилище, миграции, HTTP и диагностические журналы.
-- System info, публичные пользователи, вход, токены, logout, необходимые capabilities/настройки.
-- Контрактные проверки по M0 и клиентский сценарий входа, выхода, повторного подключения.
+- Minimal project structure, configuration, persistent storage, migrations, HTTP and diagnostic logs.
+- System info, public users, sign-in, tokens, logout, the required capabilities/settings.
+- Contract checks per M0 and a client scenario for sign-in, sign-out and reconnection.
 
-Готово, когда немодифицированный целевой клиент входит, показывает корректное пустое состояние, восстанавливает допустимую сессию после рестарта и теряет доступ после logout. Любые вспомогательные API реализуются по наблюдаемой потребности.
+Done when the unmodified target client signs in, shows a correct empty state, restores a valid session after restart and loses access after logout. Any auxiliary APIs are implemented according to observed need.
 
-Принят 2026-09-19. Немодифицированный Emby Web 4.10.0.40 в браузере подключается к Coach, входит, восстанавливает сессию после перезапуска и теряет доступ после logout. Позже добавлен базовый WebSocket; браузерная проверка 2026-10-04: UserDataChanged доходит до второй вкладки и после перезапуска Coach, переподключение клиента ленивое ([VALIDATION](docs/VALIDATION.md)).
+Accepted 2026-09-19. Unmodified Emby Web 4.10.0.40 in the browser connects to Coach, signs in, restores the session after restart and loses access after logout. A basic WebSocket was added later; browser check 2026-10-04: UserDataChanged reaches a second tab and after a Coach restart, client reconnection is lazy ([VALIDATION](docs/VALIDATION.md)).
 
-## M2. Библиотека и первый Direct Play
+## M2. Library and first Direct Play
 
-Зависит от M1. Результат: пригодный для ограниченного использования вертикальный срез.
+Depends on M1. Outcome: a vertical slice fit for limited use.
 
-- Сканирование тестовой папки, стабильные ID, FFprobe, метаданные и изображения.
-- Библиотека, карточки, поиск, фильмы/серии и необходимые фильтры.
-- PlaybackInfo, поток с Range, play/seek/stop, сохранение позиции и resume.
-- Проверки прав, пустого каталога, отсутствующего/битого файла, отмены потока и рестарта.
+- Scanning a test folder, stable IDs, FFprobe, metadata and images.
+- Library, item pages, search, movies/episodes and the required filters.
+- PlaybackInfo, a stream with Range, play/seek/stop, saving the position and resume.
+- Checks for permissions, an empty catalog, a missing/broken file, stream cancellation and restart.
 
-Готово, когда клиент проходит «вход → поиск → карточка → play → seek → stop → рестарт сервера → resume» для согласованных файлов. Прямая выдача работает без чтения всего файла в память. Это не завершение полной медиасовместимости.
+Done when the client passes "sign in → search → item page → play → seek → stop → server restart → resume" for the agreed files. Direct serving works without reading the whole file into memory. This is not completion of full media compatibility.
 
-Выполнено для фильмов 2026-09-19: главный экран (HomeSections и Sections/{id}/Items), библиотека, карточка, PlaybackInfo с согласованием по DeviceProfile, Direct Stream через `http.ServeContent` с Range/HEAD/416, прогресс, отметки «просмотрено» и «избранное», Continue Watching. Цикл «вход → библиотека → карточка → play → stop → перезапуск сервера → resume» проверен; позиция переживает принудительный перезапуск.
+Done for movies 2026-09-19: home screen (HomeSections and Sections/{id}/Items), library, item page, PlaybackInfo with negotiation by DeviceProfile, Direct Stream via `http.ServeContent` with Range/HEAD/416, progress, "played" and "favorite" marks, Continue Watching. The loop "sign in → library → item page → play → stop → server restart → resume" is verified; the position survives a forced restart.
 
-Не выполнено в этом этапе: локализация строк главного экрана, браузерная приёмка сериалов, исправленного поиска и полного seek/resume на длинном видео. WebSocket поддерживает UserDataChanged для состояния просмотра и избранного; прочие события не реализованы. Проверены очереди, logout, завершение соединений и приём событий оригинальным API-клиентом. Каталог в памяти, постоянного индекса нет, DateCreated берётся из mtime. Seek подтверждён на уровне HTTP Range; в интерфейсе на длинном файле не проверялся.
+Not done in this stage: localization of home screen strings, browser acceptance of TV series, of the fixed search and of full seek/resume on a long video. WebSocket supports UserDataChanged for watch state and favorites; other events are not implemented. Queues, logout, connection shutdown and event delivery to the original API client are verified. The catalog is in memory, there is no persistent index, DateCreated is taken from mtime. Seek is confirmed at the HTTP Range level; it was not checked in the interface on a long file.
 
-Аудит 2026-09-20–21: [пробелы и результаты](docs/M2-AUDIT.md). Исправлены фильтры Played/Favorite, Latest и пагинация Resume, потеря позиции без PositionTicks; добавлено ограниченное долговечное окно повторов PlaySessionId. API-клиентом проверены иерархия Series/Season/Episode, подписанные обложки с отзывом и полный getSearchResults. В браузере показаны вход, главная и обложка через `-web-upstream`; дальнейшая приёмка остановлена лимитом доступа инструмента. M2 не закрыт: HTTP-интеграция не заменяет приёмку плеера.
+Audit 2026-09-20–21: [gaps and results](docs/M2-AUDIT.md). Fixed the Played/Favorite filters, Latest and Resume pagination, and position loss without PositionTicks; added a bounded durable replay window for PlaySessionId. The API client verified the Series/Season/Episode hierarchy, signed covers with revocation and full getSearchResults. The browser showed sign-in, home and a cover through `-web-upstream`; further acceptance was stopped by the tool's access limit. M2 is not closed: HTTP integration does not replace player acceptance.
 
-Принят 2026-10-03. Немодифицированный Emby Web через `-web-upstream`: поиск находит фильм и сериал; на 10-минутном H.264/AAC перемотка на 5:00 загружает только нужные диапазоны; после stop и перезапуска Coach фильм продолжается с сохранённой позиции 5:15. Карточка сериала показывает сезон и эпизоды, «Воспроизвести» проигрывает оба эпизода подряд, прогресс и отметка просмотра сохраняются. Приёмка выявила и исправила `IsSpecialSeason` для сезонов и параметры выборки эпизодов при проигрывании сериала. Открыто: строка «недавно искали» (`SearchedItems`, `WasSearched`) реализована и проверена в браузере 2026-10-04; заголовки главного экрана локализованы 2026-10-04 (ru, de, fr, es, it; #18); полный локальный UI; медианабор. Подробности — [VALIDATION](docs/VALIDATION.md).
+Accepted 2026-10-03. Unmodified Emby Web through `-web-upstream`: search finds a movie and a TV series; on a 10-minute H.264/AAC file, seeking to 5:00 loads only the needed ranges; after stop and a Coach restart the movie resumes from the saved position 5:15. The TV series page shows the season and episodes, "Play" plays both episodes in a row, progress and the played mark are saved. Acceptance found and fixed `IsSpecialSeason` for seasons and the episode query parameters when playing a TV series. Open: the "recent searches" row (`SearchedItems`, `WasSearched`) implemented and verified in the browser 2026-10-04; home screen headings localized 2026-10-04 (ru, de, fr, es, it; #18); full local UI; media set. Details: [VALIDATION](docs/VALIDATION.md).
 
-Изображения (2026-10-31): кроме Primary, локальные Backdrop, Logo и Thumb; сезоны и эпизоды получают картинки сериала (`Parent*`, `SeriesPrimaryImageTag`), как в эталонных ответах. Проверено в браузере на образе контейнера (#85, #86, #88); поиск картинок не замедляет экраны большой библиотеки (#87).
+Images (2026-10-31): besides Primary, local Backdrop, Logo and Thumb; seasons and episodes get the TV series images (`Parent*`, `SeriesPrimaryImageTag`), as in the reference responses. Verified in the browser on the container image (#85, #86, #88); image lookup does not slow down the screens of a large library (#87).
 
-Дополнительно: локальный Emby Web через `-web-dir`; PlaybackInfo учитывает query/JSON, лимиты, источник, аудиодорожку и базовые CodecProfiles. Интеграция API-модулей запускается без рабочего Emby через `COACH_WEB_DIR`. Автономный браузерный запуск с `-web-dir` подтверждён 2026-10-06, после того как в копию добавлены четыре недостающих файла (#19).
+Additionally: local Emby Web via `-web-dir`; PlaybackInfo takes into account query/JSON, limits, source, audio track and basic CodecProfiles. Integration of API modules runs without a live Emby via `COACH_WEB_DIR`. A standalone browser run with `-web-dir` was confirmed 2026-10-06, after four missing files were added to the copy (#19).
 
-## M3. Воспроизведение на целевых устройствах
+## M3. Playback on target devices
 
-Зависит от M2. Результат: согласованная матрица форматов и клиентов.
+Depends on M2. Outcome: an agreed matrix of formats and clients.
 
-- Remux/Direct Stream, HLS, транскодирование, выбор аудио и субтитров.
-- Управление жизненным циклом FFmpeg, лимиты задач, освобождение ресурсов при stop/seek/disconnect.
-- Требуемые WebSocket-события, переподключения и переход к следующему эпизоду.
-- Проверка остальных целевых клиентов; аппаратное ускорение — после подтверждения оборудования.
+- Remux/Direct Stream, HLS, transcoding, audio and subtitle selection.
+- FFmpeg lifecycle management, job limits, releasing resources on stop/seek/disconnect.
+- Required WebSocket events, reconnections and advancing to the next episode.
+- Verification of the remaining target clients; hardware acceleration after the hardware is confirmed.
 
-Готово, когда каждая обязательная комбинация «клиент × контейнер/кодеки × дорожки × способ доставки» проходит start/seek/resume/stop, а ошибки и превышение лимитов предсказуемы.
+Done when every mandatory combination "client × container/codecs × tracks × delivery method" passes start/seek/resume/stop, and errors and limit overruns are predictable.
 
-Состояние на 2026-10-11:
+Status as of 2026-10-11:
 
-- Доставка: remux и транскодирование в H.264 через HLS с ограничениями профиля клиента (размер, битрейт, уровень H.264 с частотой макроблоков), выбор качества и дорожек с сохранением позиции при смене, субтитры (при HLS — внутри потока, как у Emby), переход к следующему эпизоду. Перезапуск с середины совпадает с непрерывным проходом, в том числе для HEVC с открытыми GOP в MPEG-TS.
-- FFmpeg: лимиты 2 remux + 1 транскодирование, очистка при stop/logout/простое; длительная нагрузка 30 минут с HLS и пересканированием — без утечек процессов, файлов и памяти (RSS на плато 25–27 МиБ); длительность приёмки не согласована (#15, #30).
-- События: UserDataChanged, LibraryChanged, UserConfigurationUpdated, ServerShuttingDown (#25).
-- Обход экранов Emby Web (главная, библиотеки с фильтрами и сортировками, карточки, поиск, плеер, меню, параметры) — без ошибок API.
-- [Матрица](docs/COMPATIBILITY.md) содержит только Emby Web в Chromium на синтетическом наборе. Не начаты: Android/Android TV, iOS/Apple TV (#26, #27), согласованный медианабор (#16), бюджеты ресурсов (#15), аппаратное ускорение (#28).
+- Delivery: remux and transcoding to H.264 over HLS with client profile constraints (size, bitrate, H.264 level with macroblock rate), quality and track selection keeping the position on change, subtitles (over HLS, inside the stream, as Emby does), advancing to the next episode. A restart from the middle matches a continuous pass, including for HEVC with open GOPs in MPEG-TS.
+- FFmpeg: limits of 2 remux + 1 transcode, cleanup on stop/logout/idle; 30-minute sustained load with HLS and rescanning, with no process, file or memory leaks (RSS plateau at 25–27 MiB); the acceptance duration is not agreed (#15, #30).
+- Events: UserDataChanged, LibraryChanged, UserConfigurationUpdated, ServerShuttingDown (#25).
+- A walk through Emby Web screens (home, libraries with filters and sorting, item pages, search, player, menus, settings) with no API errors.
+- The [matrix](docs/COMPATIBILITY.md) contains only Emby Web in Chromium on a synthetic set. Not started: Android/Android TV, iOS/Apple TV (#26, #27), an agreed media set (#16), resource budgets (#15), hardware acceleration (#28).
 
-## M4. Ресурсы, восстановление и эксплуатация
+## M4. Resources, recovery and operations
 
-Зависит от M2; сравнение полной медианагрузки — от M3. Замеры выполняются уже с M1, этот этап закрывает общие критерии.
+Depends on M2; the full media-load comparison depends on M3. Measurements are taken from M1 onward; this stage closes the overall criteria.
 
-- Сравнить Go-сервер и Emby на одинаковом стенде; отдельно показать дочерние процессы и общую стоимость.
-- Проверить длительную нагрузку, повторные подключения, сканирование во время play и отсутствие накопления процессов/временных файлов.
-- Проверить принудительную остановку, недоступное хранилище, заполненный диск, backup/restore и обновление данных.
-- Завершить необходимые административные сценарии и упаковку для выбранной ОС/NAS.
+- Compare the Go server and Emby on the same test bench; show child processes and total cost separately.
+- Check sustained load, repeated connections, scanning during play and no accumulation of processes/temporary files.
+- Check forced shutdown, unavailable storage, full disk, backup/restore and data upgrades.
+- Complete the required administrative scenarios and packaging for the chosen OS/NAS.
 
-Готово, когда выполнены бюджеты M0, восстановление проверено, нет незакрытых блокирующих дефектов и опубликованы воспроизводимые результаты сравнения. Непроверенные сценарии не объявляются стабильными.
+Done when the M0 budgets are met, recovery is verified, there are no open blocking defects and reproducible comparison results are published. Unverified scenarios are not declared stable.
 
-Состояние на 2026-10-31 (сравнение с Emby не начато, #29):
+Status as of 2026-10-31 (comparison with Emby not started, #29):
 
-- Восстановление ([сводка](docs/VALIDATION.md), #31): проверены принудительная остановка, ошибка хранилища (каталог только для чтения), повреждённый файл состояния, исчезнувший и битый медиафайл, сбои FFprobe и FFmpeg, обрыв клиента. Открыты отключение питания (нужен стенд) и недоступная при старте библиотека (#39).
-- Backup/restore и обновление данных между версиями проверены (#32).
-- Длительная нагрузка: 30 минут без утечек процессов, файлов и памяти; длительность приёмки не согласована (#30, #15).
-- Диагностика: отказ в воспроизведении пишется в журнал с причиной (#84). Расход ресурсов пишется в журнал раздельно: каждое задание FFmpeg (#90), FFprobe за каждое сканирование (#93), сам Coach и сумма дочерних процессов при остановке (#94). Отдельного эндпоинта метрик нет.
-- Первые замеры Coach без сравнения с Emby ([VALIDATION](docs/VALIDATION.md)): Coach — до 12 МиБ RSS; remux 1080p — 2 с CPU и 47 МиБ, транскодирование 1080p → 720p — 57 с CPU и 453 МиБ на 2 минуты видео; FFprobe — около 35 мс CPU на файл. Ограничение потоков FFmpeg вдвое снижает память транскодирования, решение ждёт оборудования (#92).
-- Образ контейнера с FFmpeg собирается и проверяется в CI; администрирование и упаковка для NAS не начаты (#33).
+- Recovery ([summary](docs/VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. Open: power loss (needs a test bench) and a library unavailable at startup (#39).
+- Backup/restore and data upgrades between versions are verified (#32).
+- Sustained load: 30 minutes with no process, file or memory leaks; the acceptance duration is not agreed (#30, #15).
+- Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Coach itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.
+- First Coach measurements without comparison to Emby ([VALIDATION](docs/VALIDATION.md)): Coach up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory; the decision waits for the hardware (#92).
+- A container image with FFmpeg is built and checked in CI; administration and NAS packaging are not started (#33).
 
-## M5. Расширение совместимости
+## M5. Compatibility expansion
 
-Зависит от соответствующих частей M2–M4. По реальному использованию ранжировать оставшиеся API, функции и приложения: музыка/фото, коллекции, Live TV/DVR, DLNA, управление устройствами, offline, внешние интеграции и миграция состояния.
+Depends on the corresponding parts of M2–M4. Rank the remaining APIs, features and apps by real usage: music/photos, collections, Live TV/DVR, DLNA, device control, offline, external integrations and state migration.
 
-Каждая возможность проходит цикл «зафиксировать поведение → реализовать → сравнить → клиентская проверка». Итог — версионируемый список поддержанных, частичных и неподдержанных возможностей. Процент реализованных маршрутов не заменяет результат пользовательских сценариев.
+Each capability goes through the cycle "record behavior → implement → compare → client check". The result is a versioned list of supported, partial and unsupported capabilities. The percentage of implemented routes does not replace the result of user scenarios.
 
-## M6. Собственный frontend
+## M6. Custom frontend
 
-Начало после стабилизации API основных сценариев M3; полный M5 не является обязательной зависимостью.
+Starts after the API of the main M3 scenarios stabilizes; full M5 is not a required dependency.
 
-- Согласовать набор экранов и ожидаемое сходство с Emby.
-- Реализовать вход, главную, каталог, карточку, плеер и настройки через существующий backend.
-- Проверить пользовательские сценарии, адаптивность и управление клавиатурой; ТВ-навигацию включить, если выбран этот формат клиента.
+- Agree on the set of screens and the expected similarity to Emby.
+- Implement sign-in, home, catalog, item page, player and settings through the existing backend.
+- Check user scenarios, responsiveness and keyboard control; include TV navigation if that client format is chosen.
 
-Готово, когда согласованные сценарии проходят в собственном frontend, а проверки исходных клиентов Emby продолжают проходить.
+Done when the agreed scenarios pass in the custom frontend and the checks of the original Emby clients keep passing.
 
-## Правила матрицы совместимости
+## Compatibility matrix rules
 
-Для строки записываются: версия сервера-эталона, клиент/версия/платформа, сценарий, медиа, запросы/события, ожидаемый результат, проверка и статус. Статусы: не исследовано, контракт записан, реализовано, проверено, частично, заблокировано. Публичный API/HTML прочитаны с Emby; вход, настройки и начальный каталог проверены его API-клиентом против Coach. Авторизованное сравнение с сервером Emby, экраны и воспроизведение остаются открытыми.
+Each row records: reference server version, client/version/platform, scenario, media, requests/events, expected result, check and status. Statuses: not investigated, contract recorded, implemented, verified, partial, blocked. The public API/HTML were read from Emby; sign-in, settings and the initial catalog were verified by its API client against Coach. Authenticated comparison with the Emby server, screens and playback remain open.
 
-Сначала проверяется контракт, затем реальный клиент. При сравнении разрешены только явно описанные преобразования динамических значений: ID с сохранением связей, времён и адресов стенда. Нельзя скрывать различия типов, обязательных полей, порядка событий, прав и ошибок.
+The contract is checked first, then the real client. Comparison allows only explicitly described transformations of dynamic values: IDs with relationships preserved, times and test bench addresses. Differences in types, required fields, event order, permissions and errors must not be hidden.

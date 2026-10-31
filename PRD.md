@@ -9,98 +9,98 @@ related:
   - ROADMAP.md
 ---
 
-# Go-медиасервер с совместимостью Emby
+# Go media server with Emby compatibility
 
-## Проблема
+## Problem
 
-Пользователю нужен медиасервер на Go, который потребляет меньше ресурсов и работает стабильнее Emby, сохраняя совместимость с его frontend и, по возможности, другими клиентами. Конкретные сбои и исходное потребление ещё не измерены. Без воспроизводимого сравнения улучшение нельзя считать доказанным.
+The user needs a Go media server that uses fewer resources and runs more reliably than Emby while staying compatible with its frontend and, where possible, other clients. Specific failures and baseline resource usage have not been measured yet. Without a reproducible comparison, an improvement cannot be considered proven.
 
-Jellyfin используется как доступный источник знаний о медиасервере. Требования совместимости определяются целевыми версиями Emby и клиентов. Факты и источники собраны в [исследовании](docs/DISCOVERY.md).
+Jellyfin serves as an accessible source of knowledge about media servers. Compatibility requirements are defined by the target Emby and client versions. Facts and sources are collected in the [discovery](docs/DISCOVERY.md).
 
-## Пользователи
+## Users
 
-| Пользователь | Потребность |
+| User | Need |
 |---|---|
-| Владелец сервера | Управлять библиотекой, доступом и нагрузкой; восстанавливать сервер после сбоя |
-| Зритель | Войти привычным клиентом, найти медиа, смотреть и продолжать с сохранённого места |
-| Разработчик | Воспроизводить расхождения с Emby и проверять исправления автоматически |
+| Server owner | Manage the library, access and load; restore the server after a failure |
+| Viewer | Sign in with a familiar client, find media, watch and resume from the saved position |
+| Developer | Reproduce differences from Emby and verify fixes automatically |
 
-## Цели и измерение
+## Goals and measurement
 
-| ID | Результат | База сравнения | Критерий |
+| ID | Outcome | Baseline | Criterion |
 |---|---|---|---|
-| G-1 | Совместимость | Сервер Emby и HTML Emby Web объявляют `4.10.0.40`; остальные клиенты не установлены | Все обязательные сценарии согласованной матрицы проходят на каждой заявленной версии клиента; частичная поддержка обозначена явно |
-| G-2 | Меньше ресурсов | Замеры Emby отсутствуют | На одинаковом оборудовании, медианаборе и нагрузке расход сравнивается по RSS, CPU, I/O и временным файлам; численные бюджеты утверждаются после замеров до оптимизации |
-| G-3 | Стабильность | Частота и причины сбоев Emby неизвестны | Проходят проверки восстановления и длительная нагрузка; длительность, параллелизм и допустимая потеря прогресса фиксируются до испытания |
-| G-4 | Возможность собственного frontend | Сценарии Emby Web ещё не записаны | Собственный интерфейс проходит согласованные пользовательские сценарии через тот же backend |
+| G-1 | Compatibility | The Emby server and the Emby Web HTML report `4.10.0.40`; other clients are not installed | All mandatory scenarios of the agreed matrix pass on every declared client version; partial support is marked explicitly |
+| G-2 | Fewer resources | No Emby measurements | On the same hardware, media set and load, usage is compared by RSS, CPU, I/O and temporary files; numeric budgets are approved after measurement and before optimization |
+| G-3 | Stability | Frequency and causes of Emby failures are unknown | Recovery checks and sustained load pass; duration, concurrency and acceptable progress loss are fixed before the test |
+| G-4 | Option for a custom frontend | Emby Web scenarios are not recorded yet | The custom interface passes the agreed user scenarios through the same backend |
 
-Переписывание на Go само по себе не является выполнением G-2/G-3. Ресурсы Go-процесса, FFmpeg и их сумма измеряются раздельно; качество кодирования и аппаратное ускорение в сравнении фиксируются.
+Rewriting in Go does not by itself satisfy G-2/G-3. Resources of the Go process, FFmpeg and their sum are measured separately; encoding quality and hardware acceleration in the comparison are recorded.
 
-## Объём
+## Scope
 
-Подтверждено пользователем: требования, roadmap, Go-backend для frontend Emby, максимальная совместимость и по возможности воспроизведение frontend.
+Confirmed by the user: requirements, roadmap, a Go backend for the Emby frontend, maximum compatibility and, where possible, reproducing the frontend.
 
-Первый клиент подтверждён пользователем: Emby Web. Начальные медиа `[assumed]`: локальные фильмы и сериалы; первый сценарий воспроизведения — Direct Play. Эти ограничения задают порядок проверки, а не конечную границу продукта. До медиасреза реализуется подключение, вход и пустая библиотека. Подключение клиента проверяется без изменений его кода; первый адаптер получает `/web/` со своего экземпляра Emby и обслуживает API в Go.
+First client confirmed by the user: Emby Web. Initial media `[assumed]`: local movies and TV series; the first playback scenario is Direct Play. These constraints set the verification order, not the final product boundary. Connection, sign-in and an empty library are implemented before the media slice. Client connection is verified without changing its code; the first adapter fetches `/web/` from its own Emby instance and serves the API in Go.
 
-Последующее расширение: Direct Stream/remux, транскодирование, дорожки и субтитры, остальные целевые клиенты, администрирование, собственный frontend.
+Later expansion: Direct Stream/remux, transcoding, tracks and subtitles, the remaining target clients, administration, a custom frontend.
 
-Инвентаризация для дальнейших этапов: музыка, фото, коллекции, плейлисты, Live TV/DVR, DLNA, удалённое управление, offline/download, плагины, внешние провайдеры и облачные интеграции. Они не исключены из максимальной совместимости, но их приоритет не подтверждён. Миграция базы и конфигурации Emby — отдельное решение.
+Inventory for later stages: music, photos, collections, playlists, Live TV/DVR, DLNA, remote control, offline/download, plugins, external providers and cloud integrations. They are not excluded from maximum compatibility, but their priority is not confirmed. Migrating the Emby database and configuration is a separate decision.
 
-## Функциональные требования
+## Functional requirements
 
-Приоритеты: P0 — первый завершённый сценарий; P1 — расширение совместимости; P2 — после подтверждения потребности. Любая зависимость обязательного сценария повышается до его приоритета.
+Priorities: P0 — the first complete scenario; P1 — compatibility expansion; P2 — after the need is confirmed. Any dependency of a mandatory scenario is raised to that scenario's priority.
 
-| ID | Требование | Приоритет | Проверка приёмки |
+| ID | Requirement | Priority | Acceptance check |
 |---|---|---|---|
-| FR-01 | Клиент обнаруживает/подключает сервер и распознаёт его возможности | P0 | Подключение по адресу, стабильный ServerId после перезапуска; фактически требуемые префиксы и ответы совпадают с контрактом |
-| FR-02 | Локальный вход, токены, выход, разграничение доступа | P0 | Успешный и ошибочный вход; отозванный токен не работает; пользователь не получает чужую библиотеку, изображения и потоки |
-| FR-03 | Индексация локальных фильмов и сериалов | P0 | Повторное сканирование не создаёт дубликаты и сохраняет ID неизменённых объектов; ошибка одного файла не обрывает весь обход |
-| FR-04 | Библиотеки, карточки, сезоны, эпизоды, поиск, сортировка и пагинация | P0 | Целевой клиент показывает тестовый каталог; проверены пустая библиотека, отсутствующий объект, границы страниц и ограничения доступа |
-| FR-05 | Локальные метаданные и изображения | P0 | Названия, длительность и технические данные доступны; обложки отображаются, отсутствие изображения обрабатывается; кеш не отдаёт устаревшую версию после обновления |
-| FR-06 | PlaybackInfo выбирает доступный способ воспроизведения | P0 | Ответ согласован с профилем клиента и реальными возможностями; возвращённые источники и URL работают; неподдерживаемый формат даёт понятную ошибку |
-| FR-07 | Direct Play, перемотка и отмена | P0 | Поддерживаемый тестовый файл воспроизводится, seek работает; проверены Range/HEAD и границы диапазона; отменённый запрос освобождает ресурсы |
-| FR-08 | Сессия и пользовательское состояние сохраняются | P0 | Play/progress/stop, resume, просмотрено и избранное работают после перезапуска; повтор события не повреждает состояние; определено поведение запоздавших событий |
-| FR-09 | Требуемые клиентом настройки, capabilities и события | P0/P1 | Все зависимости первого сценария реализованы; проверены сообщения WebSocket и переподключение, если клиент ими пользуется |
-| FR-10 | Remux, HLS и транскодирование | P1 | Согласованный набор контейнеров/кодеков проходит play/seek/stop; процессы завершаются при отмене; ошибка FFmpeg видна клиенту и не останавливает сервер |
-| FR-11 | Аудиодорожки и субтитры | P1 | Выбор дорожки и языка, отключение субтитров, внешний текст и необходимые встроенные форматы работают на согласованных клиентах |
-| FR-12 | Сериальные сценарии и расширение каталога | P1 | Next up, недавние добавления, коллекции и нужные фильтры совпадают с согласованными сценариями Emby |
-| FR-13 | Администрирование и восстановление | P1 | Настройки библиотек/пользователей, фоновые задачи, диагностика, резервное копирование и восстановление проверены; операциям нужны соответствующие права |
-| FR-14 | Остальные клиенты Emby | P1 | Для каждой версии и платформы записаны сценарии и результат; обнаружение в сети и удалённое управление включаются по требованиям клиента |
-| FR-15 | Собственный frontend | P2 | Вход, каталог, карточка, плеер и настройки проходят те же сценарии; визуальные требования согласованы отдельно |
+| FR-01 | The client discovers/connects to the server and recognizes its capabilities | P0 | Connection by address, stable ServerId after restart; the prefixes and responses actually required match the contract |
+| FR-02 | Local sign-in, tokens, sign-out, access control | P0 | Successful and failed sign-in; a revoked token does not work; a user does not get another user's library, images and streams |
+| FR-03 | Indexing of local movies and TV series | P0 | A rescan creates no duplicates and keeps the IDs of unchanged items; an error in one file does not abort the whole walk |
+| FR-04 | Libraries, item pages, seasons, episodes, search, sorting and pagination | P0 | The target client shows the test catalog; empty library, missing item, page boundaries and access restrictions are checked |
+| FR-05 | Local metadata and images | P0 | Titles, duration and technical data are available; covers display, a missing image is handled; the cache does not serve a stale version after an update |
+| FR-06 | PlaybackInfo chooses an available playback method | P0 | The response matches the client profile and actual capabilities; returned sources and URLs work; an unsupported format gives a clear error |
+| FR-07 | Direct Play, seeking and cancellation | P0 | A supported test file plays, seek works; Range/HEAD and range boundaries are checked; a cancelled request releases resources |
+| FR-08 | Session and user state are persisted | P0 | Play/progress/stop, resume, played and favorite work after restart; a repeated event does not corrupt state; behavior for late events is defined |
+| FR-09 | Client-required settings, capabilities and events | P0/P1 | All dependencies of the first scenario are implemented; WebSocket messages and reconnection are checked if the client uses them |
+| FR-10 | Remux, HLS and transcoding | P1 | The agreed set of containers/codecs passes play/seek/stop; processes terminate on cancellation; an FFmpeg error is visible to the client and does not stop the server |
+| FR-11 | Audio tracks and subtitles | P1 | Track and language selection, disabling subtitles, external text and the required embedded formats work on the agreed clients |
+| FR-12 | TV series scenarios and catalog expansion | P1 | Next up, recently added, collections and the needed filters match the agreed Emby scenarios |
+| FR-13 | Administration and recovery | P1 | Library/user settings, background tasks, diagnostics, backup and restore are checked; operations require the corresponding permissions |
+| FR-14 | Other Emby clients | P1 | Scenarios and results are recorded for each version and platform; network discovery and remote control are enabled as the client requires |
+| FR-15 | Custom frontend | P2 | Sign-in, catalog, item page, player and settings pass the same scenarios; visual requirements are agreed separately |
 
-Начальный Direct Play не считается полной совместимостью воспроизведения. Изменение приоритета требует обновить матрицу и критерий соответствующего этапа.
+Initial Direct Play does not count as full playback compatibility. Changing a priority requires updating the matrix and the criterion of the corresponding stage.
 
-## Нефункциональные требования
+## Non-functional requirements
 
-| ID | Требование | Проверка |
+| ID | Requirement | Check |
 |---|---|---|
-| NFR-01 | Совместимость включает семантику протокола | Контрактные проверки методов, путей, заголовков, типов, ID, дат, ticks, null/отсутствующих полей, ошибок и значимых событий; различия документируются |
-| NFR-02 | Управляемое потребление | Явные лимиты сканирования, probe, транскодирования и кеша; при достижении лимита контролируемая очередь/ошибка; измерены сервер и дочерние процессы |
-| NFR-03 | Долговечность состояния | После принудительного завершения и рестарта сохранённые пользователи, каталог и подтверждённое состояние не повреждены; резервная копия восстанавливается |
-| NFR-04 | Изоляция ошибок | Проверены недоступная папка, битый файл, заполненный диск, падение FFmpeg, разрыв клиента, ошибка БД; сервер не сообщает ложный успех |
-| NFR-05 | Защита данных | Пароли не хранятся открыто; токены/пароли не попадают в логи и фикстуры; пути ограничены разрешёнными библиотеками; проверки доступа применены также к потокам и изображениям |
-| NFR-06 | Диагностика | По журналу и метрикам можно установить причину неудачного play и расход ресурсов; диагностические данные очищены от секретов |
-| NFR-07 | Воспроизводимое развёртывание | Зафиксированы версии Go, FFmpeg, ОС и конфигурация; установка и восстановление проверены на целевой платформе после её выбора |
+| NFR-01 | Compatibility includes protocol semantics | Contract checks of methods, paths, headers, types, IDs, dates, ticks, null/missing fields, errors and significant events; differences are documented |
+| NFR-02 | Controlled resource usage | Explicit limits for scanning, probing, transcoding and cache; when a limit is reached, a controlled queue/error; the server and child processes are measured |
+| NFR-03 | State durability | After a forced kill and restart, saved users, catalog and confirmed state are not corrupted; a backup restores |
+| NFR-04 | Error isolation | Inaccessible folder, broken file, full disk, FFmpeg crash, client disconnect, DB error are checked; the server does not report false success |
+| NFR-05 | Data protection | Passwords are not stored in plain text; tokens/passwords do not end up in logs and fixtures; paths are restricted to allowed libraries; access checks also apply to streams and images |
+| NFR-06 | Diagnostics | Logs and metrics are enough to determine the cause of a failed play and resource usage; diagnostic data is scrubbed of secrets |
+| NFR-07 | Reproducible deployment | Go, FFmpeg and OS versions and the configuration are pinned; installation and recovery are checked on the target platform once it is chosen |
 
-## Зависимости и риски
+## Dependencies and risks
 
-- Публичный API и HTML реального Emby доступны по `http://192.168.1.11:8096/` вне sandbox. Авторизованные сценарии ещё не проверены; публичная документация не заменяет эту проверку.
-- Нужен фиксированный тестовый медианабор и согласованная тестовая учётная запись; исходные медиа не модифицируются при сканировании.
-- Версии клиентов могут различаться по API и возможностям. Заявление о совместимости относится только к проверенной матрице.
-- FFmpeg и аппаратное ускорение влияют на общую нагрузку; улучшение HTTP/API может не снизить стоимость транскодирования.
-- Доступность исходного frontend и условия его использования ещё не установлены. План собственного интерфейса не предполагает наличия исходников Emby.
-- При переносе состояния нужны явные правила соответствия ID. Работа с исходной базой Emby напрямую не предполагается.
+- The public API and HTML of the real Emby are available at `http://192.168.1.11:8096/` outside the sandbox. Authenticated scenarios are not checked yet; public documentation does not replace that check.
+- A fixed test media set and an agreed test account are needed; source media are not modified during scanning.
+- Client versions may differ in API and capabilities. A compatibility claim applies only to the verified matrix.
+- FFmpeg and hardware acceleration affect overall load; HTTP/API improvements may not reduce transcoding cost.
+- Availability of the original frontend's source and its terms of use are not established yet. The custom interface plan does not assume access to Emby sources.
+- Migrating state requires explicit ID mapping rules. Working directly with the original Emby database is not planned.
 
-## Открытые вопросы и предположения
+## Open questions and assumptions
 
-| Тип | Вопрос / предположение | Как разрешается |
+| Type | Question / assumption | How it is resolved |
 |---|---|---|
-| Подтверждено | Обязательные клиенты: Emby Web, Android/Android TV, iOS/Apple TV. Kodi/DLNA не обязательны | Прямой ответ пользователя 2026-09-19; конкретные версии приложений ещё не зафиксированы |
-| Подтверждено | Первый клиент — встроенный Emby Web | Прямой ответ пользователя 2026-09-18; браузерная приёмка пройдена 2026-09-19 |
-| `[assumed]` | Первые медиа — локальные фильмы и сериалы | Проверка реальных пользовательских сценариев |
-| Вопрос | Какое оборудование, ОС, объём библиотеки и параллелизм? | Инвентаризация окружения до выбора бюджетов |
-| Вопрос | Какие конкретно сбои и расходы требуется устранить? | Измерения и воспроизводимые случаи до оптимизации |
-| Вопрос | Нужны ли миграция истории/пользователей и облачные функции? | Отдельная оценка объёма и приоритета |
-| Вопрос | Как распространяется продукт и какой код можно включать? | Лицензия выбрана: GPL-2.0 (#11). Происхождение компонентов проверяется до включения |
+| Confirmed | Mandatory clients: Emby Web, Android/Android TV, iOS/Apple TV. Kodi/DLNA are not mandatory | Direct answer from the user 2026-09-19; specific app versions are not pinned yet |
+| Confirmed | The first client is the built-in Emby Web | Direct answer from the user 2026-09-18; browser acceptance passed 2026-09-19 |
+| `[assumed]` | The first media are local movies and TV series | Checking real user scenarios |
+| Question | What hardware, OS, library size and concurrency? | Environment inventory before choosing budgets |
+| Question | Which specific failures and costs must be eliminated? | Measurements and reproducible cases before optimization |
+| Question | Is migration of history/users and cloud features needed? | Separate assessment of scope and priority |
+| Question | How is the product distributed and what code may be included? | License chosen: GPL-2.0 (#11). Component provenance is checked before inclusion |
 
-Порядок поставки и проверки этапов: [ROADMAP.md](ROADMAP.md).
+Delivery order and stage verification: [ROADMAP.md](ROADMAP.md).

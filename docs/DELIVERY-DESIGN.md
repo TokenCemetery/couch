@@ -1,102 +1,102 @@
-# Проект: доставка через HLS — remux и транскодирование (#21, #22)
+# Design: HLS delivery — remux and transcoding (#21, #22)
 
-Статус: этапы 1–2 (менеджер заданий и remux) реализованы 2026-10-06 (`internal/hls`, `internal/server/hls.go`); этап 3 (транскодирование в H.264) реализован 2026-10-07; браузерная проверка и замер CPU — в [VALIDATION](VALIDATION.md). Решения по разделу «Вопросы» (2026-10-06): лимит — 2 сессии remux (1 транскодирование — для этапа 3); сегменты в `<data>/transcode`, до 2 ГиБ на сессию; длина сегмента — 6 секунд; начать с remux; медиа для проверок — синтетические, FFmpeg.
+Status: stages 1–2 (job manager and remux) implemented 2026-10-06 (`internal/hls`, `internal/server/hls.go`); stage 3 (transcoding to H.264) implemented 2026-10-07; browser check and CPU measurement are in [VALIDATION](VALIDATION.md). Decisions on the "Questions" section (2026-10-06): limit of 2 remux sessions (1 transcode for stage 3); segments in `<data>/transcode`, up to 2 GiB per session; segment length 6 seconds; start with remux; media for checks are synthetic, made with FFmpeg.
 
-Отличия реализации от проекта ниже:
-- Сегменты режет муксер `segment` по списку времён (`-segment_times`), а не `hls`; FFmpeg сообщает о каждом закрытом сегменте через `-segment_list` в канал, по нему сервер знает готовность и сразу приостанавливает задание (SIGSTOP), когда оно ушло на 10 сегментов вперёд. Опрос каталога не успевал: на быстром диске FFmpeg успевал записать весь файл.
-- Перезапуск с сегмента `n`: `-seek_timestamp 1 -ss` чуть раньше ключевого кадра в абсолютном времени файла, `-copyts -copypriorss 0 -avoid_negative_ts disabled`. FFmpeg сравнивает порог `-copypriorss 0` с абсолютными отметками; относительный `-ss` при отрицательном `start_time` (FFprobe 6.1 и 7.1 дают −0,006 с для MKV с AC3) отбрасывал сам ключевой кадр (#64). Проверено: сегменты совпадают с непрерывным проходом по отметкам времени видео (MKV и MPEG-TS с ненулевым `start_time`). Первый сегмент может начинаться на один кадр AAC позже, если аудио в исходнике начинается раньше видео.
-- Ключевые кадры для плана: FFprobe перематывает каждые 2 секунды (`-read_intervals t%+#1`) и берёт ключевой кадр, на который попала перемотка; так читаются несколько пакетов на перемотку, а не весь файл. Любое подмножество ключевых кадров даёт план, по которому режет FFmpeg. Шаг меньше длины сегмента, потому что перемотка попадает на кадр не позже цели и при шаге 6 секунд сегменты удлиняются до 10–13 секунд. Если перемотка попала не на ключевой кадр (MPEG-TS), FFprobe читает все пакеты.
-- Перезапускать задание может только запрос того же сегмента, что и самый новый запрос сессии: запрос, обогнанный запросом другого сегмента (например, отменённый плеером при перемотке), получает 503, а не возвращает задание назад. Одновременные запросы одного сегмента (повтор, `HEAD` и `GET`) друг друга не отменяют (#74).
-- Транскодирование режет сегменты по тому же плану ключевых кадров исходника, что remux, а не каждые N секунд: в кодировщике на этих местах ставятся принудительные ключевые кадры (`-force_key_frames`), а перезапуск начинает декодирование с ключевого кадра исходника. План с фиксированным шагом не совпадал с выводом: муксер `segment` считает время от первого пакета задания, а перезапуск MPEG-TS попадал не на ключевой кадр. Кодировщик сохраняет шкалу времени исходника (`-enc_time_base:v demux`, FFmpeg 7+), иначе отметки округляются до частоты кадров и ключевой кадр сдвигается на кадр. Перезапуск — относительным `-ss` без `-copypriorss`: при декодировании абсолютный `-ss` учитывает `start_time` дважды. Позже (#81): прямой `-ss` к сегменту в MPEG-TS мог попасть за его ключевой кадр, и HEVC с открытыми GOP начинался со следующего. Теперь перезапуск кодирования декодирует от ключевого кадра предыдущего сегмента и обрезает фильтрами `trim`/`atrim` по абсолютному времени (`-copyts`); при копируемом аудио, которое фильтровать нельзя, остаётся прямой `-ss`.
-- Потолок битрейта — `VideoBitrate` в URL (наличие параметра означает кодирование видео); размер ограничивают `MaxWidth`/`MaxHeight` из условий `Width`/`Height` профиля `h264`. `VideoLevel` уменьшает их до наибольшего кадра уровня (MaxFS) и ограничивает `VideoBitrate` его MaxBR для High (×1,25); частоту макроблоков (MaxMBPS) — уменьшением кадра при исходной частоте кадров; сам уровень выбирает `libx264`.
-- Запрос без `PlaySessionId` или кодеков (так шлют сторонние клиенты) получает сессию по токену и параметрам потока; видео копируется, аудио копируется для AAC/MP3.
+How the implementation differs from the design below:
+- Segments are cut by the `segment` muxer from a list of times (`-segment_times`), not by `hls`; FFmpeg reports each closed segment through `-segment_list` into a pipe, from which the server knows readiness and immediately pauses the job (SIGSTOP) once it is 10 segments ahead. Polling the directory could not keep up: on a fast disk FFmpeg managed to write the whole file.
+- Restart from segment `n`: `-seek_timestamp 1 -ss` slightly before the keyframe in the file's absolute time, `-copyts -copypriorss 0 -avoid_negative_ts disabled`. FFmpeg compares the `-copypriorss 0` threshold with absolute timestamps; a relative `-ss` with a negative `start_time` (FFprobe 6.1 and 7.1 give −0.006 s for MKV with AC3) dropped the keyframe itself (#64). Verified: segments match a continuous pass by video timestamps (MKV and MPEG-TS with nonzero `start_time`). The first segment may start one AAC frame later if the source audio starts before the video.
+- Keyframes for the plan: FFprobe seeks every 2 seconds (`-read_intervals t%+#1`) and takes the keyframe the seek lands on; this reads a few packets per seek rather than the whole file. Any subset of keyframes yields a plan FFmpeg cuts by. The step is shorter than the segment length because a seek lands on a frame no later than the target, and with a 6-second step segments stretch to 10–13 seconds. If a seek did not land on a keyframe (MPEG-TS), FFprobe reads all packets.
+- Only a request for the same segment as the session's newest request may restart the job: a request overtaken by a request for another segment (for example, one the player cancelled while seeking) gets 503 instead of sending the job back. Concurrent requests for the same segment (retry, `HEAD` and `GET`) do not cancel each other (#74).
+- Transcoding cuts segments by the same source keyframe plan as remux, not every N seconds: the encoder places forced keyframes at those points (`-force_key_frames`), and a restart starts decoding from a source keyframe. A fixed-step plan did not match the output: the `segment` muxer counts time from the job's first packet, and an MPEG-TS restart landed on a non-keyframe. The encoder keeps the source time base (`-enc_time_base:v demux`, FFmpeg 7+); otherwise timestamps are rounded to the frame rate and the keyframe shifts by a frame. Restart uses a relative `-ss` without `-copypriorss`: when decoding, an absolute `-ss` counts `start_time` twice. Later (#81): a direct `-ss` to a segment in MPEG-TS could land past its keyframe, and HEVC with open GOPs started from the next one. Now an encoding restart decodes from the previous segment's keyframe and trims with `trim`/`atrim` filters by absolute time (`-copyts`); with copied audio, which cannot be filtered, the direct `-ss` remains.
+- The bitrate cap is `VideoBitrate` in the URL (the parameter's presence means video is encoded); size is limited by `MaxWidth`/`MaxHeight` from the `Width`/`Height` conditions of the `h264` profile. `VideoLevel` reduces them to the level's largest frame (MaxFS) and caps `VideoBitrate` at its MaxBR for High (×1.25); macroblock rate (MaxMBPS) is handled by shrinking the frame at the source frame rate; `libx264` picks the level itself.
+- A request without `PlaySessionId` or codecs (as third-party clients send) gets a session by token and stream parameters; video is copied, audio is copied for AAC/MP3.
 
-## Сейчас
+## Current state
 
-- Coach отдаёт только исходный файл (Direct Stream, `internal/server/stream.go`). Если DeviceProfile его не допускает, PlaybackInfo отвечает `ErrorCode=NoCompatibleStream`, и Emby Web показывает «нет совместимых потоков».
-- FFmpeg во время работы запускается только для извлечения встроенных субтитров (`internal/media/extract.go`). Там уже есть лимит одновременных заданий, ожидание по контексту запроса, таймаут, лимит вывода и вывод через канал без временных файлов (#23).
-- В e2e падает поведенческая проверка `hls-master-playlist` (404), операции HLS отмечены `hlsDelivery` в `e2e/known_failures.go`.
+- Coach serves only the source file (Direct Stream, `internal/server/stream.go`). If the DeviceProfile does not allow it, PlaybackInfo answers `ErrorCode=NoCompatibleStream`, and Emby Web shows "no compatible streams".
+- At runtime FFmpeg runs only to extract embedded subtitles (`internal/media/extract.go`). That code already has a concurrent job limit, waiting on the request context, a timeout, an output limit and output through a pipe without temporary files (#23).
+- In e2e the behavioral check `hls-master-playlist` fails (404); HLS operations are marked `hlsDelivery` in `e2e/known_failures.go`.
 
-## Что ждёт клиент
+## What the client expects
 
-Проверено на Emby Web 4.10.0.40 в Chromium (стенд `-web-upstream`, `modules/browserdeviceprofile.js`). В DeviceProfile видео:
+Verified on Emby Web 4.10.0.40 in Chromium (`-web-upstream` setup, `modules/browserdeviceprofile.js`). Video in the DeviceProfile:
 
-| Container | Context | Protocol | Видео | Аудио |
+| Container | Context | Protocol | Video | Audio |
 |---|---|---|---|---|
 | ts | Streaming | hls | hevc, h264 | mp3, aac |
 | webm | Streaming | http | vpx | vorbis |
 | mkv | Static | http | h264, hevc, av1, vp8, vp9 | mp3, aac, opus, flac, vorbis |
 | mp4 | Static | http | h264 | mp3, aac, opus, flac, vorbis |
 
-`Static` — контекст скачивания. Для просмотра остаётся HLS (`ts`) или прогрессивный WebM с VP8.
+`Static` is the download context. For viewing, HLS (`ts`) or progressive WebM with VP8 remains.
 
 `modules/common/playback/playbackmanager.js`:
 
-- Берёт `TranscodingUrl` через `apiClient.getUrl`. При `TranscodingSubProtocol=hls` ставит тип `application/x-mpegURL` и сохраняет стартовую позицию.
-- Для URL с `.m3u8` считает поток перематываемым: перемотка идёт внутри плейлиста, без нового PlaybackInfo.
-- Для прогрессивного транскодирования перемотка — это новый PlaybackInfo со `StartTimeTicks`, а позиция считается от `transcodingOffsetTicks`.
+- Takes `TranscodingUrl` through `apiClient.getUrl`. With `TranscodingSubProtocol=hls` it sets the type `application/x-mpegURL` and keeps the start position.
+- Treats a URL with `.m3u8` as seekable: seeking happens inside the playlist, without a new PlaybackInfo.
+- For progressive transcoding, seeking is a new PlaybackInfo with `StartTimeTicks`, and the position is counted from `transcodingOffsetTicks`.
 
-Вывод: прогрессивный поток через канал проще в реализации, но противоречит объявленному профилю. Предлагается HLS с сегментами MPEG-TS.
+Conclusion: a progressive stream through a pipe is simpler to implement but contradicts the declared profile. HLS with MPEG-TS segments is proposed.
 
-## Предлагаемое решение
+## Proposed solution
 
-### 1. Решение в PlaybackInfo
+### 1. Decision in PlaybackInfo
 
-Порядок такой:
+The order is:
 
-1. **Direct Stream**, как сейчас.
-2. **Remux.** Видеокодек и его профиль/уровень допускаются HLS-профилем. Видео копируется, аудио копируется, если это `aac` или `mp3`, иначе кодируется в AAC с учётом `MaxAudioChannels`. Повёрнутое видео не копируется: MPEG-TS не хранит поворот, а при кодировании FFmpeg поворачивает кадры (2026-10-11, #22).
-3. **Транскодирование видео в H.264** (`libx264`, preset `veryfast`) с ограничением битрейта и разрешения из профиля и `MaxStreamingBitrate`.
-4. Иначе — `NoCompatibleStream`, как сейчас.
+1. **Direct Stream**, as now.
+2. **Remux.** The video codec and its profile/level are allowed by the HLS profile. Video is copied; audio is copied if it is `aac` or `mp3`, otherwise encoded to AAC respecting `MaxAudioChannels`. Rotated video is not copied: MPEG-TS does not store rotation, while FFmpeg rotates the frames when encoding (2026-10-11, #22).
+3. **Video transcoding to H.264** (`libx264`, preset `veryfast`) with bitrate and resolution limited by the profile and `MaxStreamingBitrate`.
+4. Otherwise, `NoCompatibleStream`, as now.
 
-Ответ для вариантов 2 и 3: `SupportsTranscoding=true`, `TranscodingSubProtocol=hls`, `TranscodingContainer=ts` и `TranscodingUrl=/videos/{id}/master.m3u8?...` с `MediaSourceId`, `PlaySessionId`, `api_key` и выбранными кодеками. Как у `DirectStreamUrl`, ссылка относительная, токен внутри, Coach URL в журнал не пишет.
+Response for options 2 and 3: `SupportsTranscoding=true`, `TranscodingSubProtocol=hls`, `TranscodingContainer=ts` and `TranscodingUrl=/videos/{id}/master.m3u8?...` with `MediaSourceId`, `PlaySessionId`, `api_key` and the selected codecs. As with `DirectStreamUrl`, the link is relative, the token is inside, and Coach does not write the URL to the log.
 
-### 2. Плейлисты
+### 2. Playlists
 
-- `master.m3u8` — один вариант со ссылкой на `main.m3u8` и `BANDWIDTH` из оценки битрейта; с `ManifestSubtitles=vtt` — и группа субтитров (раздел 4).
-- `main.m3u8` — VOD-плейлист на весь фильм (`#EXT-X-PLAYLIST-TYPE:VOD`, `#EXT-X-ENDLIST`). Он отдаётся сразу, поэтому клиент видит полную длительность и перематывает куда угодно.
-- **Границы сегментов.**
-  - При транскодировании они задаются принудительными ключевыми кадрами каждые N секунд (`-force_key_frames`), и плейлист совпадает с выводом FFmpeg.
-  - При remux видео копируется, и резать можно только по ключевым кадрам исходника. Плейлист, рассчитанный по фиксированной длине, разошёлся бы с реальными сегментами: это известный источник рывков при перемотке. Предлагается при первом remux-запросе снять список ключевых кадров (`ffprobe -skip_frame nokey`, только пакеты видео), строить сегменты по ним (не короче N секунд) и держать список в памяти до перезапуска. Список снимается заданием FFprobe с теми же лимитами.
+- `master.m3u8`: one variant linking to `main.m3u8` with `BANDWIDTH` from the bitrate estimate; with `ManifestSubtitles=vtt`, also a subtitle group (section 4).
+- `main.m3u8`: a VOD playlist for the whole movie (`#EXT-X-PLAYLIST-TYPE:VOD`, `#EXT-X-ENDLIST`). It is served immediately, so the client sees the full duration and can seek anywhere.
+- **Segment boundaries.**
+  - When transcoding, they are set by forced keyframes every N seconds (`-force_key_frames`), and the playlist matches FFmpeg's output.
+  - With remux, video is copied, and cuts are possible only at source keyframes. A playlist computed from a fixed length would diverge from the real segments: a known source of stutter when seeking. The proposal is to take a keyframe list on the first remux request (`ffprobe -skip_frame nokey`, video packets only), build segments from it (no shorter than N seconds) and keep the list in memory until restart. The list is taken by an FFprobe job with the same limits.
 
-### 3. Задания FFmpeg
+### 3. FFmpeg jobs
 
-- **Одно задание на PlaySessionId.** Оно пишет сегменты `seg-%05d.ts` во временный каталог сессии, начиная с запрошенного номера (`-ss` по началу сегмента, `-start_number`).
-- **Запрос сегмента `n`:**
-  - сегмент готов — отдаётся;
-  - задание его вот-вот сделает (не дальше K сегментов впереди) — запрос ждёт файл с таймаутом;
-  - иначе (перемотка) задание перезапускается с `n`.
-- **Ограничения:**
-  - не больше M одновременных заданий транскодирования и R заданий remux;
-  - при исчерпании PlaybackInfo возвращает понятную ошибку, а не URL, который не сработает;
-  - вывод ограничен размером каталога сессии;
-  - ключевые кадры читаются не больше чем для двух файлов одновременно, остальные ждут очереди;
-  - FFmpeg запускается с чистым окружением, вход — через `fd:`, как у FFprobe.
-- **Освобождение:**
-  - `Sessions/Playing/Stopped`, logout или 60 секунд без запросов сегментов — процесс завершается, каталог удаляется;
-  - остановка Coach завершает задания FFmpeg и чтения ключевых кадров;
-  - при запуске Coach удаляет оставшиеся каталоги (как временные файлы состояния, #54).
-- **Сбой FFmpeg.** Запрос сегмента получает 500, и плеер показывает ошибку воспроизведения. Сервер продолжает работать, в журнал пишется ID элемента и код выхода.
+- **One job per PlaySessionId.** It writes segments `seg-%05d.ts` to the session's temporary directory, starting from the requested number (`-ss` at the segment start, `-start_number`).
+- **Request for segment `n`:**
+  - the segment is ready: it is served;
+  - the job is about to produce it (no more than K segments ahead): the request waits for the file with a timeout;
+  - otherwise (seek): the job is restarted from `n`.
+- **Limits:**
+  - no more than M concurrent transcoding jobs and R remux jobs;
+  - when exhausted, PlaybackInfo returns a clear error rather than a URL that will not work;
+  - output is limited by the session directory size;
+  - keyframes are read for no more than two files at once; the rest wait in a queue;
+  - FFmpeg runs with a clean environment, input through `fd:`, as with FFprobe.
+- **Release:**
+  - `Sessions/Playing/Stopped`, logout or 60 seconds without segment requests: the process ends and the directory is deleted;
+  - stopping Coach ends FFmpeg jobs and keyframe reads;
+  - at startup Coach deletes leftover directories (like temporary state files, #54).
+- **FFmpeg failure.** The segment request gets 500, and the player shows a playback error. The server keeps running; the item ID and exit code are written to the log.
 
-### 4. Субтитры
+### 4. Subtitles
 
-Клиенту, который принимает WebVTT внутри HLS (`{"Format":"vtt","Method":"Hls"}`, как Emby Web), текстовые субтитры при HLS отдаются в потоке, как у Emby: PlaybackInfo помечает их `DeliveryMethod=Hls` и добавляет в `TranscodingUrl` `SubtitleStreamIndexes` и `ManifestSubtitles=vtt`; `master.m3u8` перечисляет их в порядке индексов (Emby Web сопоставляет дорожки по позиции), `subtitles.m3u8` отдаёт один сегмент WebVTT на всю длительность. Его `X-TIMESTAMP-MAP` указывает отметку MPEG-TS начала файла: `start_time` плюс 1,4 с задержки мультиплексора FFmpeg (`-copyts`). Первый сегмент видео может начинаться на один кадр AAC позже из-за задержки кодера, поэтому тест сверяет второй сегмент. Остальным клиентам и при Direct Stream доставка остаётся внешней (#24). Прожиг графических субтитров не входит в этот проект.
+For a client that accepts WebVTT inside HLS (`{"Format":"vtt","Method":"Hls"}`, like Emby Web), text subtitles under HLS are delivered in the stream, as Emby does: PlaybackInfo marks them `DeliveryMethod=Hls` and adds `SubtitleStreamIndexes` and `ManifestSubtitles=vtt` to `TranscodingUrl`; `master.m3u8` lists them in index order (Emby Web matches tracks by position), and `subtitles.m3u8` serves one WebVTT segment for the whole duration. Its `X-TIMESTAMP-MAP` gives the MPEG-TS timestamp of the file start: `start_time` plus 1.4 s of FFmpeg muxer delay (`-copyts`). The first video segment may start one AAC frame later due to encoder delay, so the test checks the second segment. For other clients and under Direct Stream, delivery stays external (#24). Burning in image subtitles is out of scope for this design.
 
-## Этапы
+## Stages
 
-| # | Этап | Проверка |
+| # | Stage | Verification |
 |---|---|---|
-| 1 | Каталог сессий, менеджер заданий (лимиты, простой, остановка, очистка при старте) без HLS-маршрутов | модульные тесты с подменным процессом: лимит, отмена, сбой, удаление каталога |
-| 2 | Remux: решение в PlaybackInfo, ключевые кадры, `master.m3u8`/`main.m3u8`, сегменты, перемотка перезапуском | e2e `hls-master-playlist` проходит; браузер: MKV с AC3 играет, перематывается, останавливается, каталог удалён |
-| 3 | Транскодирование в H.264 с лимитами профиля | браузер: HEVC 10-bit или MPEG-4 Part 2 из набора #16; замер CPU (#29) |
-| 4 | Матрица клиент × формат × способ доставки ([COMPATIBILITY](COMPATIBILITY.md): Emby Web в Chromium, 2026-10-07) | #20 |
+| 1 | Session directory, job manager (limits, idle, stop, cleanup at startup) without HLS routes | unit tests with a fake process: limit, cancellation, failure, directory deletion |
+| 2 | Remux: decision in PlaybackInfo, keyframes, `master.m3u8`/`main.m3u8`, segments, seeking by restart | e2e `hls-master-playlist` passes; browser: MKV with AC3 plays, seeks, stops, directory deleted |
+| 3 | Transcoding to H.264 with profile limits | browser: HEVC 10-bit or MPEG-4 Part 2 from the #16 set; CPU measurement (#29) |
+| 4 | Client × format × delivery method matrix ([COMPATIBILITY](COMPATIBILITY.md): Emby Web in Chromium, 2026-10-07) | #20 |
 
-Каждый этап — отдельный коммит, работоспособный сам по себе.
+Each stage is a separate commit that works on its own.
 
-## Вопросы
+## Questions
 
-1. Лимиты одновременных заданий: сколько транскодирований (CPU NAS) и remux? Предложение: 1 транскодирование и 2 remux.
-2. Где держать временные сегменты: в `<data>/transcode` (тот же том, что состояние) или в системном временном каталоге (может быть tmpfs в RAM)? И какой предел размера на сессию?
-3. Длина сегмента: 6 секунд (значение Jellyfin по умолчанию; значение Emby не проверено) или 3 для более быстрой перемотки ценой большего числа запросов?
-4. Начинать с remux (этап 2) без транскодирования видео? Для типичной библиотеки с H.264 в MKV и AC3/DTS-аудио этого достаточно, а нагрузка на CPU мала.
-5. Медианабор #16 ещё не согласован. Для этапов 2–3 нужны хотя бы: MKV H.264 + AC3, MKV HEVC 10-bit + DTS, AVI MPEG-4 Part 2. Можно ли сгенерировать их синтетически FFmpeg, как в e2e?
+1. Concurrent job limits: how many transcodes (NAS CPU) and remuxes? Proposal: 1 transcode and 2 remuxes.
+2. Where to keep temporary segments: in `<data>/transcode` (the same volume as state) or in the system temporary directory (may be tmpfs in RAM)? And what size limit per session?
+3. Segment length: 6 seconds (Jellyfin's default; Emby's value not checked) or 3 for faster seeking at the cost of more requests?
+4. Start with remux (stage 2) without video transcoding? For a typical library with H.264 in MKV and AC3/DTS audio this is enough, and the CPU load is low.
+5. Media set #16 is not agreed on yet. Stages 2–3 need at least: MKV H.264 + AC3, MKV HEVC 10-bit + DTS, AVI MPEG-4 Part 2. Can they be generated synthetically with FFmpeg, as in e2e?

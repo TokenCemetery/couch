@@ -1,65 +1,65 @@
-# Первый этап реализации
+# First implementation stage
 
-2026-09-18: пользователь разрешил реализацию и выбрал Emby Web первым клиентом.
+2026-09-18: the user approved implementation and chose Emby Web as the first client.
 
-1. Зафиксировать публичный контракт Emby 4.10.0.40 и реальные запросы его API-клиента.
-2. Реализовать локальный Go-сервер: информация, вход/выход, постоянные сессии, пользователь, настройки и пустая библиотека.
-3. Предоставить подключение оригинальных web-ресурсов через отдельный необязательный адаптер `/web/`. Запросы API обслуживает Go; адаптер получает только статические ресурсы и не передаёт upstream токены, cookies и тело запроса.
-4. Проверить вход, неверный пароль, доступ без токена, отзыв, рестарт, чужой userId, сохранение настроек, конфликт токенов и изоляцию upstream. Запустить race detector, vet и сборку.
-5. Проверить оригинальный API-клиент отдельно от UI. Если браузер доступен — проверить экраны. Зафиксировать фактические границы проверки.
+1. Record the public contract of Emby 4.10.0.40 and the actual requests of its API client.
+2. Implement a local Go server: info, login/logout, persistent sessions, user, settings and an empty library.
+3. Allow connecting the original web resources through a separate optional `/web/` adapter. Go serves API requests; the adapter receives only static resources and does not forward tokens, cookies or the request body upstream.
+4. Check login, wrong password, access without a token, revocation, restart, another user's userId, settings persistence, token conflict and upstream isolation. Run the race detector, vet and build.
+5. Check the original API client separately from the UI. If a browser is available, check the screens. Record the actual verification boundaries.
 
-Начальная реализация использует стандартную библиотеку Go. Хранилище JSON со схемой v1, атомарной заменой файла и блокировкой каталога подходит для одной учётной записи и небольшого числа сессий M1; оно не предназначено для медиакаталога M2. Пароли — PBKDF2-HMAC-SHA256 с индивидуальной солью; в хранилище остаются только хеши токенов. Слушатель по умолчанию доступен только на loopback.
+The initial implementation uses the Go standard library. A JSON store with schema v1, atomic file replacement and directory locking suits one account and a small number of M1 sessions; it is not meant for the M2 media catalog. Passwords use PBKDF2-HMAC-SHA256 with a per-user salt; only token hashes remain in the store. The listener is reachable only on loopback by default.
 
-Первый пользователь создаётся локальной командой и не получает административных прав через API. Администрирование, WebSocket, сканирование и воспроизведение в этот этап не входят. Неизвестные маршруты возвращают ошибку, а не фиктивный успех.
+The first user is created by a local command and does not get administrative rights through the API. Administration, WebSocket, scanning and playback are not part of this stage. Unknown routes return an error, not a fake success.
 
-На момент первого среза M0 оставался открытым: не было авторизованного обмена, замеров и бюджетов ресурсов; M1 ожидал браузерной приёмки. Позднее обмен и приёмка выполнены — текущий статус в [ROADMAP](../ROADMAP.md).
+At the time of the first slice, M0 remained open: there was no authenticated exchange, no measurements and no resource budgets; M1 awaited browser acceptance. Later the exchange and acceptance were completed — current status is in [ROADMAP](../ROADMAP.md).
 
-## Начальный каталог M2
+## Initial M2 catalog
 
-После повторного отказа browser runtime реализован независимый срез каталога, без объявления M1 завершённым:
+After another browser runtime refusal, an independent catalog slice was implemented, without declaring M1 complete:
 
-1. Опциональный `-media-dir`: чтение одной папки фильмов при запуске, без изменения файлов.
-2. Последовательный FFprobe с таймаутом, ограничением вывода и доступом только к открытому дескриптору. Обход порциями, пропуск symlink/специальных/битых файлов, явные пределы каталога.
-3. Совместимые маршруты Views, Items, Items/{id}, root и Latest; поиск, фильтры и ограниченная пагинация. DTO создаются после выбора страницы.
-4. Тесты изоляции, ошибок, лимитов, стабильности ID и запросов оригинального API-клиента на синтетическом видео.
+1. Optional `-media-dir`: reading one movie folder at startup, without changing files.
+2. Sequential FFprobe with a timeout, output limit and access only to the open descriptor. Traversal in batches, skipping symlinks/special/broken files, explicit catalog limits.
+3. Compatible Views, Items, Items/{id}, root and Latest routes; search, filters and bounded pagination. DTOs are built after the page is selected.
+4. Tests for isolation, errors, limits, ID stability and requests of the original API client on synthetic video.
 
-Каталог в памяти — временное решение для ограниченного read-only сценария; данные пользователей остаются в прежнем хранилище. Постоянный индекс и история появления файлов ещё не реализованы.
+The in-memory catalog is a temporary solution for a limited read-only scenario; user data stays in the existing store. A persistent index and file appearance history are not implemented yet.
 
-## Воспроизведение и состояние (2026-09-19)
+## Playback and state (2026-09-19)
 
-Реализовано после того, как эталонный контракт был снят с авторизацией пользователя, а Emby Web удалось выполнить в браузере против Coach. Каждое решение ниже подтверждено поведением реального клиента, а не выведено из документации:
+Implemented after the reference contract was captured with the user's authorization and Emby Web could run in the browser against Coach. Each decision below is confirmed by real client behavior, not inferred from documentation:
 
-1. Слой DTO (`internal/server/dto.go`) воспроизводит поля эталона, включая массивы, которые клиент разыменовывает без защиты. `Subviews` отдаётся только в ответе карточки библиотеки, как у эталона.
-2. Главный экран (`internal/server/home.go`): `HomeSections` и `Sections/{id}/Items`. Строки заполняет сервер; объявляются только те разделы, которые Coach может наполнить.
-3. `PlaybackInfo` согласует Direct Stream по `DeviceProfile` клиента. Coach не транскодирует, поэтому при несовпадении профиля источник объявляется неподдерживаемым, а не обещается с последующим отказом.
-4. Выдача файла — `http.ServeContent`: Range, If-Range, HEAD, 206 и 416 берутся из стандартной библиотеки, файл передаётся потоком. Каталог держит открытый `os.Root`, поэтому повторное открытие файла не выходит за выбранный каталог.
-5. `SupportsDirectPlay` намеренно `false`: в модели Emby это означает чтение файла клиентом по `MediaSource.Path`. HTTP-доставка — это Direct Stream.
-6. Прогресс, «просмотрено» и «избранное» хранятся в `state.ItemState` рядом с пользователем; число элементов ограничено. Позиция переживает перезапуск, завершение просмотра обнуляет её.
+1. The DTO layer (`internal/server/dto.go`) reproduces the reference fields, including arrays the client dereferences without guards. `Subviews` is returned only in the library item response, as in the reference.
+2. Home screen (`internal/server/home.go`): `HomeSections` and `Sections/{id}/Items`. The server fills the rows; only sections Coach can populate are declared.
+3. `PlaybackInfo` negotiates Direct Stream by the client's `DeviceProfile`. Coach does not transcode, so on a profile mismatch the source is declared unsupported rather than promised and then refused.
+4. File serving uses `http.ServeContent`: Range, If-Range, HEAD, 206 and 416 come from the standard library, and the file is streamed. The catalog holds an open `os.Root`, so reopening a file cannot escape the chosen directory.
+5. `SupportsDirectPlay` is deliberately `false`: in the Emby model it means the client reads the file by `MediaSource.Path`. HTTP delivery is Direct Stream.
+6. Progress, "played" and "favorites" are stored in `state.ItemState` next to the user; the number of items is limited. The position survives a restart; finishing playback resets it.
 
-Позднее добавлен базовый WebSocket без внешних зависимостей: авторизация, handshake, KeepAlive, ping/pong, ограничения размера сообщения и числа соединений. На этом срезе изображения и сериалы ещё отсутствовали; их реализация описана ниже. Транскодирование тогда не было реализовано, как и локализация названий строк; заголовки главного экрана позже переведены через встроенные файлы `internal/server/locales/*.yaml` (#18).
+Later a basic WebSocket without external dependencies was added: authorization, handshake, KeepAlive, ping/pong, limits on message size and connection count. At that slice images and series were still missing; their implementation is described below. Transcoding was not implemented then, nor was localization of row titles; home screen headings were later translated through embedded files `internal/server/locales/*.yaml` (#18).
 
-## Надёжность HTTP-выдачи (2026-09-19)
+## HTTP serving reliability (2026-09-19)
 
-Для видео общий таймаут заменён обновляемым дедлайном записи. Валидаторы используют текущие размер/mtime открытого файла, а не ID и метаданные сканирования; ETag слабый. Добавлены регрессии диапазонов, кеширования, длинной передачи и зависшей записи. Интеграционный сценарий расширен проверками потока и позиции после рестарта. Результаты и ограничения — в [VALIDATION](VALIDATION.md).
+For video, the overall timeout was replaced by a renewable write deadline. Validators use the current size/mtime of the open file, not the ID and scan metadata; the ETag is weak. Regressions for ranges, caching, long transfers and stalled writes were added. The integration scenario was extended with checks of the stream and position after restart. Results and limitations are in [VALIDATION](VALIDATION.md).
 
-## Согласование воспроизведения и локальный UI
+## Playback negotiation and local UI
 
-PlaybackInfo принимает параметры query/JSON и проверяет лимиты, источник, дорожки и базовые условия DeviceProfile. Неподдерживаемое воспроизведение возвращает NoCompatibleStream без URL; транскодирование не имитируется.
+PlaybackInfo accepts query/JSON parameters and checks limits, the source, tracks and basic DeviceProfile conditions. Unsupported playback returns NoCompatibleStream without a URL; transcoding is not faked.
 
-`-web-dir` раздаёт предоставленный Emby Web из отдельной папки через `os.Root`, без листинга и выхода за корень. Режим взаимоисключающий с `-web-upstream`. Подготовка index.html выполняется в памяти; пользовательские файлы не меняются. Интеграция API-модулей может работать без исходного Emby через `COACH_WEB_DIR`. Полнота UI и браузерная приёмка проверяются отдельно — см. [VALIDATION](VALIDATION.md).
+`-web-dir` serves the provided Emby Web from a separate folder through `os.Root`, without listings or escaping the root. The mode is mutually exclusive with `-web-upstream`. index.html is prepared in memory; user files are not changed. API module integration can run without the original Emby through `COACH_WEB_DIR`. UI completeness and browser acceptance are verified separately — see [VALIDATION](VALIDATION.md).
 
-## События пользовательского состояния (2026-09-20)
+## User state events (2026-09-20)
 
-UserDataChanged публикуется после успешной записи избранного, отметки просмотра или прогресса. Запись и постановка событий в очередь упорядочены; копируется только изменённая запись, не всё хранилище. Рассылка ограничена UserId и очередью из 32 сообщений на соединение; переполнение закрывает медленного клиента. Истории событий нет, при переподключении требуется чтение API.
+UserDataChanged is published after a successful write of a favorite, a played mark or progress. The write and the queuing of events are ordered; only the changed record is copied, not the whole store. Broadcast is limited by UserId and a queue of 32 messages per connection; overflow closes the slow client. There is no event history; on reconnect an API read is required.
 
-Токен повторно проверяется при регистрации сокета, перед выдачей события, при входящем кадре и ping. Logout закрывает соединения конкретной сессии. Server.Close закрывает hijacked-соединения, которыми HTTP Shutdown не управляет. Другие WebSocket-события и удалённое управление остаются вне реализованного среза.
+The token is rechecked when the socket registers, before an event is sent, on an incoming frame and on ping. Logout closes the connections of that specific session. Server.Close closes hijacked connections that HTTP Shutdown does not manage. Other WebSocket events and remote control remain outside the implemented slice.
 
-## Контрольная точка M2 (2026-09-21)
+## M2 checkpoint (2026-09-21)
 
-Аудит исправил фильтры UserData, пагинацию Resume, потерю отсутствующей позиции и повторные/запоздалые отчёты просмотра. Последние 64 PlaySessionId сохраняются вместе с состоянием; без ID остаётся порядок получения. Добавлены Series/Season/Episode с устойчивыми ID и Seasons/Episodes API. Формат имён и ограничения описаны в [README](../README.md).
+The audit fixed UserData filters, Resume pagination, loss of a missing position and duplicate/late playback reports. The last 64 PlaySessionIds are saved together with state; without an ID, arrival order is used. Series/Season/Episode with stable IDs and the Seasons/Episodes API were added. Naming format and limitations are described in the [README](../README.md).
 
-По согласованию с пользователем локальные Primary-обложки защищены подписанными ImageTags: оригинальный UI передаёт tag, но не API-токен. HMAC связывает сессию, объект и ревизию; ключ выводится из сохранённого хеша токена. Каждая выдача проверяет сессию, включая кеш-валидацию. Logout/expiry отзывают ссылку, штатный рестарт сохраняет её. Размер и заголовок ограничены; выдаётся исходный JPEG/PNG без декодирования пикселей и преобразований. Ревизия использует путь/размер/mtime, не хеш содержимого.
+As agreed with the user, local Primary covers are protected by signed ImageTags: the original UI passes the tag but not the API token. The HMAC binds the session, object and revision; the key is derived from the stored token hash. Every serve checks the session, including cache revalidation. Logout/expiry revoke the link; a normal restart preserves it. Size and header are limited; the original JPEG/PNG is served without pixel decoding or transformations. The revision uses path/size/mtime, not a content hash.
 
-Браузер выявил зависимости глобального поиска: ItemTypes и параметры GroupProgramsBySeries/IncludeSearchTypes. ItemTypes возвращает уникальные типы после фильтрации, независимо от страницы; булевы параметры валидируются. Группировка телепрограмм не реализуется: Live TV вне текущего среза. Полный getSearchResults включён в интеграционную регрессию.
+The browser revealed global search dependencies: ItemTypes and the GroupProgramsBySeries/IncludeSearchTypes parameters. ItemTypes returns unique types after filtering, regardless of the page; boolean parameters are validated. TV program grouping is not implemented: Live TV is outside the current slice. The full getSearchResults is included in the integration regression.
 
-M2 не закрыт: автоматические проверки backend не заменяют оставшуюся браузерную приёмку. Итог аудита — [M2-AUDIT](M2-AUDIT.md).
+M2 is not closed: automated backend checks do not replace the remaining browser acceptance. Audit result: [M2-AUDIT](M2-AUDIT.md).
