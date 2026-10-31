@@ -589,7 +589,9 @@ func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int
 		return err
 	}
 	defer func() { _ = file.Close() }()
-	args := []string{"-v", "error", "-nostdin", "-protocol_whitelist", "fd"}
+	// MPEG-TS needs a PTS on every packet; AVI with packed B-frames has
+	// none on keyframes (#96).
+	args := []string{"-v", "error", "-nostdin", "-protocol_whitelist", "fd", "-fflags", "+genpts"}
 	// trimmed cuts an encoded restart at the segment's start with filters,
 	// after decoding from the previous segment's keyframe. Seeking straight
 	// to the segment can land past its keyframe in MPEG-TS, and an HEVC

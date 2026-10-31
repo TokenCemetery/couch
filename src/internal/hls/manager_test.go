@@ -55,9 +55,16 @@ func fixtureOf(t *testing.T, name string, seconds int) string {
 		}
 	}
 	path := filepath.Join(t.TempDir(), name)
-	build := exec.CommandContext(context.Background(), "ffmpeg", "-v", "error", "-nostdin", //nolint:gosec // fixed arguments and temp paths
-		"-itsoffset", "0.5", "-f", "lavfi", "-i", "testsrc2=s=160x120:d="+strconv.Itoa(seconds)+":r=25", "-f", "lavfi", "-i", "sine=d="+strconv.Itoa(seconds+1),
-		"-c:v", "libx264", "-g", "1000", "-force_key_frames", "expr:gte(t,n_forced*2.6)", "-c:a", "ac3", path)
+	video := []string{"-c:v", "libx264"}
+	if filepath.Ext(name) == ".avi" {
+		// MPEG-4 ASP with B-frames: AVI keeps no PTS on its keyframes (#96).
+		video = []string{"-c:v", "mpeg4", "-bf", "2"}
+	}
+	args := append([]string{"-v", "error", "-nostdin",
+		"-itsoffset", "0.5", "-f", "lavfi", "-i", "testsrc2=s=160x120:d=" + strconv.Itoa(seconds) + ":r=25", "-f", "lavfi", "-i", "sine=d=" + strconv.Itoa(seconds+1)},
+		video...)
+	args = append(args, "-g", "1000", "-force_key_frames", "expr:gte(t,n_forced*2.6)", "-c:a", "ac3", path)
+	build := exec.CommandContext(context.Background(), "ffmpeg", args...) //nolint:gosec // fixed arguments and temp paths
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Skipf("cannot build fixture: %v %s", err, out)
 	}
@@ -81,7 +88,7 @@ func firstVideoPTS(t *testing.T, file *os.File) float64 {
 }
 
 func TestRemuxSegmentsMatchThePlan(t *testing.T) {
-	for _, name := range []string{"in.mkv", "in.ts"} {
+	for _, name := range []string{"in.mkv", "in.ts", "in.avi"} {
 		t.Run(name, func(t *testing.T) {
 			path := fixture(t, name)
 			dir := filepath.Join(t.TempDir(), "transcode")
@@ -180,9 +187,12 @@ func hevcFixture(t *testing.T, name string, openGOP bool) string {
 
 func TestTranscodeSegmentsMatchThePlan(t *testing.T) {
 	// Open GOPs in MPEG-TS used to restart at the next keyframe.
-	for _, name := range []string{"in.mkv", "in.ts", "open.mkv", "open.ts"} {
+	for _, name := range []string{"in.mkv", "in.ts", "open.mkv", "open.ts", "in.avi"} {
 		t.Run(name, func(t *testing.T) {
 			path := hevcFixture(t, name, strings.HasPrefix(name, "open"))
+			if strings.HasSuffix(name, ".avi") {
+				path = fixture(t, name)
+			}
 			m, err := NewManager("ffmpeg", "ffprobe", filepath.Join(t.TempDir(), "transcode"))
 			if err != nil {
 				t.Fatal(err)

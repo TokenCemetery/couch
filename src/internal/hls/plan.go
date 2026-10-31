@@ -158,7 +158,8 @@ func probe(ctx context.Context, ffprobe string, file *os.File, args []string, li
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	args = append([]string{"-v", "error", "-protocol_whitelist", "fd", "-fd", "3"}, args...)
+	// +genpts fills in missing PTS the way FFmpeg does for the job (#96).
+	args = append([]string{"-v", "error", "-protocol_whitelist", "fd", "-fflags", "+genpts", "-fd", "3"}, args...)
 	cmd := exec.CommandContext(ctx, ffprobe, append(args, "-of", "csv", "fd:")...) //nolint:gosec // binary is ffprobe from PATH; arguments are numbers and fixed options
 	cmd.Env = []string{"LC_ALL=C"}
 	cmd.ExtraFiles = []*os.File{file}
