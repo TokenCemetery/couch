@@ -1,6 +1,6 @@
 # Resource baseline: Emby and Couch (#14)
 
-Status: first run, 2026-10-31. One run per server and profile; run-to-run variance is not measured yet. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
+Status: two runs, 2026-10-31. The second run adds I/O, temporary files and seek time. The phases both runs share agree within about 3 %; more runs are needed for a real variance figure. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
 
 ## Method
 
@@ -17,15 +17,21 @@ Status: first run, 2026-10-31. One run per server and profile; run-to-run varian
 - **Measures, per phase, for the whole container (server plus FFmpeg):**
   - wall time;
   - CPU from `cpu.stat`;
-  - peak anonymous memory from `memory.stat`, sampled every 0.2 s. `memory.current` would also count the page cache of the media read, which is reclaimable.
+  - peak anonymous memory from `memory.stat`, sampled every 0.2 s. `memory.current` would also count the page cache of the media read, which is reclaimable;
+  - bytes read from and written to the disk, from `io.stat`;
+  - peak size of the server's transcode folder (`/data/transcode` for Couch, `/config/transcoding-temp` for Emby), sampled every 0.2 s.
 
   Also the server process's own peak RSS (`VmHWM`).
+- **Cache:** before the scan and before each phase that reads media, the files are evicted from the page cache (`dd iflag=nocache`, which works as a normal user). Reads therefore come from the disk, as on a server that has not just read them.
 - **Phases:**
   1. Startup and library scan: Couch scans before it listens; Emby runs its wizard and adds the library with a scan.
   2. 60 s idle.
   3. 100 requests to each of seven API endpoints.
   4. A full Direct Stream download.
   5. HLS: time to the first segment, then segments fetched one after another until 120 s of video (18 s for 4K), as fast as the server delivers. Not real-time pacing.
+  6. Seek:
+     - in the direct stream, five 1 MiB byte ranges at 10–90 % of the file, timed to the first byte;
+     - in HLS, a new session fetches its first segment, then requests the segment at 50 % and later at 75 % of the playlist, as a player does after a seek, timed to the whole segment. The server restarts its encoding there.
 
 Bench: AMD Ryzen 7 255 (16 threads), 22 GiB RAM, Linux 7.0, Docker 29.9.2, cgroup v2, local NVMe. Images:
 
@@ -84,6 +90,45 @@ The HLS segments differ:
 - Emby cuts 6 s segments for remux and 3 s segments with a keyframe every 3 s for transcoding.
 - Couch's transcode is 18 MiB per 122 s, Emby's 25 MiB per 120 s. Emby also encodes the audio to MP3 at 192 kbit/s.
 
+### Seek
+
+| | Couch small | Couch average | Couch large | Emby small | Emby average | Emby large |
+|---|---|---|---|---|---|---|
+| Direct Stream, median time to first byte | 0.6 ms | 0.6 ms | 0.6 ms | 2.7 ms | 1.7 ms | 1.8 ms |
+| Remux R03, to 50 % / to 75 % | 0.33 / 0.35 s | 0.21 / 0.21 s | 0.21 / 0.21 s | 0.23 / 0.20 s | 0.21 / 0.15 s | 0.21 / 0.14 s |
+| Transcode R06, to 50 % / to 75 % | 6.0 / 6.6 s | 3.1 / 3.4 s | 1.6 / 1.8 s | 1.5 / 1.7 s | 0.76 / 0.80 s | 0.36 / 0.46 s |
+
+A seek in a transcode waits for the new first segment, so it follows the time to the first segment above. Couch's segments are 6 s and longer, Emby's 3 s, and Couch's encoder is slower.
+
+### Disk I/O and temporary files
+
+Read from the disk per phase, with the media evicted from the page cache first (MiB; ranges are over the three profiles):
+
+| Phase | Couch | Emby |
+|---|---|---|
+| Startup and scan of 18 files | 85 | 18 |
+| 700 API requests (with 100 PlaybackInfo for R03) | 195–202 | 0 |
+| Direct Stream of R04, 503 MiB | 503 | 503 |
+| Remux of R03, 120 s of video | 117–118 | 115–120 |
+| Transcode of R06 (a 322 MiB file), 120 s of video | 321 | 39 |
+| Transcode seek in R06 | 39 | 10–14 |
+| 4K transcode of R09 (a 10 GiB file) | 707–759 | 0.4–51 |
+
+Written to the disk: at most 0.2 MiB per phase; only Emby wrote, during startup and idle. Transcoded segments stay in the page cache and are deleted before the kernel flushes them.
+
+Peak size of the transcode folder (MiB):
+
+| Phase | Couch | Emby |
+|---|---|---|
+| Remux of R03 | 46–66 | not captured (see below) |
+| Transcode of R06 | 7.2–7.4 | 96–97 |
+| Remux seek / transcode seek | 16–27 / 2.6–2.8 | 89–96 / 72–76 |
+| 4K, large | 33 | 31 |
+
+Couch deletes segments the player has passed. Emby keeps a session's segments until it ends.
+
+Two gaps in the second run: Emby's memory sampler read 0 during startup, so startup memory above is from the first run; and Emby's transcode folder showed no files during the remux phase, though it did during the remux seek right after.
+
 ## Findings
 
 - **Idle and API:** Couch idles at about 1/18 of Emby's anonymous memory (4 vs 71 MiB) and about 1/18 of its RSS (11 vs 202 MiB), with no idle CPU. Its API answers are 1.5–7 times faster on the small profile. On two or more CPUs, five endpoints stay 1.3–4.7 times faster, and the movie list and Latest are slightly slower than Emby's.
@@ -95,12 +140,16 @@ The HLS segments differ:
 
   Emby's FFmpeg command shows why. Its preset and CRF match Couch's (`veryfast`, CRF 23), but it adds `-x264opts subme=0:me_range=4:rc_lookahead=10:partitions=none` and makes 3 s segments with a keyframe every 3 s. Those options cut motion search and shorten the lookahead, which also lowers memory at 4K. Picture quality was not compared.
 - **4K needs a large container on both servers:** both run out of memory at 1 and 2 GiB, because both transcode at the source size.
+- **Couch reads much more of the file before transcoding:**
+  - all 321 MiB of a 322 MiB MP4 before 120 s of a 720p transcode, against Emby's 39 MiB;
+  - about 750 MiB of a 10 GiB MKV before the first 4K segment.
+
+  The cause is its keyframe listing, which plans segments on the source's keyframes. `PlaybackInfo` already starts it for an item that will need HLS, which is why 100 `PlaybackInfo` calls read about 200 MiB. On a local NVMe this costs little time. On a NAS volume it delays the first segment by the time to read that much.
+- **Seeking:** within a direct stream, Couch answers a seek in 0.6 ms against Emby's 1.7–2.7 ms. Within a remux both take 0.14–0.35 s. Within a transcode Couch takes about 4 times longer, for the same reasons as the first segment.
 
 ## Not measured yet
 
-- I/O.
-- Seek time and temp-file size.
 - Picture quality of the two encoders.
-- Several runs for variance.
+- More runs for variance.
 - Emby's server process and its FFmpeg separately during transcoding; the table gives the container total, which is their sum.
-- A real NAS, and Emby's internet metadata, which the offline network rules out.
+- A real NAS, where the read volumes above turn into time, and Emby's internet metadata, which the offline network rules out.

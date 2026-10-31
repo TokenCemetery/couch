@@ -7,7 +7,9 @@
 # MEDIA_DIR holds the set from docs/COMPATIBILITY.md ("Real library files"):
 # R03 (H.264 remux), R04 (Direct Stream), R06 (HEVC transcode), R09 (4K).
 # Both servers run on the internal Docker network couch-bench, which has no
-# route out, so nothing about the media leaves the host. Needs docker, curl,
+# route out, so nothing about the media leaves the host. Before each phase
+# that reads media, its files are evicted from the page cache (dd
+# iflag=nocache), so reads come from the disk as on a fresh server. Needs docker, curl,
 # jq and cgroup v2 with the systemd driver. COUCH_IMAGE defaults to couch:dev.
 set -euo pipefail
 
@@ -43,6 +45,10 @@ docker rm -f "$name" >/dev/null 2>&1 || true
 record() { jq -nc --arg server "$server" --arg profile "$profile" "$@" >> "$out"; }
 cgroup() { echo "/sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}' "$name").scope"; }
 cpu_usec() { awk '$1=="usage_usec"{print $2}' "$(cgroup)/cpu.stat"; }
+# io_bytes prints "read written" summed over the container's block devices.
+io_bytes() { awk '{for (i = 2; i <= NF; i++) { split($i, kv, "="); if (kv[1] == "rbytes") r += kv[2]; if (kv[1] == "wbytes") w += kv[2] } } END { print r + 0, w + 0 }' "$(cgroup)/io.stat"; }
+evict() { for f in "$@"; do dd if="$media/$f" iflag=nocache count=0 status=none; done; }
+evict_all() { find "$media" -type f -print0 | while IFS= read -r -d '' f; do dd if="$f" iflag=nocache count=0 status=none; done; }
 now() { date +%s.%N; }
 
 # phase_begin and phase_end bracket a phase: container CPU from cpu.stat and
@@ -51,19 +57,30 @@ now() { date +%s.%N; }
 # being read, which is reclaimable and not process memory.
 phase_begin() {
   phase=$1 t0=$(now) c0=$(cpu_usec)
+  read -r r0 w0 < <(io_bytes)
   local file=$(cgroup)/memory.stat
-  : > "$work/peak"
-  ( max=0; while :; do v=$(awk '$1=="anon"{print $2}' "$file" 2>/dev/null || echo 0); [ "${v:-0}" -gt "$max" ] && max=$v && echo "$max" > "$work/peak"; sleep 0.2; done ) &
+  : > "$work/peak"; : > "$work/temp"
+  ( max=0 tmax=0
+    while :; do
+      v=$(awk '$1=="anon"{print $2}' "$file" 2>/dev/null || echo 0)
+      [ "${v:-0}" -gt "$max" ] && max=$v && echo "$max" > "$work/peak"
+      t=$(du -sb "$tempdir" 2>/dev/null | cut -f1)
+      [ "${t:-0}" -gt "$tmax" ] && tmax=$t && echo "$tmax" > "$work/temp"
+      sleep 0.2
+    done ) &
   sampler=$!
 }
 phase_end() {
   local extra=${1:-'{}'}
   kill "$sampler" 2>/dev/null || true; wait "$sampler" 2>/dev/null || true; sampler=""
-  local t1 c1 peak; t1=$(now); c1=$(cpu_usec); peak=$(cat "$work/peak" 2>/dev/null || echo 0)
+  local t1 c1 peak temp r1 w1; t1=$(now); c1=$(cpu_usec); peak=$(cat "$work/peak" 2>/dev/null); temp=$(cat "$work/temp" 2>/dev/null)
+  read -r r1 w1 < <(io_bytes)
   record --arg phase "$phase" --argjson wall "$(awk "BEGIN{print $t1-$t0}")" \
     --argjson cpu "$(awk "BEGIN{print ($c1-$c0)/1e6}")" --argjson peak "$(awk "BEGIN{print ${peak:-0}/1048576}")" \
-    --argjson extra "$extra" \
-    '{server: $server, profile: $profile, phase: $phase, wall_s: ($wall*100|round/100), cpu_s: ($cpu*100|round/100), anon_peak_mib: ($peak|round)} + $extra'
+    --argjson read "$(awk "BEGIN{print ($r1-$r0)/1048576}")" --argjson written "$(awk "BEGIN{print ($w1-$w0)/1048576}")" \
+    --argjson temp "$(awk "BEGIN{print ${temp:-0}/1048576}")" --argjson extra "$extra" \
+    '{server: $server, profile: $profile, phase: $phase, wall_s: ($wall*100|round/100), cpu_s: ($cpu*100|round/100), anon_peak_mib: ($peak|round),
+      read_mib: ($read*10|round/10), written_mib: ($written*10|round/10), temp_peak_mib: ($temp*10|round/10)} + $extra'
 }
 alive() { [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" = true ]; }
 died() {
@@ -93,6 +110,8 @@ emby)
   docker create --name "$name" --network couch-bench --cpus "$cpus" --memory "$mem" --memory-swap "$mem" \
     -e UID="$(id -u)" -e GID="$(id -g)" -e GIDLIST="$(id -g)" \
     -v "$work/config:/config" -v "$media:/media:ro" "$emby_image" >/dev/null
+  tempdir=$work/config/transcoding-temp
+  evict_all
   docker start "$name" >/dev/null
   phase_begin startup_scan
   ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")
@@ -120,6 +139,8 @@ couch)
   printf '%s\n' "$password" | docker run --rm -i --user "$(id -u):$(id -g)" -v "$work/data:/data" "$couch_image" -init -username viewer >/dev/null
   docker create --name "$name" --network couch-bench --cpus "$cpus" --memory "$mem" --memory-swap "$mem" \
     --user "$(id -u):$(id -g)" -v "$work/data:/data" -v "$media:/media:ro" "$couch_image" -listen :8097 -media-dir /media >/dev/null
+  tempdir=$work/data/transcode
+  evict_all
   docker start "$name" >/dev/null
   phase_begin startup_scan
   ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")
@@ -173,6 +194,7 @@ playback_info() {
 # --- Direct Stream ----------------------------------------------------------
 info=$(playback_info "$(item_id R04)")
 url=$(jq -r '.MediaSources[0].DirectStreamUrl // empty' <<<"$info")
+evict R04.mp4
 phase_begin direct_stream
 if [ -n "$url" ]; then
   # Both servers return the URL without the /emby prefix, as Emby Web expects.
@@ -182,6 +204,20 @@ else
   phase_end "{\"delivery\": \"$(jq -r 'if .MediaSources[0].TranscodingUrl then "hls" else (.ErrorCode // "none") end' <<<"$info")\"}"
 fi
 alive || died direct_stream
+
+# --- seek in Direct Stream ----------------------------------------------------
+# A player seeks in a direct stream with a byte range; time to its first byte.
+if [ -n "$url" ]; then
+  size=$(jq -r '.MediaSources[0].Size' <<<"$info")
+  evict R04.mp4
+  phase_begin seek_direct
+  ttfb=$(for f in 0.1 0.3 0.5 0.7 0.9; do
+    off=$(awk "BEGIN{printf \"%d\", $size*$f}")
+    curl -sf -o /dev/null -r "$off-$((off + 1048575))" -w '%{time_starttransfer}\n' "$base$url"
+  done | sort -n | awk '{a[NR]=$1} END{printf "%.1f", a[3]*1000}')
+  phase_end "{\"seek_ttfb_median_ms\": $ttfb}"
+  alive || died seek_direct
+fi
 
 # hls ITEM SECONDS: time to the first segment, then the following segments
 # one after another as fast as they come, until SECONDS of video (by the
@@ -218,12 +254,50 @@ hls() {
   echo "{\"delivery\": \"$mode\", \"reasons\": \"$reasons\", \"segments\": $n, \"video_s\": $(awk "BEGIN{printf \"%.1f\", $seconds}"), \"mib\": $((bytes / 1048576)), \"first_segment_s\": ${ttfs:-null}}"
 }
 
+# hls_seek ITEM: starts a session and fetches the first segment, then seeks
+# as a player does, by requesting the segment at 50 % and later at 75 % of the
+# playlist; each seek is timed to its segment, and the segment after it is
+# fetched to check playback continues. The server restarts its encoding there.
+hls_seek() {
+  local info url session master dir main durs=() segs=() total=0 k cum seek50 seek75 t frac
+  info=$(playback_info "$1")
+  url=$(jq -r '.MediaSources[0].TranscodingUrl // empty' <<<"$info")
+  session=$(jq -r '.PlaySessionId' <<<"$info")
+  [ -n "$url" ] || { echo '{"delivery": "not hls"}'; return; }
+  master=$(curl -sf -m 300 "$base$url")
+  dir=${url%%\?*}; dir=$base${dir%/*}
+  main=$dir/$(grep -v '^#' <<<"$master" | head -1)
+  while read -r d seg; do durs+=("$d"); segs+=("$seg"); done < <(curl -sf -m 300 "$main" | awk -F'[:,]' '/^#EXTINF/{d=$2; next} !/^#/ && NF {print d, $0}')
+  total=$(printf '%s\n' "${durs[@]}" | awk '{s+=$1} END{print s}')
+  curl -sf -m 300 -o /dev/null "$dir/${segs[0]}"
+  for frac in 0.5 0.75; do
+    cum=0; k=0
+    while [ "$k" -lt $((${#segs[@]} - 1)) ] && awk "BEGIN{exit !($cum < $total*$frac)}"; do cum=$(awk "BEGIN{print $cum+${durs[$k]}}"); k=$((k + 1)); done
+    t=$(curl -sf -m 300 -o /dev/null -w '%{time_total}' "$dir/${segs[$k]}" || echo null)
+    curl -sf -m 300 -o /dev/null "$dir/${segs[$((k + 1))]}" || t=null
+    [ "$frac" = 0.5 ] && seek50=$t || seek75=$t
+  done
+  api -X POST -o /dev/null "$base/Videos/ActiveEncodings/Delete?DeviceId=baseline&PlaySessionId=$session" || true
+  echo "{\"seek_50_s\": $seek50, \"seek_75_s\": $seek75}"
+}
+
+evict R03.mkv
 phase_begin remux_h264
 phase_end "$(hls "$(item_id R03)" 120)"
 alive || died remux_h264
+evict R06.mp4
 phase_begin transcode_hevc_720p
 phase_end "$(hls "$(item_id R06)" 120)"
 alive || died transcode_hevc_720p
+evict R03.mkv
+phase_begin seek_remux_h264
+phase_end "$(hls_seek "$(item_id R03)")"
+alive || died seek_remux_h264
+evict R06.mp4
+phase_begin seek_transcode_hevc_720p
+phase_end "$(hls_seek "$(item_id R06)")"
+alive || died seek_transcode_hevc_720p
+evict R09.mkv
 phase_begin transcode_hevc_4k
 phase_end "$(hls "$(item_id R09)" 18)"
 alive || died transcode_hevc_4k
