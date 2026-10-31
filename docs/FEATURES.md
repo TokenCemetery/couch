@@ -31,7 +31,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Next Up, Suggestions tab of TV Shows | Supported | Merge order with in-progress items is an assumption, not captured from Emby (#40) |
 | Local images: Primary, Backdrop, Logo, Thumb; series images on seasons and episodes | Supported | #85, #86, #88 |
 | Titles from file names, duration and technical data from FFprobe | Supported | No NFO, no online metadata, titles are not translated |
-| Collections, playlists, missing and upcoming episodes, recommendations | Unsupported | Empty lists (#40, #34) |
+| Collections, playlists, missing and upcoming episodes, recommendations | Unsupported | Empty lists (#40, #34); Emby Web offers creating and editing a collection only to an administrator (#33) |
 | Music, photos, books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
 
 ## Watching
