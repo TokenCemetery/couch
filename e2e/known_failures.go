@@ -12,8 +12,7 @@ type knownFailure struct {
 func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 
 var (
-	transcoding          = knownFailure{22, "only HLS video transcoding is implemented: no encoder settings, live streams or bitrate test"}
-	subtitles            = knownFailure{24, "subtitle editing, remote subtitle search, attachments and subtitle encoding options are not implemented"}
+	subtitles            = knownFailure{24, "subtitle editing, remote subtitle search and attachments are not implemented"}
 	nextUpAndCollections = knownFailure{40, "missing episodes and collections are not implemented"}
 	administration       = knownFailure{33, "administration is not implemented (single non-admin user)"}
 	backup               = knownFailure{32, "backup and restore are not implemented"}
@@ -43,8 +42,8 @@ var knownFailures = map[string]knownFailure{
 	// ChannelService
 	"getChannels": unranked,
 	// CodecParameterService
-	"getEncodingCodecparameters":  transcoding,
-	"postEncodingCodecparameters": transcoding,
+	"getEncodingCodecparameters":  administration,
+	"postEncodingCodecparameters": administration,
 	// CollectionService
 	"deleteCollectionsByIdItems":      nextUpAndCollections,
 	"getCollectionsByIdMissing":       nextUpAndCollections,
@@ -90,9 +89,9 @@ var knownFailures = map[string]knownFailure{
 	"headAudioByIdHls1ByPlaylistidBySegmentidBySegmentcontainer": notOfferedByWeb,
 	"headAudioByIdMasterM3u8":                                    notOfferedByWeb,
 	// EncodingInfoService
-	"getEncodingCodecconfigurationDefaults": transcoding,
-	"getEncodingCodecinformationVideo":      transcoding,
-	"getEncodingTonemapoptions":             transcoding,
+	"getEncodingCodecconfigurationDefaults": administration,
+	"getEncodingCodecinformationVideo":      administration,
+	"getEncodingTonemapoptions":             administration,
 	// EnvironmentService
 	"getEnvironmentDefaultdirectorybrowser": administration,
 	"getEnvironmentDirectorycontents":       administration,
@@ -103,8 +102,8 @@ var knownFailures = map[string]knownFailure{
 	"postEnvironmentDirectorycontents":      administration,
 	"postEnvironmentValidatepath":           administration,
 	// FfmpegOptionsService
-	"getEncodingFfmpegoptions":  transcoding,
-	"postEncodingFfmpegoptions": transcoding,
+	"getEncodingFfmpegoptions":  notCalledByWeb,
+	"postEncodingFfmpegoptions": notCalledByWeb,
 	// GameGenresService
 	"getGamegenres":       unranked,
 	"getGamegenresByName": unranked,
@@ -299,10 +298,10 @@ var knownFailures = map[string]knownFailure{
 	"getLocalizationOptions":         administration,
 	"getLocalizationParentalratings": administration,
 	// MediaInfoService
-	"getPlaybackBitratetest":   transcoding,
-	"postLivestreamsClose":     transcoding,
-	"postLivestreamsMediainfo": transcoding,
-	"postLivestreamsOpen":      transcoding,
+	"getPlaybackBitratetest":   notCalledByWeb,
+	"postLivestreamsClose":     notCalledByWeb,
+	"postLivestreamsMediainfo": notCalledByWeb,
+	"postLivestreamsOpen":      notOfferedByWeb,
 	// MoviesService
 	// MusicGenresService
 	"getMusicgenres":       unranked,
@@ -388,8 +387,8 @@ var knownFailures = map[string]knownFailure{
 	// StudiosService
 	"getStudiosByName": unranked,
 	// SubtitleOptionsService
-	"getEncodingSubtitleoptions":  subtitles,
-	"postEncodingSubtitleoptions": subtitles,
+	"getEncodingSubtitleoptions":  notCalledByWeb,
+	"postEncodingSubtitleoptions": notCalledByWeb,
 	// SubtitleService
 	"deleteItemsByIdSubtitlesByIndex":                      subtitles,
 	"deleteVideosByIdSubtitlesByIndex":                     subtitles,
@@ -442,10 +441,10 @@ var knownFailures = map[string]knownFailure{
 	"postItemsByIdTagsAdd":    unranked,
 	"postItemsByIdTagsDelete": unranked,
 	// ToneMapOptionsService
-	"getEncodingFulltonemapoptions":    transcoding,
-	"getEncodingPublictonemapoptions":  transcoding,
-	"postEncodingFulltonemapoptions":   transcoding,
-	"postEncodingPublictonemapoptions": transcoding,
+	"getEncodingFulltonemapoptions":    administration,
+	"getEncodingPublictonemapoptions":  notCalledByWeb,
+	"postEncodingFulltonemapoptions":   administration,
+	"postEncodingPublictonemapoptions": notCalledByWeb,
 	// TrailersService
 	"getTrailers": unranked,
 	// UniversalAudioService
