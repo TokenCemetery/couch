@@ -689,7 +689,7 @@ func TestJobEndLogsUsage(t *testing.T) {
 			t.Fatalf("segment %d: %v", n, err)
 		}
 	}
-	want := `msg="HLS job ended" item=movie encode=true segments=` + strconv.Itoa(len(bounds)) + " cpu="
+	want := `msg="HLS job ended" item=movie video=copy audio=aac segments=` + strconv.Itoa(len(bounds)) + " cpu="
 	for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logged.String(), want); {
 		if time.Now().After(deadline) {
 			t.Fatalf("log %q, want %q", logged.String(), want)

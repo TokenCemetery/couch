@@ -687,7 +687,17 @@ func (s *session) startJob(ffmpeg string, bounds []float64, start float64, n int
 			j.mu.Lock()
 			segments := j.completed - j.start + 1
 			j.mu.Unlock()
-			slog.Info("HLS job ended", "item", s.source.ItemID, "encode", s.source.VideoEncode || s.source.AudioEncode,
+			video, audio := "copy", "copy"
+			if s.source.VideoEncode {
+				video = "h264"
+			}
+			switch {
+			case s.source.AudioStream < 0:
+				audio = "none"
+			case s.source.AudioEncode:
+				audio = "aac"
+			}
+			slog.Info("HLS job ended", "item", s.source.ItemID, "video", video, "audio", audio,
 				"segments", segments, "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak)
 		}
 		if err != nil {
