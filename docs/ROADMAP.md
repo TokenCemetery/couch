@@ -1,8 +1,8 @@
 # Roadmap
 
-Status: draft, updated 2026-10-31. This is the work order and completion criteria, without unconfirmed calendar estimates. Requirements: [PRD](PRD.md); facts: [discovery](DISCOVERY.md).
+Status: draft, updated 2026-11-01. This is the work order and completion criteria, without unconfirmed calendar estimates. Requirements: [PRD](PRD.md); facts: [discovery](DISCOVERY.md).
 
-M0 is partially done: the reference contract is captured (30 scrubbed fixtures), resource measurements remain open. M1 accepted: Emby Web works against Couch in the browser. M2 accepted 2026-10-03 on a synthetic H.264/AAC MP4: the browser passed "sign in → search → item page → play → seek → stop → restart → resume" for a movie and the TV series scenario. The media set is not agreed, the full local UI is not verified. M3 is in progress (see below), M4–M6 are not started. Verification boundaries: [VALIDATION.md](VALIDATION.md).
+M0 is partially done: the reference contract is captured (30 scrubbed fixtures) and the resource baseline is measured against Emby ([BASELINE](BASELINE.md)); the budgets are proposed and await approval (#15). M1 accepted: Emby Web works against Couch in the browser. M2 accepted 2026-10-03 on a synthetic H.264/AAC MP4: the browser passed "sign in → search → item page → play → seek → stop → restart → resume" for a movie and the TV series scenario. The media set is agreed since (#16) and its 18 real files are in the [matrix](COMPATIBILITY.md). M3 and M4 are in progress (see below); M5 has its first [feature list](FEATURES.md); M6 is not started. Verification boundaries: [VALIDATION.md](VALIDATION.md).
 
 Mandatory clients (user's answer 2026-09-19): Emby Web (first), Android/Android TV, iOS/Apple TV. Kodi and DLNA are not part of the mandatory scope.
 
@@ -92,13 +92,13 @@ Depends on M2. Outcome: an agreed matrix of formats and clients.
 
 Done when every mandatory combination "client × container/codecs × tracks × delivery method" passes start/seek/resume/stop, and errors and limit overruns are predictable.
 
-Status as of 2026-10-11:
+Status as of 2026-11-01:
 
 - Delivery: remux and transcoding to H.264 over HLS with client profile constraints (size, bitrate, H.264 level with macroblock rate), quality and track selection keeping the position on change, subtitles (over HLS, inside the stream, as Emby does), advancing to the next episode. A restart from the middle matches a continuous pass, including for HEVC with open GOPs in MPEG-TS.
 - FFmpeg: limits of 2 remux + 1 transcode, cleanup on stop/logout/idle; 30-minute sustained load with HLS and rescanning, with no process, file or memory leaks (RSS plateau at 25–27 MiB); the acceptance duration is not agreed (#15, #30).
 - Events: UserDataChanged, LibraryChanged, UserConfigurationUpdated, ServerShuttingDown (#25).
 - A walk through Emby Web screens (home, libraries with filters and sorting, item pages, search, player, menus, settings) with no API errors.
-- The [matrix](COMPATIBILITY.md) contains only Emby Web in Chromium on a synthetic set. Not started: Android/Android TV, iOS/Apple TV (#26, #27), an agreed media set (#16), resource budgets (#15), hardware acceleration (#28).
+- The [matrix](COMPATIBILITY.md) contains Emby Web in Chromium on the synthetic set and on 18 real files from the agreed set (#16): 17 verified; the 4K HEVC source does not start in time (#97). Not started: Android/Android TV, iOS/Apple TV (#26, #27), hardware acceleration (#28).
 
 ## M4. Resources, recovery and operations
 
@@ -111,13 +111,14 @@ Depends on M2; the full media-load comparison depends on M3. Measurements are ta
 
 Done when the M0 budgets are met, recovery is verified, there are no open blocking defects and reproducible comparison results are published. Unverified scenarios are not declared stable.
 
-Status as of 2026-10-31 (comparison with Emby not started, #29):
+Status as of 2026-11-01:
 
 - Recovery ([summary](VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. Open: power loss (needs a test bench) and a library unavailable at startup (#39).
 - Backup/restore and data upgrades between versions are verified (#32).
 - Sustained load: 30 minutes with no process, file or memory leaks; the acceptance duration is not agreed (#30, #15).
 - Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Couch itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.
-- First Couch measurements without comparison to Emby ([VALIDATION](VALIDATION.md)): Couch up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory under a CPU quota; `-ffmpeg-threads` sets the cap, automatic by default (#92). Emby's x264 options cut transcoding CPU by a third at the same picture quality, for a larger file (#99).
+- Comparison with Emby on the same host, media and three container sizes ([BASELINE](BASELINE.md), #14, #29): Couch uses less at idle, in the API, Direct Stream and remux; transcoding CPU is within 10 % of Emby's and memory below it, but the first segment and seek are 2.5–3.5 times slower (#99), and Couch reads the source for its keyframe plan first (#98).
+- Earlier Couch-only measurements ([VALIDATION](VALIDATION.md)): Couch up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory under a CPU quota; `-ffmpeg-threads` sets the cap, automatic by default (#92). Emby's x264 options cut transcoding CPU by a third at the same picture quality, for a larger file (#99).
 - A container image with FFmpeg is built and checked in CI; administration and NAS packaging are not started (#33).
 
 ## M5. Compatibility expansion
