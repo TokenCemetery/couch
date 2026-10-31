@@ -728,7 +728,9 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 // with the frame rate's, timestamps are rounded and a forced keyframe can
 // land one frame late. The picture keeps its aspect ratio, shrinks to fit
 // the source's MaxWidth and MaxHeight, and has even dimensions, as 4:2:0
-// requires. Threads, when positive, caps the encoder threads.
+// requires. Threads, when positive, caps the encoder threads. The x264
+// options are Emby's: they cut motion search and lookahead, a third less
+// CPU for a larger file at the same CRF (#99).
 func encodeVideo(bounds []float64, start float64, trim string, threads int, source Source) []string {
 	keyframes := make([]string, len(bounds))
 	for i, b := range bounds {
@@ -741,7 +743,7 @@ func encodeVideo(bounds []float64, start float64, trim string, threads int, sour
 		return "'min(" + size + "," + strconv.Itoa(limit) + ")'"
 	}
 	scale := trim + "scale=w=" + bound(source.MaxWidth, "iw") + ":h=" + bound(source.MaxHeight, "ih") + ":force_original_aspect_ratio=decrease:force_divisible_by=2"
-	args := []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+	args := []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-x264-params", "subme=0:me_range=4:rc_lookahead=10:partitions=none", "-pix_fmt", "yuv420p",
 		"-vf", scale, "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
 		"-force_key_frames", strings.Join(keyframes, ",")}
 	if source.VideoBitrate > 0 {

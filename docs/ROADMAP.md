@@ -89,7 +89,7 @@ Status as of 2026-10-31 (comparison with Emby not started, #29):
 - Backup/restore and data upgrades between versions are verified (#32).
 - Sustained load: 30 minutes with no process, file or memory leaks; the acceptance duration is not agreed (#30, #15).
 - Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Couch itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.
-- First Couch measurements without comparison to Emby ([VALIDATION](VALIDATION.md)): Couch up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory under a CPU quota; `-ffmpeg-threads` sets the cap, automatic by default (#92).
+- First Couch measurements without comparison to Emby ([VALIDATION](VALIDATION.md)): Couch up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory under a CPU quota; `-ffmpeg-threads` sets the cap, automatic by default (#92). Emby's x264 options cut transcoding CPU by a third at the same picture quality, for a larger file (#99).
 - A container image with FFmpeg is built and checked in CI; administration and NAS packaging are not started (#33).
 
 ## M5. Compatibility expansion

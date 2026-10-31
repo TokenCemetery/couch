@@ -518,6 +518,26 @@ Decision (owner): a `-ffmpeg-threads` flag, automatic by default. Checked throug
 
 The file has x264's default keyframe interval, so it has 12 segments instead of the 15 above.
 
+## x264 options from Emby (2026-10-31, #99)
+
+Transcoding now adds Emby's `-x264-params subme=0:me_range=4:rc_lookahead=10:partitions=none` to the same `veryfast` and CRF 23. Release image (FFmpeg 8.1), container limited to 4 CPUs, AMD Ryzen 7 255, local SSD. Source: R06 from the real set (MP4 HEVC 720p + AC3 5.1).
+
+FFmpeg alone, the first 120 s of video only, quality against the source:
+
+| x264 options | Wall time | CPU | Peak RSS | Output | SSIM (All) | PSNR Y |
+|---|---|---|---|---|---|---|
+| `veryfast` (before) | 12.5 s | 49.8 s | 390 MiB | 15.3 MiB | 0.9646 | 31.87 dB |
+| `veryfast` + Emby's options | 8.1 s | 32.3 s | 310 MiB | 20.5 MiB | 0.9633 | 31.83 dB |
+
+Couch's HLS job on the same file (video to H.264 at the source size, AC3 → AAC), 20 segments (about 120 s) requested back to back, two runs each; the job runs ahead of the requests as in playback, so its CPU covers more than 20 segments:
+
+| x264 options | First segment | 20 segments | FFmpeg CPU | FFmpeg peak RSS |
+|---|---|---|---|---|
+| `veryfast` (before) | 1.11–1.17 s | 21.5 s | 85.7 s | 428 MiB |
+| `veryfast` + Emby's options | 0.80–0.81 s | 14.2–14.3 s | 56.8–57.1 s | 352 MiB |
+
+The options cut CPU by a third and memory by a fifth, and the picture stays within 0.002 SSIM and 0.05 dB PSNR. The cost is a file about a third larger at the same CRF, so more segment storage and bandwidth, as with Emby. Not yet measured: `scripts/baseline.sh` on the three profiles against Emby, and the 4K source (#97).
+
 ## FFprobe cost during scanning (2026-10-31, #93)
 
 Same image and set: 4 videos (a 1080p MKV movie of 106 MiB, a movie and two 720p MP4 episodes of 20 s each). Log lines: `Media scan complete ... probes=4 probe_cpu=141ms probe_peak_rss_kib=48264`; after `SIGHUP` without changes — `Media rescan complete ... probes=0 probe_cpu=0s probe_peak_rss_kib=0`. One FFprobe run takes about 35 ms of CPU and up to 47 MiB of memory; runs are sequential, so the scan peak equals the peak of one run. For the #61 library (20,000 episodes) this is about 12 minutes of CPU on the first scan, if the files are similar to the synthetic ones; real files and a network volume were not measured.
