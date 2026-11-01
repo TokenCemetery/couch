@@ -28,6 +28,14 @@ make() {
 	make "WebM VP9 Opus.webm" $video $tone -c:v libvpx-vp9 -deadline realtime -cpu-used 8 -g 50 -c:a libopus
 	make "AVI MPEG4 MP3.avi" $video $tone -c:v mpeg4 -q:v 5 -g 50 -c:a libmp3lame
 	make "MKV HEVC10 AC3.mkv" $video $tone -c:v libx265 -pix_fmt yuv420p10le -x265-params log-level=error:keyint=50:min-keyint=50:scenecut=0 -c:a ac3
+	# 20 s 1280×720 files with a 90° display matrix, for rotated video.
+	rotated="-f lavfi -i testsrc2=s=1280x720:d=20:r=25 -f lavfi -i sine=d=20:f=440"
+	make "MOV HEVC rotated.mov" $rotated -c:v libx265 -tag:v hvc1 -x265-params log-level=error:keyint=50:min-keyint=50:scenecut=0 -pix_fmt yuv420p -c:a aac
+	make "MP4 H264 rotated.mp4" $rotated -c:v libx264 $key -pix_fmt yuv420p -c:a aac
+	for f in "MOV HEVC rotated.mov" "MP4 H264 rotated.mp4"; do
+		ffmpeg -v error -nostdin -y -display_rotation 90 -i "$dir/$f" -c copy "$dir/rotating.${f##*.}"
+		mv "$dir/rotating.${f##*.}" "$dir/$f"
+	done
 	# Two 30 s episodes that need remux, for the next-episode transition.
 	mkdir -p "$dir/Matrix Show/Season 01"
 	for e in 1 2; do

@@ -1,13 +1,14 @@
 # Compatibility matrix (#20)
 
-Status: draft, updated 2026-10-31. Row and status rules: [ROADMAP](ROADMAP.md#compatibility-matrix-rules). Compatibility is claimed only for rows with the "verified" status. The media set is agreed (#16): the synthetic files below are the baseline, and the real library files in "Real library files" cover the formats the synthetic set does not.
+Status: draft, updated 2026-11-01. Row and status rules: [ROADMAP](ROADMAP.md#compatibility-matrix-rules). Compatibility is claimed only for rows with the "verified" status. The media set is agreed (#16): the synthetic files below are the baseline, and the real library files in "Real library files" cover the formats the synthetic set does not.
 
 ## Test bench
 
 - Reference: Emby Server and Emby Web 4.10.0.40.
 - Client: unmodified Emby Web 4.10.0.40 via `-web-dir`, Chromium 152 (built-in browser, macOS), hls.js, Russian UI.
 - Server: Couch `main` 2026-10-07 with FFmpeg 9.0.2; segments in `<data>/transcode`.
-- Media: `scripts/matrix-media.sh DIR` — 120 s of `testsrc2` 640×360, 25 fps, keyframes every 2 s; each frame shows its timestamp.
+- Media: `scripts/matrix-media.sh DIR` — 120 s of `testsrc2` 640×360, 25 fps, keyframes every 2 s; each frame shows its timestamp. The two rotated files are 20 s of 1280×720 with a 90° display matrix.
+- The rotated rows were run on 2026-11-01 on a different bench: Couch `main` at 5f60d4b in the release image (FFmpeg 8.1.3), Linux amd64, Chromium 152 (built-in browser), English UI. The rotated timestamp is read from the frame drawn to a canvas, so it is legible at full resolution.
 
 ## Row scenario
 
@@ -27,8 +28,8 @@ Status: draft, updated 2026-10-31. Row and status rules: [ROADMAP](ROADMAP.md#co
 | `TS H264 AAC.ts` | H.264 / AAC | remux to HLS, AAC copied | yes | 1:14.880 at 74.93 s | 74.71 s | 1:15.600 at 75.65 s | verified 2026-10-07 |
 | `AVI MPEG4 MP3.avi` | MPEG-4 Part 2 / MP3 | transcode to H.264, MP3 copied | yes | 1:16.000 at 75.92 s | 75.77 s, cleaned up | 1:16.520 at 76.45 s | verified 2026-10-07 |
 | `MKV HEVC10 AC3.mkv` | HEVC 10-bit / AC3 | transcode to H.264, AC3 → AAC | yes | 1:15.960 at 75.91 s | 75.78 s, cleaned up | 1:16.480 at 76.45 s | verified 2026-10-07 |
-| `MOV HEVC rotated.mov` (90° rotation, 20 s) | HEVC / AAC | transcode to H.264 with rotation | yes, 720×1280 | at 14 s, 720×1280 | cleaned up | not checked | partial 2026-10-11 (#22) |
-| `MP4 H264 rotated.mp4` (90° rotation, 20 s) | H.264 / AAC | Direct Stream, browser applies rotation | yes, 720×1280 | not checked | not checked | not checked | partial 2026-10-11 (#22) |
+| `MOV HEVC rotated.mov` (90° rotation, 20 s) | HEVC / AAC | transcode to H.264 with rotation | yes, 720×1280 | 0:14.960 at 14.91 s, 720×1280 | 204; 14.91 s, cleaned up | 0:18.120 at 18.07 s, 720×1280 | verified 2026-11-01 (#22) |
+| `MP4 H264 rotated.mp4` (90° rotation, 20 s) | H.264 / AAC | Direct Stream, browser applies rotation | yes, 720×1280 | 0:14.920 at 14.93 s, 720×1280 | 204; 14.93 s | 0:17.760 at 17.78 s, 720×1280 | verified 2026-11-01 (#22) |
 
 The Couch log for the run has no errors or warnings.
 
