@@ -586,3 +586,14 @@ Couch at a9eb3a9 in an image built from it, limited like the large profile of [B
 - Couch itself: `cpu=526ms peak_rss_kib=16448`; FFmpeg jobs: `children_cpu=7m48.834s children_peak_rss_kib=2685160` over the session.
 
 So the 4K source now starts in Emby Web on 4 CPUs, but does not play smoothly, and a resume can take longer than the client's 10 s wait. Smooth 4K needs a smaller output size or hardware encoding (#97, #28).
+
+## 8-hour soak (2026-11-01, #30)
+
+`COUCH_SOAK=8h`, 8 workers, run from `e2e` in the `couch:dev` image, limited like the large profile of [BASELINE](BASELINE.md) (`--cpus 4 --memory 4g`), on the bench host (AMD Ryzen 7 255). The binary was built from 3908118, before the saved catalog index (#39) and the 3 s transcode segments (#99). As in the shorter runs, workers 0 and 1 remux and worker 2 transcodes, filling the FFmpeg limits, and each ends with `Videos/ActiveEncodings/Delete`. The test sends `SIGHUP` every eighth of the duration, so this run rescanned 7 times, once an hour.
+
+- 42,412,664 requests, 0 failures; `--- PASS: TestSoak (28808.59s)`.
+- Child processes: 0 to 3 during the load, 0 at the end. The data directory held the same files at the end as at the start, so no segments were left.
+- Open files: 10 at the start, 20–28 under load, 11 at the end.
+- RSS, sampled every 24 minutes: 9.7 MiB at the start, then 14.6–15.4 MiB for the whole run, peak 15.4 MiB (15,724 KiB) at hour 4.8, 14.9 MiB at the end. The peak of the last 4 hours is 280 KiB above that of the first 4 (15,444 KiB); the samples after it return to the same band, with no trend.
+
+Against the stability criteria proposed in [ROADMAP](ROADMAP.md) M0 (#15): the duration, profile, concurrency, errors, child processes and segments match. The rescan was hourly, not every 75 s, and "no growth above the peak of the first 4 hours" is missed by 280 KiB. Rerun with a 75 s rescan and the current code, once the criteria are approved.
