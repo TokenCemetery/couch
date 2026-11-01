@@ -78,7 +78,7 @@ Technical metadata comes from [FFprobe](https://ffmpeg.org/ffprobe.html). To pas
 ### What remains to be determined
 
 - The user confirmed: the first client is the built-in Emby Web. Priority of the other apps has not been chosen yet.
-- Target platform: `ds918` in the hostname is not enough to infer the NAS model, CPU, OS and hardware acceleration.
+- Target platform: the user confirmed on 2026-11-01 that Couch runs on the development machine, AMD Ryzen 7 255 (16 threads) with a Radeon 780M GPU, Linux, in Docker; hardware encoding there is VA-API (#28). `ds918` in the Emby hostname is the source Emby's host, not Couch's target.
 - Library size, number of concurrent streams, formats in use and observed Emby failures.
 - Distribution model; the provenance of used sources and frontend resources is recorded before they are included in the project.
 - Whether migration of users, history and settings is needed. API compatibility alone does not mean database compatibility.

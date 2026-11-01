@@ -70,6 +70,25 @@ The row scenario is scripted in the page: "Play" on the item page, frames after 
 
 The seek column shows the position 12 s after seeking, so a value about 10 s past the target means playback continued from it. Not checked here: the picture after a seek frame by frame (the synthetic set covers that), switching tracks, and auto-advance between the episodes. The rows above ran with subtitles off; image subtitles (DVD, PGS) are now burned in, see "Tracks and subtitles". Interlaced MPEG-2 is transcoded without deinterlacing.
 
+### Transcoding on the GPU (VA-API, #28)
+
+The rows above that transcode, again on the target hardware with `-hwaccel vaapi` (Radeon 780M, radeonsi): Couch at 6541f8c in the release image built with `--build-arg VAAPI=1`, the render node passed into the container, no CPU limit, Emby Web via `-web-dir` in the built-in Chromium, the same row scenario. Every HLS job logged `encoder=h264_vaapi` (43 jobs), and none was left running, nor any segment, at the end.
+
+| ID | Size | Start: first frame / position after 10 s | Seek: target → 12 s later | Stop | Resume: 10 s later | Status |
+|---|---|---|---|---|---|---|
+| R01 | 720×400 | 1.0 s / 10.7 s | 527.5 → 539.2 s | 539.1 s | 548.8 s | verified 2026-11-01 |
+| R02 | 720×400 | 1.0 s / 10.7 s | 216.1 → 228.0 s | 228.0 s | 237.6 s | verified 2026-11-01 |
+| R05 | 768×576 | 1.0 s / 10.6 s | 32.6 → 44.5 s | 44.4 s | 54.0 s | verified 2026-11-01 |
+| R06 | 1280×720 | 1.0 s / 10.5 s | 565.2 → 576.7 s | 576.6 s | 586.2 s | verified 2026-11-01 |
+| R07 (DVD subtitle burned in) | 768×576 | 0.8 s / 10.7 s | 166.5 → 178.4 s | 178.4 s | 188.0 s | verified 2026-11-01 |
+| R09 | 3840×2076 | 2.3 s / 10.6 s, no dropped frames | 2644.1 → 2653.2 s | 2653.2 s | 2660.5 s | verified 2026-11-01 |
+| R10 | 1024×576 | 1.0 s / 10.6 s | 184.7 → 196.4 s | 196.3 s | 206.0 s | verified 2026-11-01 |
+| R11 | 1920×816 | 1.3 s / 10.6 s | 2652.5 → 2663.6 s | 2663.4 s | 2672.3 s | verified 2026-11-01 |
+| R15 | 1280×720 | 1.0 s / 10.5 s | 585.5 → 597.0 s | 596.8 s | 606.3 s | verified 2026-11-01 |
+| R16 | 768×576 | 1.0 s / 10.6 s | 162.0 → 173.7 s | 173.6 s | 181.6 s | verified 2026-11-01 |
+
+R09 plays in real time on the GPU, where `libx264` stalls (#97). Under a CPU quota the [BASELINE](BASELINE.md) run ("VA-API") encodes its 18 s of 4K in 13.3 s on 2 CPUs and 8.6 s on 4, faster than real time, but in 26.7 s on 1 CPU, slower. Chromium dropped no frames on any row in the first 10 s.
+
 ## Tracks and subtitles (Emby Web, Chromium)
 
 Quality switching was verified 2026-10-07 on the set above, the other rows earlier on other synthetic files; details in [VALIDATION](VALIDATION.md).

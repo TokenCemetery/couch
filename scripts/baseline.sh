@@ -11,7 +11,10 @@
 # that reads media, its files are evicted from the page cache (dd
 # iflag=nocache), so reads come from the disk as on a fresh server. Needs docker, curl,
 # jq and cgroup v2 with the systemd driver. COUCH_IMAGE defaults to couch:dev;
-# COUCH_ARGS adds flags to the Couch server, for example "-ffmpeg-threads 2".
+# COUCH_ARGS adds flags to the Couch server, for example "-ffmpeg-threads 2";
+# COUCH_DOCKER_ARGS adds options to its container, for example the GPU for
+# "-hwaccel vaapi": "--device /dev/dri/renderD128 --group-add GID" with the
+# host GID of the render group.
 set -euo pipefail
 
 server=$1 profile=$2 media=$(realpath "$3") out=$4
@@ -169,7 +172,7 @@ couch)
   mkdir -p "$work/data"
   printf '%s\n' "$password" | docker run --rm -i --user "$(id -u):$(id -g)" -v "$work/data:/data" "$couch_image" -init -username viewer >/dev/null
   docker create --name "$name" --network couch-bench --cpus "$cpus" --memory "$mem" --memory-swap "$mem" \
-    --user "$(id -u):$(id -g)" -v "$work/data:/data" -v "$media:/media:ro" "$couch_image" -listen :8097 -media-dir /media ${COUCH_ARGS:-} >/dev/null
+    --user "$(id -u):$(id -g)" ${COUCH_DOCKER_ARGS:-} -v "$work/data:/data" -v "$media:/media:ro" "$couch_image" -listen :8097 -media-dir /media ${COUCH_ARGS:-} >/dev/null
   tempdir=$work/data/transcode
   process=couch
   evict_all

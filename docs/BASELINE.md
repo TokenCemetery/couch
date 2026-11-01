@@ -1,6 +1,6 @@
 # Resource baseline: Emby and Couch (#14)
 
-Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately; a fifth tries the 3 s transcode segments; the sixth repeats both servers on all profiles with no other load on the host, and the budgets compare with its Emby figures; the seventh repeats Couch after the thread and keyframe changes; the eighth, twice on every profile, after the remux plan's FFprobe runs were cut from two to one, and the budgets' Couch figures are from it. Phases shared across runs agree within about 5 %. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
+Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately; a fifth tries the 3 s transcode segments; the sixth repeats both servers on all profiles with no other load on the host, and the budgets compare with its Emby figures; the seventh repeats Couch after the thread and keyframe changes; the eighth, twice on every profile, after the remux plan's FFprobe runs were cut from two to one, and the budgets' Couch figures are from it. A ninth run ("VA-API") encodes on the target GPU. Phases shared across runs agree within about 5 %. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
 
 ## Method
 
@@ -374,6 +374,36 @@ Startup and scan (1.2 s, 0.8–0.9 s CPU, 18.6 MiB read), idle (4 MiB, 11–12 M
   - remux CPU, 2.1–2.3 against 1.9–2.0 s, mostly the FFmpeg build ("Where the remaining FFmpeg CPU goes");
   - remux seek to 50 % on average and large, 0.21 against 0.20 s;
   - transcode seek to 50 % on large, 0.51 against 0.40 s.
+
+## VA-API: the target GPU (2026-11-01, #28)
+
+The target hardware is this bench (#28): AMD Ryzen 7 255 with its Radeon 780M. Couch with `-hwaccel vaapi`, in a release image built with `--build-arg VAAPI=1` (Mesa's radeonsi VA-API driver), the render node passed in with `COUCH_DOCKER_ARGS="--device /dev/dri/renderD128 --group-add GID"`; otherwise the same script, bench, media and day, one run per profile, with nothing else running on the host. Decoding, scaling and audio stay on the CPU. The container's CPU and memory do not include the GPU's own work or its video memory, so the figures below are what the CPU quota and the memory limit pay, not the whole machine.
+
+Small / average / large where they differ. Emby has no hardware encoding here (it needs Emby Premiere), so its column is its software encode from the sixth run:
+
+| Phase | Measure | Couch, VA-API | Couch, `libx264` (eighth run) | Emby |
+|---|---|---|---|---|
+| Transcode of R06, 120 s | CPU | 13.5 / 13.2 / 14.7 s | 29.1–29.2 / 28.9 / 31.4 s | 34.8 / 33.7 / 33.8 s |
+| | memory: container / FFmpeg | 65 / 65 / 76 MiB; 58 / 58 / 69 MiB | 139–163 MiB; 133–155 MiB | 368 MiB; 277 MiB |
+| | first segment | 0.61 / 0.41 / 0.41 s | 1.01–1.13 / 0.65–0.66 / 0.41 s | 1.39 / 0.79 / 0.47 s |
+| | seek to 50 % / 75 % | 0.94 / 0.91, 0.52 / 0.51, 0.41 / 0.41 s | 1.33–1.42 / 1.43, 0.81 / 0.71–0.86, 0.51 / 0.51–0.52 s | 1.75 / 1.67, 0.88 / 0.89, 0.40 / 0.52 s |
+| | reads / temp folder peak / output | 39.0 MiB / 4.2–6.5 MiB / 24 MiB | 39.0 MiB / 3.9–4.9 MiB / 24 MiB | 38.9–39.0 MiB / 94–100 MiB / 25 MiB |
+| 4K transcode of R09, 18 s | first segment | 3.44 / 1.89 / 1.30 s | 7.8 / 4.1 / 2.9 s | out of memory on small and average; 4.36 s on large |
+| | CPU / memory | 26.6 / 26.3 / 33.3 s / 291 / 292 / 426 MiB | 61 / 61 / 68 s / 922 / 922 / 1142 MiB | 90.7 s / 2602 MiB on large |
+| | reads / output | 47.5 MiB / 35 MiB | 48.9–49.3 MiB / 28 MiB | 50.8 MiB on large |
+
+Startup, idle, the API, Direct Stream and remux do not encode and match the eighth run.
+
+- **Against `libx264`:** transcoding takes 46–47 % of the CPU and of the memory on R06, and 43–49 % of the CPU and 32–37 % of the memory on 4K, whose first segment comes 2.2–2.3 times sooner and whose output is a quarter larger (35 against 28 MiB, within the same cap). What CPU remains is mostly software HEVC decoding.
+- **Against Emby's budgets:** CPU, memory and the first segment are met on every profile, and the seek on small and average. The seek to 50 % on large is 0.41 against 0.40 s, the one transcode budget still over, by 0.01 s. 4K starts on every profile, where Emby runs out of memory on two.
+- **Picture quality:** FFmpeg alone in the same image, the first 120 s of R06, both encoders with Couch's options, a keyframe every 3 s and the cap at the source's 1.35 Mbit/s, against the source, on 4 CPUs:
+
+  | Encoder | Wall time | CPU | Peak RSS | Output | SSIM (All) | PSNR Y |
+  |---|---|---|---|---|---|---|
+  | `libx264` | 8.2 s | 32.5 s | 313 MiB | 17.6 MiB | 0.9789 | 40.27 dB |
+  | `h264_vaapi` | 4.2 s | 14.1 s | 177 MiB | 17.9 MiB | 0.9765 | 39.10 dB |
+
+  VA-API is 0.002 SSIM and 1.2 dB PSNR below `libx264` at the same bitrate cap, within the 0.01 SSIM condition of the budgets.
 
 ## Not measured yet
 

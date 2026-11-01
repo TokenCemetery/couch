@@ -10,7 +10,9 @@ COPY src/internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/couch ./cmd/couch
 
 FROM docker.io/library/alpine:3.24
-RUN apk add --no-cache ffmpeg \
+# VAAPI=1 adds Mesa's VA-API drivers (AMD) for -hwaccel vaapi, about 320 MB.
+ARG VAAPI=
+RUN apk add --no-cache ffmpeg ${VAAPI:+mesa-va-gallium} \
     && adduser -D -H -u 10001 couch \
     && mkdir /data \
     && chown couch:couch /data \
