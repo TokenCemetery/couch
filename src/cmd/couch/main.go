@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -42,7 +43,7 @@ func run() error {
 	rescanInterval := flag.Duration("rescan-interval", 0, "rescan -media-dir this often, for example 30m; 0 disables")
 	init := flag.Bool("init", false, "initialize a local user; read password from stdin and exit")
 	username := flag.String("username", "", "username for -init")
-	ffmpegThreads := flag.Int("ffmpeg-threads", 0, "cap FFmpeg decoder and encoder threads per transcode; 0 leaves them to FFmpeg")
+	ffmpegThreads := flag.Int("ffmpeg-threads", 0, "cap FFmpeg decoder and encoder threads per transcode; 0 follows a CPU quota, or leaves them to FFmpeg without one")
 	hwaccel := flag.String("hwaccel", "", "encode transcodes on hardware: "+strings.Join(hls.Accels, ", ")+"; empty uses libx264")
 	hwaccelDevice := flag.String("hwaccel-device", "/dev/dri/renderD128", "DRM render node for -hwaccel vaapi and qsv")
 	flag.Parse()
@@ -143,6 +144,13 @@ func run() error {
 			}
 			defer remux.Close()
 			remux.Threads = *ffmpegThreads
+			// Go sizes GOMAXPROCS from a cgroup CPU quota; FFmpeg sizes its
+			// threads from the host's CPUs, which under a quota delays the
+			// first segment and doubles memory (#92, #99).
+			if remux.Threads == 0 && runtime.GOMAXPROCS(0) < runtime.NumCPU() {
+				remux.Threads = runtime.GOMAXPROCS(0)
+				slog.Info("FFmpeg transcode threads follow the CPU quota", "threads", remux.Threads)
+			}
 			if *hwaccel != "" {
 				remux.Accel = hls.Accel{Kind: *hwaccel, Device: *hwaccelDevice}
 				if err := remux.CheckAccel(context.Background()); err != nil {
