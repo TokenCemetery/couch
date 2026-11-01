@@ -20,21 +20,21 @@ Done when the scenario reproduces against the recorded contract, dependencies ar
 
 ### Proposed budgets (2026-10-31, awaiting the owner's approval, #15)
 
-Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: same host, the real media set, Emby Web's Chromium profile, and the small (1 CPU, 1 GiB), average (2 CPU, 2 GiB) and large (4 CPU, 4 GiB) containers. Couch meets a budget when its figure is no higher on every profile, measured with `scripts/baseline.sh`. "Now" is Couch at f5f9eed, except the rows that say "on large": those are the 3 s transcode segments of 2026-11-01, measured on the large profile only, with Emby measured under the same host load ([BASELINE](BASELINE.md), "3 s transcode segments").
+Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: same host, the real media set, Emby Web's Chromium profile, and the small (1 CPU, 1 GiB), average (2 CPU, 2 GiB) and large (4 CPU, 4 GiB) containers. Couch meets a budget when its figure is no higher on every profile, measured with `scripts/baseline.sh`. Both columns are the sixth run (2026-11-01, Couch at b5c619e, Emby in the same run, no other load on the host; [BASELINE](BASELINE.md), "Sixth run"); ranges are over the three profiles, small / average / large where they differ.
 
-| Phase | Measure | Budget (Emby) | Now |
+| Phase | Measure | Budget (Emby) | Now (Couch) |
 |---|---|---|---|
-| Idle 60 s | anonymous memory / server RSS / CPU | 71 MiB / 202 MiB / 0.13–0.35 s | met: 4 MiB / 11 MiB / 0 s |
-| Startup and scan of 18 files | wall / CPU / reads | 3.4–5.1 s / 2.3 s / 18 MiB | wall and CPU met (1.2 s / 0.8 s); reads not met (85 MiB) |
-| API, seven endpoints | p95 per profile | Emby's p95, 0.9–5.1 ms | met, except Movies on large: 2.8 ms against 2.6 ms |
-| API, 100 PlaybackInfo calls | reads | 0 MiB | not met: 139 MiB on large; the remux of R03 still lists keyframes (#98) |
-| Direct Stream | CPU / memory / seek to first byte | 0.22–0.58 s / 72–89 MiB / 1.7–2.7 ms | met |
-| Remux, 120 s of video | CPU / memory / first segment / seek | 1.9–2.1 s / 86–99 MiB / 0.33–0.34 s / 0.14–0.23 s | memory and first segment met; CPU (2.13–2.18 s) and seek (0.21–0.34 s) not met, by up to 0.2 s |
-| Transcode HEVC 720p, 120 s of video | CPU / memory | 33–35 s / 368 MiB | memory met (303 MiB); CPU not met (36–37 s) |
-| | first segment / seek to 50 % | 1.4 / 0.8 / 0.5 s; 1.5 / 0.76 / 0.36 s | not met on large, under host load: 0.70 s against 0.47 s; 0.77 s against 0.56 s (#99, 3 s segments since 2026-11-01; small and average not measured yet) |
-| | reads | 39 MiB | met on large: 39 MiB (#98) |
-| | temp folder peak | 96–97 MiB | met: 9 MiB |
-| 4K HEVC 10-bit, large | first segment | 4.4 s, and within Emby Web's 10 s wait | within the wait, not Emby's figure: 5.4 s against 4.5 s under host load; starts in Emby Web, but encodes at about 0.75× real time (#97) |
+| Idle 60 s | anonymous memory / server RSS / CPU | 67–70 MiB / 201–205 MiB / 0.13–0.36 s | met: 4 MiB / 11–12 MiB / 0 s |
+| Startup and scan of 18 files | wall / CPU / reads | 3.4–5.1 s / 2.3–2.5 s / 25 MiB | wall and CPU met (1.2 s / 0.9 s); reads not met (85 MiB) |
+| API, seven endpoints | p95 per profile | Emby's p95, 0.8–4.8 ms | met, except Movies on large (2.7 ms against 2.6 ms) and Latest on average (2.7 ms against 2.5 ms) |
+| API, 100 PlaybackInfo calls | reads | 0 MiB | not met: 185–192 MiB, the keyframe listing of R03, which needs a remux (#98) |
+| Direct Stream | CPU / memory / seek to first byte | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms | met: 0.32–0.33 s / 7 MiB / 0.6–0.7 ms |
+| Remux, 120 s of video | CPU / memory / first segment / seek to 50 % | 1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.22 / 0.20 / 0.20 s | memory and first segment met (22 MiB, 0.24–0.34 s); CPU (2.1–2.2 s) and seek (0.31 / 0.21 / 0.21 s) not met, by up to 0.1 s |
+| Transcode HEVC 720p, 120 s of video | CPU / memory | 33.7–34.8 s / 368 MiB | memory met (303–304 MiB); CPU not met (36.1–36.9 s, 4–9 % more) |
+| | first segment / seek to 50 % | 1.39 / 0.79 / 0.47 s; 1.75 / 0.88 / 0.40 s | not met: 1.59 / 0.94 / 0.56 s; 2.02 / 1.08 / 0.66 s (#99) |
+| | reads | 38.9–39.0 MiB | equal within 0.3 MiB: 39.0–39.2 MiB (#98) |
+| | temp folder peak | 94–100 MiB | met: 3.9–4.9 MiB |
+| 4K HEVC 10-bit, large | first segment / CPU / memory | 4.4 s / 91 s / 2602 MiB | CPU and memory met (91 s, 2584 MiB); first segment 5.0 s, within Emby Web's 10 s wait but not Emby's figure; plays in Emby Web below real time (#97) |
 
 Picture quality is a condition, not a budget: a transcode change must stay within 0.01 SSIM of the previous Couch encode on R06, as measured in [VALIDATION](VALIDATION.md). The FFmpeg builds differ (Emby's 5.1, Couch's Alpine 8.1), so FFmpeg-bound budgets compare the whole container, which is what users pay for.
 

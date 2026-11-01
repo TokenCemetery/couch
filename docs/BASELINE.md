@@ -1,6 +1,6 @@
 # Resource baseline: Emby and Couch (#14)
 
-Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately. The phases both runs share agree within about 3 %; more runs are needed for a real variance figure. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
+Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately; a fifth tries the 3 s transcode segments; the sixth repeats both servers on all profiles with no other load on the host, and the budgets use it. Phases shared across runs agree within about 5 %. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
 
 ## Method
 
@@ -215,9 +215,36 @@ A transcode now cuts 3 s segments from the video's first frame, as Emby does, wi
 - **First segment and transcode seek** are 0.15–0.23 s behind Emby's. CPU for the same 120 s is 7 % above Emby's.
 - **Picture quality:** FFmpeg alone, first 120 s of R06, same x264 options, against the source. A keyframe every 3 s instead of about every 6 s gives SSIM 0.9831 against 0.9826 and PSNR Y 41.84 dB against 41.74 dB, for an output 5 % larger (24.4 against 23.2 MiB) at the same CPU.
 
+## Sixth run: all profiles, no other load (2026-11-01)
+
+Couch at b5c619e (with the saved catalog index and the 3 s transcode segments) and Emby 4.10.0.40, one after the other on each profile, same script, bench and media, with nothing else running on the host. These are the figures the budgets in [ROADMAP](ROADMAP.md) M0 now use. Small / average / large where they differ.
+
+| Phase | Measure | Couch | Emby |
+|---|---|---|---|
+| Startup and scan | wall / CPU / reads | 1.2 s / 0.9 s / 85 MiB | 5.1 / 3.5 / 3.4 s / 2.3–2.5 s / 25 MiB |
+| Idle 60 s | anon. memory / server RSS / CPU | 4 MiB / 11–12 MiB / 0 s | 67–70 MiB / 201–205 MiB / 0.13–0.36 s |
+| 700 API requests | reads | 185–192 MiB | 0 MiB |
+| Direct Stream of R04 | CPU / memory / seek to first byte | 0.32–0.33 s / 7 MiB / 0.6–0.7 ms | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms |
+| Remux of R03, 120 s | CPU / memory / first segment | 2.1–2.2 s / 22 MiB / 0.34 / 0.24 / 0.24 s | 1.9–2.0 s / 74–88 MiB / 0.34 / 0.33 / 0.32 s |
+| | seek to 50 % / 75 % | 0.31 / 0.33, 0.21 / 0.21, 0.21 / 0.21 s | 0.22 / 0.19, 0.20 / 0.20, 0.20 / 0.14 s |
+| Transcode of R06, 120 s | CPU | 36.1 / 36.8 / 36.9 s | 34.8 / 33.7 / 33.8 s |
+| | first segment | 1.59 / 0.94 / 0.56 s | 1.39 / 0.79 / 0.47 s |
+| | seek to 50 % / 75 % | 2.02 / 2.02, 1.08 / 1.09, 0.66 / 0.53 s | 1.75 / 1.67, 0.88 / 0.89, 0.40 / 0.52 s |
+| | memory: container / server / FFmpeg | 303 / 7 / 296 MiB | 368 / 91 / 277 MiB |
+| | reads / temp folder peak | 39.0–39.2 MiB / 3.9–4.9 MiB | 38.9–39.0 MiB / 94–100 MiB |
+| | output | 24 MiB in 40 segments | 25 MiB in 40 segments |
+| 4K transcode of R09 | small and average | out of memory, no segment | out of memory, no segment |
+| | large: first segment / CPU / memory / reads | 4.99 s / 90.6 s / 2584 MiB / 52.7 MiB | 4.36 s / 90.7 s / 2602 MiB / 50.8 MiB |
+
+API p95 in ms, Couch against Emby, small / average / large: Views 0.4–0.5 against 1.7–2.2; Movies 2.7 / 2.5 / 2.7 against 3.7 / 2.6 / 2.6; Item 0.6–0.7 against 2.5–4.0; Latest 2.7 / 2.7 / 2.6 against 4.8 / 2.5 / 3.2; Resume 0.4 against 0.8–1.5; Search 1.4–1.5 against 2.6–4.6; PlaybackInfo 0.7–0.8 against 3.1–4.8.
+
+- **Transcoding is now close to Emby's.** The first segment and a seek come 0.09–0.27 s later, and CPU is 4–9 % higher. Memory, the temp folder and reads are equal or lower. The server/FFmpeg split shows the gap is FFmpeg's: Couch's own process stays at 7 MiB.
+- **4K** starts on the large profile 0.6 s after Emby's, with the same CPU and less memory. Both servers run out of memory on 1 and 2 GiB.
+- **Variance:** Emby's figures agree with the first two runs within about 5 %, Couch's remux, Direct Stream and API with the third run within about 5 %.
+- **Still not met:** remux CPU and seek by up to 0.1 s, startup reads (85 against 25 MiB), and the API phase's reads (the remux keyframe listing, #98).
+
 ## Not measured yet
 
 - Picture quality of the two encoders.
-- More runs for variance.
-- The split above on the small and average profiles, and on a host without other load.
+- More runs for variance: three runs so far, agreeing within about 5 %.
 - A real NAS, where the read volumes above turn into time, and Emby's internet metadata, which the offline network rules out.
