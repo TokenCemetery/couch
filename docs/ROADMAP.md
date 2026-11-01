@@ -20,21 +20,21 @@ Done when the scenario reproduces against the recorded contract, dependencies ar
 
 ### Proposed budgets (2026-10-31, awaiting the owner's approval, #15)
 
-Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: same host, the real media set, Emby Web's Chromium profile, and the small (1 CPU, 1 GiB), average (2 CPU, 2 GiB) and large (4 CPU, 4 GiB) containers. Couch meets a budget when its figure is no higher on every profile, measured with `scripts/baseline.sh`. Both columns are the sixth run (2026-11-01, Couch at b5c619e, Emby in the same run, no other load on the host; [BASELINE](BASELINE.md), "Sixth run"); ranges are over the three profiles, small / average / large where they differ.
+Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: same host, the real media set, Emby Web's Chromium profile, and the small (1 CPU, 1 GiB), average (2 CPU, 2 GiB) and large (4 CPU, 4 GiB) containers. Couch meets a budget when its figure is no higher on every profile, measured with `scripts/baseline.sh`. The budget column is Emby in the sixth run (2026-11-01, no other load on the host; [BASELINE](BASELINE.md), "Sixth run"); the Couch column is the seventh run (2026-11-01, Couch at e297beb with its defaults, transcode threads at the CPU quota and remux keyframes from the container index; [BASELINE](BASELINE.md), "Seventh run"). Ranges are over the three profiles, small / average / large where they differ.
 
 | Phase | Measure | Budget (Emby) | Now (Couch) |
 |---|---|---|---|
 | Idle 60 s | anonymous memory / server RSS / CPU | 67–70 MiB / 201–205 MiB / 0.13–0.36 s | met: 4 MiB / 11–12 MiB / 0 s |
-| Startup and scan of 18 files | wall / CPU / reads | 3.4–5.1 s / 2.3–2.5 s / 25 MiB | met: 1.2 s / 0.8 s / 18.6 MiB on small since FFprobe reads in 64 KiB blocks (BASELINE, "Scan reads"); 85 MiB before |
-| API, seven endpoints | p95 per profile | Emby's p95, 0.8–4.8 ms | met since images are checked once per item (BASELINE, "List requests"); Movies on large (2.6 ms) and Latest on average (2.5 ms) equal Emby's at 0.1 ms resolution |
-| API, 100 PlaybackInfo calls | reads | 0 MiB | not met: 185–192 MiB, the keyframe listing of R03, which needs a remux (#98) |
-| Direct Stream | CPU / memory / seek to first byte | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms | met: 0.32–0.33 s / 7 MiB / 0.6–0.7 ms |
-| Remux, 120 s of video | CPU / memory / first segment / seek to 50 % | 1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.22 / 0.20 / 0.20 s | memory and first segment met (22 MiB, 0.24–0.34 s); CPU (2.1–2.2 s, from the FFmpeg build: BASELINE, "Where the remaining FFmpeg CPU goes") and seek (0.31 / 0.21 / 0.21 s) not met, by up to 0.1 s |
-| Transcode HEVC 720p, 120 s of video | CPU / memory | 33.7–34.8 s / 368 MiB | memory met (303–304 MiB); CPU not met (36.1–36.9 s, 4–9 % more; mostly the FFmpeg build, see BASELINE) |
-| | first segment / seek to 50 % | 1.39 / 0.79 / 0.47 s; 1.75 / 0.88 / 0.40 s | not met: 1.59 / 0.94 / 0.56 s; 2.02 / 1.08 / 0.66 s (#99) |
-| | reads | 38.9–39.0 MiB | equal within 0.3 MiB: 39.0–39.2 MiB (#98) |
-| | temp folder peak | 94–100 MiB | met: 3.9–4.9 MiB |
-| 4K HEVC 10-bit, large | first segment / CPU / memory | 4.4 s / 91 s / 2602 MiB | CPU and memory met (91 s, 2584 MiB); first segment 5.0 s, within Emby Web's 10 s wait but not Emby's figure; plays in Emby Web below real time (#97) |
+| Startup and scan of 18 files | wall / CPU / reads | 3.4–5.1 s / 2.3–2.5 s / 25 MiB | met: 1.2 s / 0.8–0.9 s / 18.6–20.7 MiB, since FFprobe reads in 64 KiB blocks (BASELINE, "Scan reads") |
+| API, seven endpoints | p95 per profile | Emby's p95, 0.8–4.8 ms | met: 0.5–2.6 ms; Latest on average (2.5 ms) equals Emby's at 0.1 ms resolution |
+| API, 100 PlaybackInfo calls | reads | 0 MiB | met: 0 MiB, as these calls send `IsPlayback=false` and no longer prepare R03's remux plan (#98) |
+| Direct Stream | CPU / memory / seek to first byte | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms | met: 0.32–0.34 s / 7 MiB / 0.7 ms |
+| Remux, 120 s of video | CPU / memory / first segment / seek to 50 % | 1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.22 / 0.20 / 0.20 s | memory met (22 MiB); CPU not met (2.3 s: the FFmpeg build, BASELINE, "Where the remaining FFmpeg CPU goes", plus the plan's FFprobe check); first segment met on large only (0.40 / 0.40 / 0.30 s, now including the plan); seek met on small only (0.21 s on all, 0.01 s over on average and large) |
+| Transcode HEVC 720p, 120 s of video | CPU / memory | 33.7–34.8 s / 368 MiB | met: 28.9 / 28.6 / 31.3 s / 140–163 MiB |
+| | first segment / seek to 50 % | 1.39 / 0.79 / 0.47 s; 1.75 / 0.88 / 0.40 s | met on small and average, not met on large: 1.18 / 0.61 / 0.51 s; 1.42 / 0.81 / 0.51 s (#99) |
+| | reads | 38.9–39.0 MiB | equal on average and large (39.0 MiB), 0.9 MiB over on small (39.9 MiB) |
+| | temp folder peak | 94–100 MiB | met: 4.0–4.7 MiB |
+| 4K HEVC 10-bit, large | first segment / CPU / memory | 4.4 s / 91 s / 2602 MiB | met: 2.9 s / 68 s / 1141 MiB; also transcodes on small and average, where Emby runs out of memory (8.0 s and 4.1 s to the first segment, 922 MiB); plays in Emby Web below real time (#97) |
 
 Picture quality is a condition, not a budget: a transcode change must stay within 0.01 SSIM of the previous Couch encode on R06, as measured in [VALIDATION](VALIDATION.md). The FFmpeg builds differ (Emby's 5.1, Couch's Alpine 8.1), so FFmpeg-bound budgets compare the whole container, which is what users pay for.
 
@@ -117,8 +117,8 @@ Status as of 2026-11-01:
 - Backup/restore and data upgrades between versions are verified (#32).
 - Sustained load: 8 hours on the large profile, 42.4 million requests with no failures and no process, file or memory leaks ([VALIDATION](VALIDATION.md), 2026-11-01). Against the proposed G-3 criteria the run rescanned hourly instead of every 75 s, and its RSS peak in the last 4 hours was 0.3 MiB above that of the first 4; the criteria wait for approval (#30, #15).
 - Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Couch itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint.
-- Comparison with Emby on the same host, media and three container sizes ([BASELINE](BASELINE.md), sixth run, #14, #29): Couch uses less at idle and in Direct Stream, answers the API at or below Emby's p95, and reads less at startup. Transcoding uses 3 s segments like Emby's and reads as much as Emby. With automatic FFmpeg threads, its first segment and seek are 0.1–0.3 s later and its CPU 4–9 % higher, mostly from the FFmpeg build; with threads matched to the CPU quota it is faster than Emby and lighter on CPU and memory, which needs a default change (#92, #99). A remux still lists the source's keyframes in `PlaybackInfo` (#98).
-- Earlier Couch-only measurements ([VALIDATION](VALIDATION.md)): Couch up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory under a CPU quota; `-ffmpeg-threads` sets the cap, automatic by default (#92). Emby's x264 options cut transcoding CPU by a third at the same picture quality, for a larger file (#99).
+- Comparison with Emby on the same host, media and three container sizes ([BASELINE](BASELINE.md), sixth and seventh runs, #14, #29): Couch uses less at idle and in Direct Stream, answers the API at or below Emby's p95, and reads less at startup. Transcoding uses 3 s segments like Emby's and reads within 1 MiB of Emby. With transcode threads at the CPU quota, the default since bdfd6d6 (seventh run), its CPU and memory are below Emby's on every profile, and its first segment and seek are earlier on 1 and 2 CPUs and up to 0.11 s later on 4 (#92, #99). A remux reads its keyframes from the container index, and `PlaybackInfo` without playback no longer prepares the plan (#98); remux CPU, from the FFmpeg build, stays 0.3–0.4 s above Emby's.
+- Earlier Couch-only measurements ([VALIDATION](VALIDATION.md)): Couch up to 12 MiB RSS; 1080p remux 2 s CPU and 47 MiB, 1080p → 720p transcode 57 s CPU and 453 MiB per 2 minutes of video; FFprobe about 35 ms CPU per file. Limiting FFmpeg threads halves transcoding memory under a CPU quota; `-ffmpeg-threads` sets the cap; by default it follows the CPU quota (#92). Emby's x264 options cut transcoding CPU by a third at the same picture quality, for a larger file (#99).
 - A container image with FFmpeg is built and checked in CI; administration and NAS packaging are not started (#33).
 
 ## M5. Compatibility expansion

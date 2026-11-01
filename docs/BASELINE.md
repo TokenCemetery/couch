@@ -1,6 +1,6 @@
 # Resource baseline: Emby and Couch (#14)
 
-Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately; a fifth tries the 3 s transcode segments; the sixth repeats both servers on all profiles with no other load on the host, and the budgets use it. Phases shared across runs agree within about 5 %. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
+Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately; a fifth tries the 3 s transcode segments; the sixth repeats both servers on all profiles with no other load on the host, and the budgets compare with its Emby figures; the seventh repeats Couch after the thread and keyframe changes, and the budgets' Couch figures are from it. Phases shared across runs agree within about 5 %. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
 
 ## Method
 
@@ -274,7 +274,9 @@ After the changes above, Couch's remux and transcode still cost more CPU than Em
 - **Remux job length:** not a cause. In the remux phase Couch's job finished 15 segments (about 120 s, as the harness fetched) for 2.14 s of CPU; Emby's encoded 116.5 s. Neither ran far ahead.
 - **Transcode:** the same x264 settings cost 4 % more CPU with Couch's build, most of the 4–9 % gap; the rest is the audio, as above.
 
-So the remaining CPU difference comes from the FFmpeg build, not from what Couch asks it to do. Closing it means another FFmpeg build in the image, for example a glibc-based one, which is a packaging choice (#33) and was not tried.
+So the remaining CPU difference comes from the FFmpeg build, not from what Couch asks it to do. Closing it means another FFmpeg build in the image, for example a glibc-based one, which is a packaging choice (#33).
+
+A trial of glibc builds found none cheaper. Median of 3 at `--cpus 4`, x264 on R06 and AAC on R03 as in the table, with a run-to-run spread of up to 3.5 %: Alpine 3.24 with FFmpeg 8.1.3 took 31.9 s and 1.65 s of CPU; Debian trixie with FFmpeg 7.1.5 differed by −0.3 % and +4.3 %, Ubuntu 26.04 with FFmpeg 8.0.1 by −0.8 % and +0.3 %. The glibc images are also about 3.8 times larger (200 against 56 MB of content), so the image stays on Alpine.
 
 ## Encoder threads under a CPU quota (2026-11-01, #92, #99)
 
@@ -303,6 +305,47 @@ The first transcoded segment still came 0.1–0.3 s after Emby's, while FFmpeg e
 - With threads matching the quota, Couch meets every transcode budget except the seek on large (0.54 against 0.40–0.52 s): first segment, CPU and memory are below Emby's on all profiles.
 - 4K now transcodes on 1 and 2 GiB, where both servers ran out of memory, and its first segment on large comes in 3.0 s against Emby's 4.4 s.
 - Without a quota, #92 measured the opposite: automatic threads halve the encode time when the cores are free. The default therefore stays automatic until the owner decides otherwise.
+
+## Seventh run: threads at the quota and remux keyframes from the index (2026-11-01)
+
+Couch only, at e297beb, in the release image built from it, on all profiles, one after the other, same script, bench and media, with nothing else running on the host. Two changes since the sixth run: transcode threads now follow the CPU quota by default (bdfd6d6), and a remux reads its keyframes from the container index, with `PlaybackInfo` that sends `IsPlayback=false` no longer preparing the plan (e297beb). Couch ran with its defaults (no `COUCH_ARGS`). Emby was not rerun: its figures are from the sixth run, same bench and day.
+
+Couch logged `FFmpeg transcode threads follow the CPU quota` with threads = 2 / 2 / 4, not 1 / 2 / 4: Go's `GOMAXPROCS` under a cgroup quota is rounded up with a minimum of 2, so on the 1-CPU profile the encoder runs 2 threads, not the 1 of the "Encoder threads under a CPU quota" run.
+
+The API phase's 100 `PlaybackInfo` calls for R03 send `IsPlayback=false`, as Emby Web does for an item page, so they no longer prepare R03's plan. In the sixth run they did, and the remux phase then found it ready (its reads did not include the listing). The remux phase's own `PlaybackInfo` sends `IsPlayback=true`, so its first segment now includes preparing the plan: one index read and one FFprobe check.
+
+Small / average / large where they differ:
+
+| Phase | Measure | Couch now | Couch, sixth run | Emby |
+|---|---|---|---|---|
+| Startup and scan | wall / CPU / reads | 1.2 s / 0.8–0.9 s / 20.7 / 18.6 / 18.6 MiB | 1.2 s / 0.9 s / 85 MiB | 5.1 / 3.5 / 3.4 s / 2.3–2.5 s / 25 MiB |
+| Idle 60 s | anon. memory / server RSS / CPU | 4 MiB / 11–12 MiB / 0 s | 4 MiB / 11–12 MiB / 0 s | 67–70 MiB / 201–205 MiB / 0.13–0.36 s |
+| 700 API requests | reads | 0 MiB | 185–192 MiB | 0 MiB |
+| Direct Stream of R04 | CPU / memory / seek to first byte | 0.32–0.34 s / 7 MiB / 0.7 ms | 0.32–0.33 s / 7 MiB / 0.6–0.7 ms | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms |
+| Remux of R03, 120 s | CPU / memory | 2.3 s / 22 MiB | 2.1–2.2 s / 22 MiB | 1.9–2.0 s / 74–88 MiB |
+| | first segment | 0.40 / 0.40 / 0.30 s | 0.34 / 0.24 / 0.24 s | 0.34 / 0.33 / 0.32 s |
+| | seek to 50 % / 75 % | 0.21 / 0.31, 0.21 / 0.21, 0.21 / 0.21 s | 0.31 / 0.33, 0.21 / 0.21, 0.21 / 0.21 s | 0.22 / 0.19, 0.20 / 0.20, 0.20 / 0.14 s |
+| Transcode of R06, 120 s | CPU | 28.9 / 28.6 / 31.3 s | 36.1 / 36.8 / 36.9 s | 34.8 / 33.7 / 33.8 s |
+| | first segment | 1.18 / 0.61 / 0.51 s | 1.59 / 0.94 / 0.56 s | 1.39 / 0.79 / 0.47 s |
+| | seek to 50 % / 75 % | 1.42 / 1.44, 0.81 / 0.82, 0.51 / 0.51 s | 2.02 / 2.02, 1.08 / 1.09, 0.66 / 0.53 s | 1.75 / 1.67, 0.88 / 0.89, 0.40 / 0.52 s |
+| | memory: container / server / FFmpeg | 140 / 140 / 163 MiB; 7 MiB; 133 / 133 / 155 MiB | 303 / 7 / 296 MiB | 368 / 91 / 277 MiB |
+| | reads / temp folder peak | 39.9 / 39.0 / 39.0 MiB / 4.0–4.7 MiB | 39.0–39.2 MiB / 3.9–4.9 MiB | 38.9–39.0 MiB / 94–100 MiB |
+| | output | 24 MiB in 40 segments | 24 MiB in 40 segments | 25 MiB in 40 segments |
+| 4K transcode of R09, 18 s: first segment / CPU / memory / reads | small | 8.02 s / 61 s / 922 MiB / 49 MiB | out of memory, no segment | out of memory, no segment |
+| | average | 4.10 s / 61 s / 922 MiB / 49 MiB | out of memory, no segment | out of memory, no segment |
+| | large | 2.91 s / 68 s / 1141 MiB / 49 MiB | 4.99 s / 90.6 s / 2584 MiB / 52.7 MiB | 4.36 s / 90.7 s / 2602 MiB / 50.8 MiB |
+
+API p95 in ms, Couch now against Emby, small / average / large: Views 0.5 against 1.7–2.2; Movies 2.5 against 3.7 / 2.6 / 2.6; Item 0.7 / 0.7 / 0.6 against 2.5–4.0; Latest 2.5 / 2.5 / 2.6 against 4.8 / 2.5 / 3.2; Resume 0.5 against 0.8–1.5; Search 1.3 / 1.6 / 1.6 against 2.6–4.6; PlaybackInfo 0.7 against 3.1–4.8.
+
+- **Met now, newly:** transcode CPU (15–17 % below Emby's on 1 and 2 CPUs, 8 % on 4) and memory (140–163 against 368 MiB); the transcode first segment and both seeks on small and average; the 700 API requests' reads (0 MiB); 4K on large in 2.9 s with 25 % less CPU and 44 % of the memory. 4K also transcodes on 1 and 2 GiB, where both servers ran out of memory before; on small it peaks at 922 MiB of the 1 GiB limit and starts in 8.0 s, inside Emby Web's 10 s wait but close to it.
+- **Still met:** idle, startup and scan, Direct Stream, remux memory, the transcode temp folder, and every API p95. Latest on average equals Emby's 2.5 ms at the 0.1 ms resolution.
+- **Not met:**
+  - on large, the transcode first segment (0.51 against 0.47 s) and the seek to 50 % (0.51 against 0.40 s), as in the threads trial;
+  - remux CPU (2.3 against 1.9–2.0 s), the FFmpeg build plus the plan's FFprobe check, which moved from the API phase into this one;
+  - remux first segment on small and average (0.40 against 0.34 / 0.33 s), as it now includes preparing the plan; on large it is 0.30 against 0.32 s;
+  - remux seek to 50 % on average and large by 0.01 s (0.21 against 0.20 s); on small it is met (0.21 against 0.22 s);
+  - transcode reads on small by 0.9 MiB (39.9 against 38.9–39.0 MiB); average and large equal Emby's.
+- **Variance:** the phases that neither commit touched (startup, idle, Direct Stream, remux memory, the API's p95) agree with the sixth run within about 5 % or 0.1 ms.
 
 ## Not measured yet
 
