@@ -367,6 +367,7 @@ func (s *Server) Handler() http.Handler {
 	s.catalogRoutes(mux)
 	s.libraryRoutes(mux)
 	s.dashboardRoutes(mux)
+	s.identifyRoutes(mux)
 	s.filterRoutes(mux)
 	s.homeRoutes(mux)
 	s.playbackRoutes(mux)

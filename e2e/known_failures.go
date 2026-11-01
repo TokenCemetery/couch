@@ -14,7 +14,7 @@ func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 var (
 	homeSections    = knownFailure{100, "Home Screen settings cannot add, remove or move sections"}
 	administration  = knownFailure{33, "administration is not implemented"}
-	adminMetadata   = knownFailure{115, "Emby Web offers it to administrators; not implemented"}
+	identifyInputs  = knownFailure{115, "refused on purpose: the contract run has no provider image URL or provider IDs to identify with"}
 	refusedLibrary  = knownFailure{112, "implemented; the generated request names no library, folder or task Couch has, or a folder outside the media roots, which Couch refuses"}
 	parentPathText  = knownFailure{112, "implemented as text/plain, which Emby Web reads as text; the contract says JSON"}
 	scanNotStopped  = knownFailure{112, "implemented; Couch cannot stop a running library scan and says so"}
@@ -145,25 +145,19 @@ var knownFailures = map[string]knownFailure{
 	"getPlaylistsByIdInstantmix":     unranked,
 	"getSongsByIdInstantmix":         unranked,
 	// ItemLookupService
-	"getItemsByIdExternalidinfos":      adminMetadata,
-	"getItemsRemotesearchImage":        adminMetadata,
-	"postItemsMetadataReset":           unranked,
-	"postItemsRemotesearchApplyById":   adminMetadata,
+	"getItemsRemotesearchImage":        identifyInputs,
+	"postItemsRemotesearchApplyById":   identifyInputs,
 	"postItemsRemotesearchBook":        unranked,
 	"postItemsRemotesearchBoxset":      unranked,
 	"postItemsRemotesearchGame":        unranked,
-	"postItemsRemotesearchMovie":       adminMetadata,
 	"postItemsRemotesearchMusicalbum":  unranked,
 	"postItemsRemotesearchMusicartist": unranked,
 	"postItemsRemotesearchMusicvideo":  unranked,
 	"postItemsRemotesearchPerson":      unranked,
-	"postItemsRemotesearchSeries":      adminMetadata,
 	"postItemsRemotesearchTrailer":     unranked,
 	// ItemRefreshService
-	"postItemsByIdRefresh": adminMetadata,
 	// ItemUpdateService
-	"getItemsByItemidMetadataeditor": adminMetadata,
-	"postItemsByItemid":              unranked,
+	"postItemsByItemid": unranked,
 	// LibraryService
 	"deleteItems":               administration,
 	"deleteItemsById":           administration,

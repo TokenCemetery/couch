@@ -18,11 +18,14 @@ type MetadataRecord struct {
 	OnlineKey string
 	Online    []byte
 	FetchedAt time.Time
+	// Identified holds the provider IDs an administrator chose with
+	// Identify; empty when none.
+	Identified []byte
 }
 
 // Metadata returns every stored metadata record by item ID.
 func (s *Store) Metadata(ctx context.Context) (map[string]MetadataRecord, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT item_id, nfo_revision, nfo, online_key, online, fetched_at FROM metadata")
+	rows, err := s.db.QueryContext(ctx, "SELECT item_id, nfo_revision, nfo, online_key, online, fetched_at, identified FROM metadata")
 	if err != nil {
 		return nil, err
 	}
@@ -30,14 +33,17 @@ func (s *Store) Metadata(ctx context.Context) (map[string]MetadataRecord, error)
 	records := map[string]MetadataRecord{}
 	for rows.Next() {
 		var r MetadataRecord
-		var nfo, online, fetched string
-		if err := rows.Scan(&r.ItemID, &r.NFORevision, &nfo, &r.OnlineKey, &online, &fetched); err != nil {
+		var nfo, online, fetched, identified string
+		if err := rows.Scan(&r.ItemID, &r.NFORevision, &nfo, &r.OnlineKey, &online, &fetched, &identified); err != nil {
 			return nil, err
 		}
 		if err := r.FetchedAt.UnmarshalText([]byte(fetched)); err != nil {
 			return nil, err
 		}
 		r.NFO, r.Online = []byte(nfo), []byte(online)
+		if identified != "" {
+			r.Identified = []byte(identified)
+		}
 		records[r.ItemID] = r
 	}
 	return records, rows.Err()
@@ -56,10 +62,10 @@ func (s *Store) SaveMetadata(ctx context.Context, records []MetadataRecord, remo
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO metadata (item_id, nfo_revision, nfo, online_key, online, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO metadata (item_id, nfo_revision, nfo, online_key, online, fetched_at, identified) VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (item_id) DO UPDATE SET nfo_revision = excluded.nfo_revision, nfo = excluded.nfo,
-				online_key = excluded.online_key, online = excluded.online, fetched_at = excluded.fetched_at`,
-			r.ItemID, r.NFORevision, string(r.NFO), r.OnlineKey, string(r.Online), fetched); err != nil {
+				online_key = excluded.online_key, online = excluded.online, fetched_at = excluded.fetched_at, identified = excluded.identified`,
+			r.ItemID, r.NFORevision, string(r.NFO), r.OnlineKey, string(r.Online), fetched, string(r.Identified)); err != nil {
 			return err
 		}
 	}

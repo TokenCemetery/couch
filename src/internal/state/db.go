@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 6
+const dbSchemaVersion = 7
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,9 +57,13 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + `
-PRAGMA user_version = 6;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + `
+PRAGMA user_version = 7;
 `
+
+// identifiedColumn was added in version 7: the provider IDs an administrator
+// chose with Identify, as JSON; empty when none.
+const identifiedColumn = "ALTER TABLE metadata ADD COLUMN identified TEXT NOT NULL DEFAULT '';"
 
 // activitySchema was added in version 6.
 const activitySchema = `
@@ -118,6 +122,8 @@ var migrations = map[int]string{
 	// Version 6 records the activity log and the server name set in Emby
 	// Web; until one is set, -name names the server.
 	5: "ALTER TABLE server ADD COLUMN server_name TEXT NOT NULL DEFAULT '';" + activitySchema + "PRAGMA user_version = 6;",
+	// Version 7 stores the identification an administrator chose.
+	6: identifiedColumn + "PRAGMA user_version = 7;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are

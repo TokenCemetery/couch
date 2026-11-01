@@ -66,6 +66,11 @@ type Refresher struct {
 	last    *Result
 	// changed is called when a refresh starts or ends.
 	changed func()
+	// forced holds the items an administrator asked to refresh, and
+	// identify the identifications to store, nil to remove one; the next
+	// refresh takes both.
+	forced   map[string]bool
+	identify map[string]map[string]string
 }
 
 // Result is how the last refresh went: Complete is false when it stopped
@@ -91,6 +96,68 @@ func (r *Refresher) RefreshNow() {
 	select {
 	case r.requests <- struct{}{}:
 	default:
+	}
+}
+
+// Refresh asks Run to read the .nfo of these items again and, with an
+// online provider, to fetch their online metadata again, however recently
+// it was fetched. It returns at once.
+func (r *Refresher) Refresh(ids []string) {
+	r.mu.Lock()
+	if r.forced == nil {
+		r.forced = map[string]bool{}
+	}
+	for _, id := range ids {
+		r.forced[id] = true
+	}
+	r.mu.Unlock()
+	r.RefreshNow()
+}
+
+// Identify asks Run to look the item up by these provider IDs from now on,
+// as an administrator chose them, and to refresh it; nil ids remove the
+// identification, so the item is looked up by its .nfo or file name again.
+// It returns at once.
+func (r *Refresher) Identify(id string, ids map[string]string) {
+	r.mu.Lock()
+	if r.identify == nil {
+		r.identify = map[string]map[string]string{}
+	}
+	r.identify[id] = ids
+	r.mu.Unlock()
+	r.Refresh([]string{id})
+}
+
+// takeRequests returns and clears what Refresh and Identify asked for.
+func (r *Refresher) takeRequests() (map[string]bool, map[string]map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	forced, identify := r.forced, r.identify
+	r.forced, r.identify = nil, nil
+	if forced == nil {
+		forced = map[string]bool{}
+	}
+	return forced, identify
+}
+
+// requeue hands back what a refresh that stopped early did not do, unless
+// a newer request replaced it.
+func (r *Refresher) requeue(forced map[string]bool, identify map[string]map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id := range forced {
+		if r.forced == nil {
+			r.forced = map[string]bool{}
+		}
+		r.forced[id] = true
+	}
+	for id, ids := range identify {
+		if _, newer := r.identify[id]; !newer {
+			if r.identify == nil {
+				r.identify = map[string]map[string]string{}
+			}
+			r.identify[id] = ids
+		}
 	}
 }
 
@@ -237,11 +304,24 @@ type run struct {
 	nfo     map[string]Info
 	online  map[string]Info
 	changed map[string]bool
+	// forced lists the items to read and fetch again whatever their state;
+	// an item leaves it once fetched.
+	forced map[string]bool
 }
 
 // refresh brings the metadata of the catalogue's items up to date and
 // reports whether it finished.
-func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidecars) bool {
+func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidecars) (complete bool) {
+	forced, identify := r.takeRequests()
+	saved := false
+	defer func() {
+		if !complete {
+			if saved {
+				identify = nil
+			}
+			r.requeue(forced, identify)
+		}
+	}()
 	records, err := r.store.Metadata(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -249,7 +329,7 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 		}
 		return false
 	}
-	x := &run{Refresher: r, files: files, records: records, nfo: map[string]Info{}, online: map[string]Info{}, changed: map[string]bool{}}
+	x := &run{Refresher: r, files: files, records: records, nfo: map[string]Info{}, online: map[string]Info{}, changed: map[string]bool{}, forced: forced}
 	for id, record := range records {
 		x.nfo[id] = decode(record.NFO)
 		x.online[id] = decode(record.Online)
@@ -279,9 +359,22 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 			delete(x.records, id)
 		}
 	}
+	// A new or removed identification drops what the old one fetched.
+	for id, ids := range identify {
+		if !known[id] {
+			continue
+		}
+		record := x.records[id]
+		record.ItemID, record.Identified, record.OnlineKey, record.Online = id, nil, "", nil
+		if ids != nil {
+			record.Identified, _ = json.Marshal(ids)
+		}
+		x.records[id], x.online[id], x.changed[id] = record, Info{}, true
+	}
 	if !x.save(ctx, remove) {
 		return false
 	}
+	saved = true
 	x.publishLibrary()
 	if read > 0 || bad > 0 || len(remove) > 0 {
 		slog.Info("Metadata files read", "nfo_read", read, "nfo_unreadable", bad, "removed", len(remove))
@@ -334,7 +427,7 @@ func (x *run) readNFO(item media.Item) (bool, error) {
 		break
 	}
 	record, found := x.records[item.ID]
-	if found && record.NFORevision == revision {
+	if found && record.NFORevision == revision && !x.forced[item.ID] {
 		return false, nil
 	}
 	record.ItemID, record.NFORevision, record.NFO = item.ID, revision, nil
@@ -376,8 +469,25 @@ func (x *run) save(ctx context.Context, remove []string) bool {
 }
 
 // info is the item's metadata: its .nfo, completed by online providers.
+// An item an administrator identified takes the providers' metadata first,
+// with the chosen IDs.
 func (x *run) info(id string) Info {
+	if ids := x.identified(id); ids != nil {
+		info := merge(x.online[id], x.nfo[id])
+		info.ProviderIDs = union(info.ProviderIDs, ids)
+		return info
+	}
 	return merge(x.nfo[id], x.online[id])
+}
+
+// identified returns the provider IDs an administrator chose for the item,
+// or nil.
+func (x *run) identified(id string) map[string]string {
+	var ids map[string]string
+	if body := x.records[id].Identified; len(body) > 0 {
+		_ = json.Unmarshal(body, &ids)
+	}
+	return ids
 }
 
 func (x *run) publishLibrary() {
@@ -439,6 +549,10 @@ func (x *run) lookupOf(item media.Item) lookup {
 	if l.title == "" {
 		l.title, l.year = lookupName(item.Name)
 	}
+	// An identified item is looked up by the chosen IDs alone.
+	if ids := x.identified(item.ID); ids != nil {
+		l = lookup{ids: ids}
+	}
 	if ids := idText(l.ids); ids != "" {
 		l.key = prefix + ids
 	} else {
@@ -450,7 +564,7 @@ func (x *run) lookupOf(item media.Item) lookup {
 // due reports whether an item's online metadata must be fetched.
 func (x *run) due(id, key string, now time.Time) bool {
 	record := x.records[id]
-	if record.OnlineKey != key {
+	if record.OnlineKey != key || x.forced[id] {
 		return true
 	}
 	if x.cfg.Refresh > 0 && now.Sub(record.FetchedAt) >= x.cfg.Refresh {
@@ -533,6 +647,7 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 		} else {
 			fetched++
 		}
+		delete(x.forced, item.ID)
 		record := x.records[item.ID]
 		record.ItemID, record.OnlineKey, record.FetchedAt = item.ID, l.key, now
 		record.Online, _ = json.Marshal(info)

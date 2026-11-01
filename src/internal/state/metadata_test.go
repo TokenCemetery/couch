@@ -36,7 +36,7 @@ func TestMetadataRecords(t *testing.T) {
 	if err := s.SaveMetadata(t.Context(), []MetadataRecord{a, b}, nil); err != nil {
 		t.Fatal(err)
 	}
-	a.NFO = []byte(`{"Name":"A2"}`)
+	a.NFO, a.Identified = []byte(`{"Name":"A2"}`), []byte(`{"Tmdb":"1"}`)
 	if err := s.SaveMetadata(t.Context(), []MetadataRecord{a}, []string{"b"}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestMetadataRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := records["a"]
-	if len(records) != 1 || string(got.NFO) != `{"Name":"A2"}` || got.OnlineKey != "k" || !got.FetchedAt.Equal(fetched) || got.NFORevision != "r1" {
+	if len(records) != 1 || string(got.NFO) != `{"Name":"A2"}` || got.OnlineKey != "k" || !got.FetchedAt.Equal(fetched) || got.NFORevision != "r1" || string(got.Identified) != `{"Tmdb":"1"}` {
 		t.Fatalf("%+v", records)
 	}
 	// The backup copies metadata with the rest of the database.
