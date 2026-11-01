@@ -129,37 +129,37 @@ func (s *Server) publicInfo() object {
 	return object{"LocalAddresses": []string{}, "RemoteAddresses": []string{}, "ServerName": s.name, "Version": CompatibilityVersion, "Id": d.ServerID}
 }
 
-func publicUser(d state.Data) object {
-	return object{"Name": d.User.Name, "ServerId": d.ServerID, "Prefix": "", "Id": d.User.ID, "HasPassword": true, "HasConfiguredPassword": true}
+func publicUser(serverID string, u state.User) object {
+	return object{"Name": u.Name, "ServerId": serverID, "Prefix": "", "Id": u.ID, "HasPassword": u.HasPassword(), "HasConfiguredPassword": u.HasPassword()}
 }
 
-// userDTO describes the user to the session identified by token, which the
+// userDTO describes user to the session identified by token, which the
 // avatar's PrimaryImageTag is signed for.
-func (s *Server) userDTO(d state.Data, token string) object {
-	u := publicUser(d)
-	if tag := s.userImageTag(d, token); tag != "" {
+func (s *Server) userDTO(d state.Data, user state.User, token string) object {
+	u := publicUser(d.ServerID, user)
+	if tag := s.userImageTag(user, token); tag != "" {
 		u["PrimaryImageTag"] = tag
 	}
 	config := defaultConfiguration()
-	for k, v := range d.User.Configuration {
+	for k, v := range user.Configuration {
 		config[k] = v
 	}
 	u["Configuration"] = config
-	u["Policy"] = policy(s.hls != nil, d.User.IsAdministrator)
+	u["Policy"] = policy(s.hls != nil, user.Policy)
 	return u
 }
 
 // policy mirrors the reference policy shape with values that match what Couch
-// can actually do: the user's administrator role, direct playback and
+// can actually do: the user's stored policy (p), direct playback and
 // downloading of the original file, video remux and transcoding to HLS when
 // FFmpeg is available (hls), and no audio transcoding, Live TV, sync or
 // remote control. Emby Web refuses to start playback when EnableMediaPlayback
 // is false, and offers the quality menu only with
 // EnableVideoPlaybackTranscoding, so this is load-bearing.
-func policy(hls, administrator bool) object {
+func policy(hls bool, p state.Policy) object {
 	return object{
-		"IsAdministrator": administrator, "IsHidden": false, "IsHiddenRemotely": true,
-		"IsHiddenFromUnusedDevices": false, "IsDisabled": false, "LockedOutDate": 0,
+		"IsAdministrator": p.IsAdministrator, "IsHidden": p.IsHidden, "IsHiddenRemotely": true,
+		"IsHiddenFromUnusedDevices": false, "IsDisabled": p.IsDisabled, "LockedOutDate": 0,
 		"AllowTagOrRating": false, "BlockedTags": []string{}, "IsTagBlockingModeInclusive": false,
 		"IncludeTags": []string{}, "EnableUserPreferenceAccess": true, "AccessSchedules": []any{},
 		"BlockUnratedItems": []string{}, "EnableRemoteControlOfOtherUsers": false,
@@ -173,7 +173,7 @@ func policy(hls, administrator bool) object {
 		"EnableSubtitleDownloading": false, "EnableSubtitleManagement": false,
 		"EnableSyncTranscoding": false, "EnableMediaConversion": false,
 		"EnabledChannels": []string{}, "EnableAllChannels": false,
-		"EnabledFolders": []string{}, "EnableAllFolders": true,
+		"EnabledFolders": p.EnabledFolders, "EnableAllFolders": p.EnableAllFolders,
 		"InvalidLoginAttemptCount": 0, "EnablePublicSharing": false,
 		"RemoteClientBitrateLimit": 0, "ExcludedSubFolders": []string{},
 		"SimultaneousStreamLimit": 0, "EnabledDevices": []string{}, "EnableAllDevices": true,
@@ -190,7 +190,7 @@ func sessionDTO(d state.Data, session state.Session) object {
 	for k, v := range session.Capabilities {
 		caps[k] = v
 	}
-	return object{"Id": session.ID, "ServerId": d.ServerID, "UserId": session.UserID, "UserName": d.User.Name, "Client": session.Client, "DeviceId": session.DeviceID, "DeviceName": session.DeviceName, "ApplicationVersion": session.Version, "AdditionalUsers": []any{}, "PlayState": object{"IsPaused": false, "IsMuted": false}, "Capabilities": caps, "SupportsRemoteControl": false}
+	return object{"Id": session.ID, "ServerId": d.ServerID, "UserId": session.UserID, "UserName": d.Users[session.UserID].Name, "Client": session.Client, "DeviceId": session.DeviceID, "DeviceName": session.DeviceName, "ApplicationVersion": session.Version, "AdditionalUsers": []any{}, "PlayState": object{"IsPaused": false, "IsMuted": false}, "Capabilities": caps, "SupportsRemoteControl": false}
 }
 
 // Handler returns the HTTP handler for the API, WebSocket, and web assets.
@@ -206,7 +206,17 @@ func (s *Server) Handler() http.Handler {
 	}
 	mux.HandleFunc("GET /system/ping", ping)
 	mux.HandleFunc("POST /system/ping", ping)
-	mux.HandleFunc("GET /users/public", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, []any{publicUser(s.store.Identity())}) })
+	// The sign-in screen lists the users who are neither hidden nor disabled.
+	mux.HandleFunc("GET /users/public", func(w http.ResponseWriter, r *http.Request) {
+		d := s.store.Identity()
+		users := []any{}
+		for _, u := range d.SortedUsers() {
+			if !u.Policy.IsHidden && !u.Policy.IsDisabled {
+				users = append(users, publicUser(d.ServerID, u))
+			}
+		}
+		respond(w, 200, users)
+	})
 	mux.HandleFunc("GET /branding/configuration", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, object{"LoginDisclaimer": "", "CustomCss": ""})
 	})
@@ -235,12 +245,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		respond(w, 200, object{"IsLocal": local, "IsInNetwork": lan, "NetworkType": network})
 	}))
-	user := s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		respond(w, 200, s.userDTO(s.store.Snapshot(), token))
-	})
-	mux.HandleFunc("GET /users/{user}", user)
-	mux.HandleFunc("POST /users/{user}/password", s.protect(s.changePassword))
-	mux.HandleFunc("GET /users/me", user)
+	mux.HandleFunc("GET /users/me", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		d := s.store.Snapshot()
+		respond(w, 200, s.userDTO(d, userOf(d, session), token))
+	}))
+	s.userRoutes(mux)
 	mux.HandleFunc("POST /sessions/logout", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		if s.store.Logout(token) != nil {
 			s.internalError(w)
@@ -258,16 +267,16 @@ func (s *Server) Handler() http.Handler {
 			fail(w, 400, "InvalidRequest")
 			return
 		}
-		s.changed(w, s.store.Change(token, func(d *state.Data, session *state.Session) { session.Capabilities = caps }))
+		s.changed(w, s.store.Change(token, func(_ *state.User, session *state.Session) { session.Capabilities = caps }))
 	}))
 	for _, path := range []string{"/usersettings/{user}", "/users/{user}/configuration"} {
 		configuration := strings.Contains(path, "/configuration")
 		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 			d := s.store.Snapshot()
 			if configuration {
-				respond(w, 200, s.userDTO(d, token)["Configuration"])
+				respond(w, 200, s.userDTO(d, userOf(d, session), token)["Configuration"])
 			} else {
-				respond(w, 200, d.User.Settings)
+				respond(w, 200, userOf(d, session).Settings)
 			}
 		}))
 		for _, suffix := range []string{"", "/partial"} {
@@ -283,10 +292,10 @@ func (s *Server) Handler() http.Handler {
 					fail(w, 400, "InvalidRequest")
 					return
 				}
-				err := s.store.Change(token, func(d *state.Data, session *state.Session) {
-					target := &d.User.Settings
+				err := s.store.Change(token, func(u *state.User, session *state.Session) {
+					target := &u.Settings
 					if configuration {
-						target = &d.User.Configuration
+						target = &u.Configuration
 					}
 					if !partial || *target == nil {
 						*target = map[string]json.RawMessage{}
@@ -296,7 +305,7 @@ func (s *Server) Handler() http.Handler {
 					}
 				})
 				if err == nil && configuration {
-					s.publishUserConfiguration(session.UserID)
+					s.publishUser(session.UserID, "UserConfigurationUpdated")
 				}
 				s.changed(w, err)
 			}))
@@ -307,8 +316,9 @@ func (s *Server) Handler() http.Handler {
 	})
 	// Couch has no Live TV, no recommendation engine and no online episode
 	// lists, so it knows of no missing episodes; Emby Web hides these rows when
-	// they are empty (series page airings, Movies Suggestions tab).
-	for _, path := range []string{"/shows/upcoming", "/shows/missing", "/livetv/recordings", "/livetv/programs"} {
+	// they are empty (series page airings, Movies Suggestions tab). It has no
+	// channels either, which the user pages list for access settings.
+	for _, path := range []string{"/shows/upcoming", "/shows/missing", "/livetv/recordings", "/livetv/programs", "/channels"} {
 		mux.HandleFunc("GET "+path, emptyPage)
 	}
 	mux.HandleFunc("GET /localization/cultures", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
@@ -423,4 +433,9 @@ func (s *Server) changed(w http.ResponseWriter, err error) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// userOf returns the user of session in snapshot.
+func userOf(snapshot state.Data, session state.Session) state.User {
+	return snapshot.Users[session.UserID]
 }

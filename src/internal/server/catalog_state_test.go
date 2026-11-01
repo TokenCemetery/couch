@@ -15,17 +15,17 @@ func TestCatalogSavedStateFilters(t *testing.T) {
 	}}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	base := "/Users/" + store.Snapshot().User.ID
+	base := "/Users/" + testUser(store).ID
 	for _, endpoint := range []string{"/PlayedItems/a", "/FavoriteItems/a"} {
 		expectStatus(t, request(h, "POST", base+endpoint, "", "", token), 200)
 	}
 	// Emby records the play date when an item is marked played; unmarking keeps it.
-	marked := store.Snapshot().User.Items["a"].LastPlayed
-	if marked.IsZero() || !store.Snapshot().User.Items["b"].LastPlayed.IsZero() {
+	marked := testUser(store).Items["a"].LastPlayed
+	if marked.IsZero() || !testUser(store).Items["b"].LastPlayed.IsZero() {
 		t.Fatal("marking played did not record LastPlayed")
 	}
 	expectStatus(t, request(h, "DELETE", base+"/PlayedItems/a", "", "", token), 200)
-	if !store.Snapshot().User.Items["a"].LastPlayed.Equal(marked) {
+	if !testUser(store).Items["a"].LastPlayed.Equal(marked) {
 		t.Fatal("unmarking changed LastPlayed")
 	}
 	expectStatus(t, request(h, "POST", base+"/PlayedItems/a", "", "", token), 200)
@@ -63,7 +63,7 @@ func TestCatalogSavedStateFilters(t *testing.T) {
 	}
 	for _, endpoint := range []string{"/Sessions/Playing/Progress", "/Sessions/Playing/Stopped"} {
 		expectStatus(t, request(h, "POST", endpoint, "application/json", `{"ItemId":"a"}`, token), 204)
-		if store.Snapshot().User.Items["a"].PositionTicks != 25000000 {
+		if testUser(store).Items["a"].PositionTicks != 25000000 {
 			t.Fatal("missing position reset resume")
 		}
 		expectStatus(t, request(h, "POST", endpoint, "application/json", `{"ItemId":"a","PositionTicks":-1}`, token), 400)
@@ -85,7 +85,7 @@ func TestHideFromResume(t *testing.T) {
 	catalog := &media.Catalog{ID: "movies", Items: []media.Item{{ID: "a", Name: "Alpha", RunTimeTicks: 100000000}}}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	base := "/Users/" + store.Snapshot().User.ID
+	base := "/Users/" + testUser(store).ID
 	expectStatus(t, request(h, "POST", "/Sessions/Playing/Stopped", "application/json", `{"ItemId":"a","PositionTicks":50000000}`, token), 204)
 	expectStatus(t, request(h, "POST", base+"/FavoriteItems/a", "", "", token), 200)
 	resume := func() int {

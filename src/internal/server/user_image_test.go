@@ -44,7 +44,7 @@ func userImageFiles(t *testing.T, dir string) int {
 func TestUserImageLifecycle(t *testing.T) {
 	store, h, dir := newTestServer(t)
 	token := login(t, h)
-	base := "/Users/" + store.Snapshot().User.ID
+	base := "/Users/" + testUser(store).ID
 	if userImageTagOf(t, h, base, token) != "" {
 		t.Fatal("PrimaryImageTag without an avatar")
 	}
@@ -65,7 +65,7 @@ func TestUserImageLifecycle(t *testing.T) {
 	}
 	expectStatus(t, request(h, "HEAD", base+"/Images/Primary/0", "", "", token), 200)
 	// An avatar tag is not valid for an item with the user's ID.
-	expectStatus(t, request(h, "GET", "/Items/"+store.Snapshot().User.ID+"/Images/Primary?tag="+url.QueryEscape(tag), "", "", ""), 401)
+	expectStatus(t, request(h, "GET", "/Items/"+testUser(store).ID+"/Images/Primary?tag="+url.QueryEscape(tag), "", "", ""), 401)
 
 	second := testPNG(t, 3)
 	expectStatus(t, request(h, "POST", base+"/Images/Primary", "image/jpg", base64.StdEncoding.EncodeToString(second), token), 204)
@@ -85,7 +85,7 @@ func TestUserImageLifecycle(t *testing.T) {
 func TestUserImageRejectsInvalidUploads(t *testing.T) {
 	store, h, dir := newTestServer(t)
 	token := login(t, h)
-	base := "/Users/" + store.Snapshot().User.ID
+	base := "/Users/" + testUser(store).ID
 	valid := base64.StdEncoding.EncodeToString(testPNG(t, 2))
 	for _, tc := range []struct {
 		path, body string
@@ -103,7 +103,7 @@ func TestUserImageRejectsInvalidUploads(t *testing.T) {
 			t.Fatalf("%s %q: status %d, want %d", tc.path, tc.body, w.Code, tc.status)
 		}
 	}
-	if userImageFiles(t, dir) != 0 || store.Snapshot().User.Image != nil {
+	if userImageFiles(t, dir) != 0 || testUser(store).Image != nil {
 		t.Fatal("rejected upload was stored")
 	}
 }

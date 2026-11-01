@@ -46,7 +46,7 @@ func TestSeriesCatalog(t *testing.T) {
 		{"/Items?ParentId=show&Recursive=true&IsStandaloneSpecial=true", "sp1"},
 		{"/Shows/show/Episodes?SeasonId=season&Limit=1&StartIndex=1", "e2"},
 		{"/Items?Recursive=true&IncludeItemTypes=Episode&SearchTerm=Two", "e2"},
-		{"/Users/" + store.Snapshot().User.ID + "/Sections/latestmedia_movies/Items", "movie"},
+		{"/Users/" + testUser(store).ID + "/Sections/latestmedia_movies/Items", "movie"},
 		// Premieres row of the TV Suggestions tab; these episodes have no
 		// premiere dates.
 		{"/Items?IncludeItemTypes=Episode&Recursive=true&SortBy=ProductionYear,PremiereDate,SortParentIndexNumber,SortIndexNumber&SortOrder=Descending,Descending,Ascending,Ascending&MinPremiereDate=2026-09-20T08:35:05.677Z&IsUnaired=false&ParentId=" + catalog.SeriesLibraryID() + "&Limit=12", ""},
@@ -117,7 +117,7 @@ func TestNextUp(t *testing.T) {
 		"c1": {PositionTicks: 50000000, LastPlayed: now},
 		"d1": {Played: true, LastPlayed: now},
 	})
-	user := store.Snapshot().User.ID
+	user := testUser(store).ID
 	for _, tc := range []struct{ path, ids string }{
 		// a0 is a special and is ignored, so b was watched more recently than a.
 		{"/Shows/NextUp?UserId=" + user + "&LegacyNextUp=true&Fields=PrimaryImageAspectRatio&ImageTypeLimit=1", "b3,a2"},
@@ -170,7 +170,7 @@ func TestResumeIncludesNextUp(t *testing.T) {
 		"b1":    {Played: true, LastPlayed: now.Add(-10 * time.Minute)},
 		"c1":    {PositionTicks: 50000000, LastPlayed: now},
 	})
-	base := "/Users/" + store.Snapshot().User.ID + "/Items/Resume?Recursive=true&MediaTypes=Video"
+	base := "/Users/" + testUser(store).ID + "/Items/Resume?Recursive=true&MediaTypes=Video"
 	for _, tc := range []struct{ query, ids string }{
 		// Emby includes next-up episodes unless IncludeNextUp=false.
 		{"", "c1,b2,movie,a2"},
@@ -199,7 +199,7 @@ func TestResumeIncludesNextUp(t *testing.T) {
 	// Emby Web fills the home row from the section, which advertises
 	// IncludeNextUpInResume, not from Items/Resume.
 	for _, tc := range []struct{ query, ids string }{{"", "c1,b2,movie,a2"}, {"?Limit=2", "c1,b2"}, {"?Limit=5000&StartIndex=0&Recursive=true&IsFolder=false", "c1,b2,movie,a2"}} {
-		w := request(h, "GET", "/Users/"+store.Snapshot().User.ID+"/Sections/resume/Items"+tc.query, "", "", token)
+		w := request(h, "GET", "/Users/"+testUser(store).ID+"/Sections/resume/Items"+tc.query, "", "", token)
 		expectStatus(t, w, 200)
 		var page struct{ Items []struct{ Id string } }
 		if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil {
@@ -213,11 +213,11 @@ func TestResumeIncludesNextUp(t *testing.T) {
 			t.Fatalf("section%s: got %v, want %s", tc.query, ids, tc.ids)
 		}
 	}
-	expectStatus(t, request(h, "GET", "/Users/"+store.Snapshot().User.ID+"/Sections/resume/Items?Limit=-1", "", "", token), 400)
+	expectStatus(t, request(h, "GET", "/Users/"+testUser(store).ID+"/Sections/resume/Items?Limit=-1", "", "", token), 400)
 	// "Remove from Continue Watching" on a next-up episode, which has no
 	// position to clear, hides it until it is played again.
-	section := "/Users/" + store.Snapshot().User.ID + "/Sections/resume/Items"
-	expectStatus(t, request(h, "POST", "/Users/"+store.Snapshot().User.ID+"/Items/b2/HideFromResume?Hide=true", "", "", token), 200)
+	section := "/Users/" + testUser(store).ID + "/Sections/resume/Items"
+	expectStatus(t, request(h, "POST", "/Users/"+testUser(store).ID+"/Items/b2/HideFromResume?Hide=true", "", "", token), 200)
 	for _, path := range []string{section, base + "&IncludeNextUp=true"} {
 		if got := pageIDs(t, h, path, token); got != "c1,movie,a2" {
 			t.Fatalf("%s after hide: got %s", path, got)
@@ -260,7 +260,7 @@ func TestLibraryTabRequests(t *testing.T) {
 	}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	user := "/Users/" + store.Snapshot().User.ID
+	user := "/Users/" + testUser(store).ID
 	for _, id := range []string{"b2", "b1", "a1", "a0"} {
 		expectStatus(t, request(h, "POST", user+"/FavoriteItems/"+id, "", "", token), 200)
 	}
@@ -300,7 +300,7 @@ func TestMarkSeriesPlayed(t *testing.T) {
 	}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	uid := store.Snapshot().User.ID
+	uid := testUser(store).ID
 	userData := func(id string) (played bool, unplayed int) {
 		w := request(h, "GET", "/Users/"+uid+"/Items/"+id, "", "", token)
 		expectStatus(t, w, 200)

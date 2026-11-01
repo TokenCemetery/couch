@@ -62,7 +62,7 @@ func TestPlaybackInfoNegotiation(t *testing.T) {
 		{"wrong source body", "", `{"MediaSourceId":"other"}`, 404, false},
 		{"foreign body user", "", `{"UserId":"other"}`, 403, false},
 		{"foreign query user", "UserId=other", "", 403, false},
-		{"same body user", "", `{"UserId":"` + s.Snapshot().User.ID + `"}`, 200, true},
+		{"same body user", "", `{"UserId":"` + testUser(s).ID + `"}`, 200, true},
 		{"conflicting option", "EnableDirectStream=true", `{"EnableDirectStream":false}`, 400, false},
 		{"conflicting duplicate", "MaxStreamingBitrate=1&maxstreamingbitrate=2", "", 400, false},
 		{"equal duplicate", "MaxStreamingBitrate=8000000&maxstreamingbitrate=8000000", `{"MaxStreamingBitrate":8000000}`, 200, true},

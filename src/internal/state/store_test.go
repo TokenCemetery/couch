@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+// viewer returns the user testStore creates.
+func viewer(d Data) User {
+	u, _ := d.UserByName("viewer")
+	return u
+}
+
 func testStore(t *testing.T) (*Store, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -54,13 +60,13 @@ func TestStateProtectionAndExpiry(t *testing.T) {
 	if info.Mode().Perm() != 0600 {
 		t.Fatal("unsafe state permissions")
 	}
-	if err := s.Change(token, func(d *Data, session *Session) { session.ExpiresAt = time.Now().Add(-time.Second) }); err != nil {
+	if err := s.Change(token, func(u *User, session *Session) { session.ExpiresAt = time.Now().Add(-time.Second) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Authenticate(token); !errors.Is(err, ErrSession) {
 		t.Fatal("expired session accepted")
 	}
-	if err := s.Change(token, func(d *Data, session *Session) { t.Fatal("expired session mutated state") }); !errors.Is(err, ErrSession) {
+	if err := s.Change(token, func(u *User, session *Session) { t.Fatal("expired session mutated state") }); !errors.Is(err, ErrSession) {
 		t.Fatal(err)
 	}
 }
@@ -76,17 +82,17 @@ func TestFailedWriteDoesNotPublishState(t *testing.T) {
 	if err := os.Mkdir(journal, 0700); err != nil {
 		t.Fatal(err)
 	}
-	err = s.Change(token, func(d *Data, session *Session) { d.User.Settings["theme"] = json.RawMessage(`"changed"`) })
+	err = s.Change(token, func(u *User, session *Session) { u.Settings["theme"] = json.RawMessage(`"changed"`) })
 	if err == nil {
 		t.Fatal("write should fail")
 	}
-	if len(s.Snapshot().User.Settings) != 0 {
+	if len(viewer(s.Snapshot()).Settings) != 0 {
 		t.Fatal("failed write changed memory")
 	}
 	if err := os.Remove(journal); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Change(token, func(d *Data, session *Session) { d.User.Settings["theme"] = json.RawMessage(`"changed"`) }); err != nil {
+	if err := s.Change(token, func(u *User, session *Session) { u.Settings["theme"] = json.RawMessage(`"changed"`) }); err != nil {
 		t.Fatal("write after recovery:", err)
 	}
 }
@@ -137,7 +143,7 @@ func TestConcurrentSettingsAndLogout(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = s.Change(token, func(d *Data, session *Session) { d.User.Settings["theme"] = json.RawMessage(`"dark"`) })
+			_ = s.Change(token, func(u *User, session *Session) { u.Settings["theme"] = json.RawMessage(`"dark"`) })
 			_, _ = s.Authenticate(token)
 			_ = s.Snapshot()
 		}()
@@ -161,8 +167,8 @@ func TestStateSizeLimitDoesNotChangeCommittedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = s.Change(token, func(d *Data, session *Session) {
-		d.User.Settings["oversized"] = json.RawMessage(`"` + strings.Repeat("a", maxSettingsBytes) + `"`)
+	err = s.Change(token, func(u *User, session *Session) {
+		u.Settings["oversized"] = json.RawMessage(`"` + strings.Repeat("a", maxSettingsBytes) + `"`)
 	})
 	if !errors.Is(err, ErrStateLimit) {
 		t.Fatal("expected state size limit")
@@ -171,7 +177,7 @@ func TestStateSizeLimitDoesNotChangeCommittedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(before, after) || len(s.Snapshot().User.Settings) != 0 {
+	if !bytes.Equal(before, after) || len(viewer(s.Snapshot()).Settings) != 0 {
 		t.Fatal("rejected update changed state")
 	}
 }
@@ -217,7 +223,7 @@ func TestSetItemsIsAllOrNothing(t *testing.T) {
 	if _, err := s.SetItems(token, []string{"a", "b", "c"}, played); !errors.Is(err, ErrStateLimit) {
 		t.Fatalf("over the limit: %v", err)
 	}
-	if items := s.Snapshot().User.Items; items["a"].Played || items["b"].Played {
+	if items := viewer(s.Snapshot()).Items; items["a"].Played || items["b"].Played {
 		t.Fatal("a failed batch saved some items")
 	}
 	if _, err := s.SetItems(token, []string{"a", "b", "old-1"}, played); err != nil {
@@ -225,8 +231,8 @@ func TestSetItemsIsAllOrNothing(t *testing.T) {
 	}
 	// At the limit, unmarking items that have no state adds nothing.
 	saved, err := s.SetItems(token, []string{"a", "never-seen"}, func(_ string, st *ItemState) { st.Played = false })
-	if err != nil || saved["a"].Played || len(s.Snapshot().User.Items) != maxTrackedItems-1 {
-		t.Fatalf("unmark at the limit: %v, %d items", err, len(s.Snapshot().User.Items))
+	if err != nil || saved["a"].Played || len(viewer(s.Snapshot()).Items) != maxTrackedItems-1 {
+		t.Fatalf("unmark at the limit: %v, %d items", err, len(viewer(s.Snapshot()).Items))
 	}
 }
 
@@ -240,10 +246,11 @@ func TestIdentityCarriesOnlyPublicFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	full, id := s.Snapshot(), s.Identity()
-	if id.ServerID != full.ServerID || id.User.ID != full.User.ID || id.User.Name != "viewer" {
+	public := viewer(id)
+	if id.ServerID != full.ServerID || public.ID != viewer(full).ID || !public.HasPassword() || !public.Policy.IsAdministrator {
 		t.Fatalf("identity %+v", id)
 	}
-	if id.User.Items != nil || id.Sessions != nil || id.User.PasswordHash != nil {
+	if public.Items != nil || id.Sessions != nil || public.Salt != nil || len(public.PasswordHash) > 1 || public.Settings != nil {
 		t.Fatal("identity carries private state")
 	}
 }
@@ -260,9 +267,9 @@ func TestReopenRestoresAllState(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if err := s.Change(token, func(d *Data, session *Session) {
-		d.User.Settings["theme"] = json.RawMessage(`"dark"`)
-		d.User.Configuration["SubtitleMode"] = json.RawMessage(`"Smart"`)
+	if err := s.Change(token, func(u *User, session *Session) {
+		u.Settings["theme"] = json.RawMessage(`"dark"`)
+		u.Configuration["SubtitleMode"] = json.RawMessage(`"Smart"`)
 		session.RecentPlays = []PlaybackRecord{{ID: "p", ItemID: "a", Switched: []string{"q"}}}
 	}); err != nil {
 		t.Fatal(err)
@@ -294,8 +301,8 @@ func TestReopenRestoresAllState(t *testing.T) {
 	if !bytes.Equal(wantJSON, gotJSON) {
 		t.Fatalf("reopened state differs:\n got %s\nwant %s", gotJSON, wantJSON)
 	}
-	if _, ok := got.User.Items["c"]; ok || len(got.Sessions) != 2 || got.User.Image == nil {
-		t.Fatalf("items %v, sessions %d, image %v", got.User.Items, len(got.Sessions), got.User.Image)
+	if _, ok := viewer(got).Items["c"]; ok || len(got.Sessions) != 2 || viewer(got).Image == nil {
+		t.Fatalf("items %v, sessions %d, image %v", viewer(got).Items, len(got.Sessions), viewer(got).Image)
 	}
 }
 
@@ -313,7 +320,7 @@ func TestPublishedStateIsNotModified(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Change(token, func(d *Data, _ *Session) { d.User.Settings["theme"] = json.RawMessage(`"dark"`) }); err != nil {
+	if err := s.Change(token, func(u *User, _ *Session) { u.Settings["theme"] = json.RawMessage(`"dark"`) }); err != nil {
 		t.Fatal(err)
 	}
 	published := s.Snapshot()
@@ -343,7 +350,7 @@ func TestPublishedStateIsNotModified(t *testing.T) {
 	if err := s.SetItemSession(token, "a", edit); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Change(token, func(d *Data, _ *Session) { d.User.Settings["theme"] = json.RawMessage(`"light"`) }); err != nil {
+	if err := s.Change(token, func(u *User, _ *Session) { u.Settings["theme"] = json.RawMessage(`"light"`) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SetItems(token, []string{"a", "b"}, func(_ string, st *ItemState) { st.Played = true }); err != nil {
@@ -354,7 +361,7 @@ func TestPublishedStateIsNotModified(t *testing.T) {
 	if !bytes.Equal(before, after) || !bytes.Equal(sessionBefore, sessionAfter) {
 		t.Fatalf("published state changed:\n%s\n%s", before, after)
 	}
-	if got := s.Snapshot().User.Items["a"]; got.PositionTicks != 2 || !got.Played {
+	if got := viewer(s.Snapshot()).Items["a"]; got.PositionTicks != 2 || !got.Played {
 		t.Fatalf("current state %+v", got)
 	}
 }
@@ -368,15 +375,15 @@ func TestChangeMustNotModifyItems(t *testing.T) {
 	if err := s.SetItem(token, "a", func(st *ItemState) { st.Played = true }); err != nil {
 		t.Fatal(err)
 	}
-	err = s.Change(token, func(d *Data, _ *Session) {
-		d.User.Items = map[string]ItemState{"b": {Played: true}}
-		d.User.Settings["theme"] = json.RawMessage(`"dark"`)
+	err = s.Change(token, func(u *User, _ *Session) {
+		u.Items = map[string]ItemState{"b": {Played: true}}
+		u.Settings["theme"] = json.RawMessage(`"dark"`)
 	})
 	if err == nil {
 		t.Fatal("Change replaced the items")
 	}
-	if d := s.Snapshot(); len(d.User.Items) != 1 || !d.User.Items["a"].Played || len(d.User.Settings) != 0 {
-		t.Fatalf("rejected change was applied: %+v", d.User)
+	if u := viewer(s.Snapshot()); len(u.Items) != 1 || !u.Items["a"].Played || len(u.Settings) != 0 {
+		t.Fatalf("rejected change was applied: %+v", u)
 	}
 }
 
@@ -384,10 +391,10 @@ func TestChangeMustNotModifyItems(t *testing.T) {
 // administrator role existed: its only user, the owner, gets the role.
 func TestOwnerBecomesAdministrator(t *testing.T) {
 	s, dir := testStore(t)
-	if !s.Snapshot().User.IsAdministrator {
+	if !viewer(s.Snapshot()).Policy.IsAdministrator {
 		t.Fatal("-init did not create an administrator")
 	}
-	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE users DROP COLUMN is_administrator; PRAGMA user_version = 2"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), dropPolicyColumns+"PRAGMA user_version = 2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -402,7 +409,12 @@ func TestOwnerBecomesAdministrator(t *testing.T) {
 	if err := s.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != dbSchemaVersion {
 		t.Fatalf("version %d, %v", version, err)
 	}
-	if !s.Snapshot().User.IsAdministrator {
-		t.Fatal("the migrated owner is not an administrator")
+	if p := viewer(s.Snapshot()).Policy; !p.IsAdministrator || p.IsDisabled || p.IsHidden || !p.EnableAllFolders || p.EnabledFolders == nil {
+		t.Fatalf("migrated owner policy %+v", p)
 	}
 }
+
+// dropPolicyColumns turns the users table back into its version 2 shape.
+const dropPolicyColumns = `ALTER TABLE users DROP COLUMN is_administrator; ALTER TABLE users DROP COLUMN is_disabled;
+	ALTER TABLE users DROP COLUMN is_hidden; ALTER TABLE users DROP COLUMN enable_all_folders;
+	ALTER TABLE users DROP COLUMN enabled_folders;`

@@ -75,7 +75,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 					return
 				}
 				if item, found := s.findItem(id); found {
-					respond(w, 200, s.movieDTO(item, snapshot.ServerID, snapshot.User.Items, token))
+					respond(w, 200, s.movieDTO(item, snapshot.ServerID, userOf(snapshot, session).Items, token))
 					return
 				}
 				if e, found := s.entity(id); found {
@@ -89,14 +89,14 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 	for _, path := range []string{"/items", "/users/{user}/items", "/users/{user}/items/latest"} {
 		latest := strings.HasSuffix(path, "/latest")
 		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-			s.listItems(w, r, latest, false)
+			s.listItems(w, r, session, latest, false)
 		}))
 	}
 	mux.HandleFunc("POST /users/{user}/searcheditems", s.protect(s.reportSearched))
 	// The "Clear" button on the search page; Emby Web sends no body.
 	mux.HandleFunc("POST /users/{user}/recentlysearched/delete", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		searched := []string{}
-		for id, st := range s.store.Snapshot().User.Items {
+		for id, st := range userOf(s.store.Snapshot(), session).Items {
 			if !st.LastSearched.IsZero() {
 				searched = append(searched, id)
 			}
@@ -109,7 +109,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 	s.imageRoutes(mux)
 	s.userImageRoutes(mux)
 	mux.HandleFunc("GET /itemtypes", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		s.listItems(w, r, false, false)
+		s.listItems(w, r, session, false, false)
 	}))
 }
 
@@ -196,7 +196,7 @@ func (s *Server) reportSearched(w http.ResponseWriter, r *http.Request, token st
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resume bool) {
+func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state.Session, latest, resume bool) {
 	catalog := s.catalog()
 	token, _ := requestToken(r) // Callers have already authenticated this request.
 	typesOnly := r.URL.Path == "/itemtypes"
@@ -306,14 +306,14 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	// without IncludeNextUp; only IncludeNextUp=false leaves them out.
 	nextUp := map[string]time.Time{}
 	if resume && query["includenextup"] != "false" {
-		for _, c := range s.nextUpEpisodes(snapshot.User.Items, "", "") {
-			if !snapshot.User.Items[c.next.ID].HiddenFromResume {
+		for _, c := range s.nextUpEpisodes(userOf(snapshot, session).Items, "", "") {
+			if !userOf(snapshot, session).Items[c.next.ID].HiddenFromResume {
 				nextUp[c.next.ID] = c.lastPlayed
 			}
 		}
 	}
 	lastPlayed := func(id string) time.Time {
-		played := snapshot.User.Items[id].LastPlayed
+		played := userOf(snapshot, session).Items[id].LastPlayed
 		if series, ok := nextUp[id]; ok && series.After(played) {
 			return series
 		}
@@ -363,10 +363,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	}
 	items = slices.DeleteFunc(items, func(item *media.Item) bool {
 		id, kind, folder := item.ID, item.Type(), item.IsFolder() || isCollection(item)
-		st := snapshot.User.Items[id]
+		st := userOf(snapshot, session).Items[id]
 		info := s.info(id)
 		if item.IsFolder() {
-			st.Played, _ = s.folderPlayed(*item, snapshot.User.Items)
+			st.Played, _ = s.folderPlayed(*item, userOf(snapshot, session).Items)
 		}
 		if isCollection(item) {
 			kind = "CollectionFolder"
@@ -427,7 +427,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	newestAdded, seriesPlayed, newestPremiere := map[string]time.Time{}, map[string]time.Time{}, map[string]time.Time{}
 	if catalog != nil {
 		for _, episode := range catalog.Items {
-			played := snapshot.User.Items[episode.ID].LastPlayed
+			played := userOf(snapshot, session).Items[episode.ID].LastPlayed
 			premiere := s.info(episode.ID).Premiere
 			for _, folder := range []string{episode.SeriesID, episode.SeasonID} {
 				if folder == "" {
@@ -480,7 +480,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			case "dateplayed":
 				comparison = lastPlayed(a.ID).Compare(lastPlayed(b.ID))
 			case "datelastsearched":
-				comparison = snapshot.User.Items[a.ID].LastSearched.Compare(snapshot.User.Items[b.ID].LastSearched)
+				comparison = userOf(snapshot, session).Items[a.ID].LastSearched.Compare(userOf(snapshot, session).Items[b.ID].LastSearched)
 			case "runtime":
 				comparison = cmp.Compare(a.RunTimeTicks, b.RunTimeTicks)
 			case "parentindexnumber", "sortparentindexnumber":
@@ -521,7 +521,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			case "framerate":
 				comparison = cmp.Compare(video(a).AverageFrameRate, video(b).AverageFrameRate)
 			case "playcount":
-				comparison = cmp.Compare(snapshot.User.Items[a.ID].PlayCount, snapshot.User.Items[b.ID].PlayCount)
+				comparison = cmp.Compare(userOf(snapshot, session).Items[a.ID].PlayCount, userOf(snapshot, session).Items[b.ID].PlayCount)
 			case "seriesdateplayed":
 				comparison = seriesPlayed[a.ID].Compare(seriesPlayed[b.ID])
 			case "datelastcontentadded":
@@ -559,7 +559,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 		if isCollection(item) {
 			result = append(result, s.collectionDTO(item.ID, serverID, false))
 		} else {
-			result = append(result, s.movieDTO(*item, serverID, snapshot.User.Items, token))
+			result = append(result, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token))
 		}
 	}
 	if latest {

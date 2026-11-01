@@ -65,7 +65,7 @@ func (s *Server) seriesRoutes(mux *http.ServeMux) {
 				q.Set("SortBy", "ParentIndexNumber,IndexNumber")
 			}
 			r.URL.RawQuery = q.Encode()
-			s.listItems(w, r, false, false)
+			s.listItems(w, r, session, false, false)
 		}))
 	}
 }
@@ -97,12 +97,12 @@ func (s *Server) nextUp(w http.ResponseWriter, r *http.Request, token string, se
 		}
 	}
 	snapshot := s.store.Snapshot()
-	candidates := s.nextUpEpisodes(snapshot.User.Items, query["seriesid"], query["parentid"])
+	candidates := s.nextUpEpisodes(userOf(snapshot, session).Items, query["seriesid"], query["parentid"])
 	total := len(candidates)
 	start = min(start, total)
 	result := make([]object, 0, min(limit, total-start))
 	for _, c := range candidates[start : start+min(limit, total-start)] {
-		result = append(result, s.movieDTO(*c.next, snapshot.ServerID, snapshot.User.Items, token))
+		result = append(result, s.movieDTO(*c.next, snapshot.ServerID, userOf(snapshot, session).Items, token))
 	}
 	respond(w, 200, object{"Items": result, "TotalRecordCount": total})
 }

@@ -66,7 +66,7 @@ func (s *Server) homeSections(serverID, language string) []object {
 // sectionItems answers /Users/{id}/Sections/{section}/Items. Emby Web does not
 // build a query per home row itself: it asks the server to fill each section it
 // was given, so every section id advertised by homeSections must be answerable.
-func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token string) {
+func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 	catalog := s.catalog()
 	section := strings.ToLower(r.PathValue("section"))
 	limit := 12
@@ -89,14 +89,14 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 			items = append(items, s.collectionDTO(id, serverID, false))
 		}
 	case section == "resume":
-		items = s.resumeItems(limit, token)
+		items = s.resumeItems(limit, token, session)
 	case section == "resumeaudio":
 		// Couch serves no audio library, so this row is always empty.
 	case strings.HasPrefix(section, "latestmedia_") && slices.Contains(s.libraryIDs(), strings.TrimPrefix(section, "latestmedia_")):
 		series := strings.TrimPrefix(section, "latestmedia_") == catalog.SeriesLibraryID()
 		latest := make([]*media.Item, 0, len(catalog.Items))
 		for i := range catalog.Items {
-			if !snapshot.User.Items[catalog.Items[i].ID].Played && (catalog.Items[i].Type() == "Episode") == series {
+			if !userOf(snapshot, session).Items[catalog.Items[i].ID].Played && (catalog.Items[i].Type() == "Episode") == series {
 				latest = append(latest, &catalog.Items[i])
 			}
 		}
@@ -107,7 +107,7 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 			return strings.Compare(a.ID, b.ID)
 		})
 		for _, item := range latest[:min(limit, len(latest))] {
-			items = append(items, s.movieDTO(*item, serverID, snapshot.User.Items, token))
+			items = append(items, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token))
 		}
 	default:
 		fail(w, 404, "NotFound")
@@ -124,7 +124,7 @@ func (s *Server) homeRoutes(mux *http.ServeMux) {
 		respond(w, 200, s.homeSections(s.store.Snapshot().ServerID, value(r, "X-Emby-Language")))
 	}))
 	mux.HandleFunc("GET /users/{user}/sections/{section}/items", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		s.sectionItems(w, r, token)
+		s.sectionItems(w, r, token, session)
 	}))
 	// Emby Web's Home Screen settings add, remove and move sections with
 	// these. Until editing is implemented (#100), the client's error dialog

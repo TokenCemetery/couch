@@ -57,10 +57,10 @@ func TestBackupWhileOpen(t *testing.T) {
 	if _, err := restored.Authenticate(token); err != nil {
 		t.Fatal("backup lost the session:", err)
 	}
-	if !restored.Snapshot().User.Items["a"].IsFavorite {
+	if !viewer(restored.Snapshot()).Items["a"].IsFavorite {
 		t.Fatal("backup lost the favorite")
 	}
-	file, _, err := restored.OpenUserImage()
+	file, _, err := restored.OpenUserImage(viewer(restored.Snapshot()).ID)
 	if err != nil {
 		t.Fatal("backup lost the avatar:", err)
 	}
@@ -80,7 +80,7 @@ func TestBackupRefusesBadInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Change(token, func(d *Data, _ *Session) { d.User.Settings["theme"] = json.RawMessage(`"dark"`) }); err != nil {
+	if err := s.Change(token, func(u *User, _ *Session) { u.Settings["theme"] = json.RawMessage(`"dark"`) }); err != nil {
 		t.Fatal(err)
 	}
 	full := t.TempDir()

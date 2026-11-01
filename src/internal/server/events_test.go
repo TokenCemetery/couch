@@ -65,7 +65,7 @@ func TestUserDataEventsAndSessionLifecycle(t *testing.T) {
 	server := httptest.NewServer(h)
 	defer server.Close()
 	token1, token2 := login(t, h), login(t, h)
-	user := store.Snapshot().User.ID
+	user := testUser(store).ID
 	c1, r1 := openEventSocket(t, server, token1)
 	c2, r2 := openEventSocket(t, server, token2)
 	for _, tc := range []struct {
@@ -109,7 +109,7 @@ func TestUserDataEventsAndSessionLifecycle(t *testing.T) {
 		t.Fatal("logout affected another session")
 	}
 	// Expiry must be checked before delivering even an already queued event.
-	if err := store.Change(token2, func(_ *state.Data, session *state.Session) {
+	if err := store.Change(token2, func(_ *state.User, session *state.Session) {
 		session.ExpiresAt = time.Now().Add(-time.Second)
 	}); err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestEventOrderAndFailedPersistence(t *testing.T) {
 	if _, err := api.updateItem(token, playbackMovie(), func(st *state.ItemState) { st.PlayCount++ }); err == nil {
 		t.Fatal("persistence failure was ignored")
 	}
-	if len(sock.out) != 0 || store.Snapshot().User.Items["movie"].PlayCount != 16 {
+	if len(sock.out) != 0 || testUser(store).Items["movie"].PlayCount != 16 {
 		t.Fatal("failed commit published state or event")
 	}
 }
@@ -258,8 +258,8 @@ func TestLibraryChangedAfterRescan(t *testing.T) {
 	}
 	// An unchanged catalog sends nothing; the next event is user data.
 	api.SetCatalog(&media.Catalog{ID: "movies", Items: []media.Item{changed, added}, Folders: []media.Item{series, season}})
-	expectStatus(t, request(h, "POST", "/Users/"+store.Snapshot().User.ID+"/FavoriteItems/movie", "", "", login(t, h)), 200)
-	expectUserData(t, reader, store.Snapshot().User.ID)
+	expectStatus(t, request(h, "POST", "/Users/"+testUser(store).ID+"/FavoriteItems/movie", "", "", login(t, h)), 200)
+	expectUserData(t, reader, testUser(store).ID)
 }
 
 func sortedIDs(ids ...string) []string {
@@ -275,7 +275,7 @@ func TestUserConfigurationUpdated(t *testing.T) {
 	server := httptest.NewServer(h)
 	defer server.Close()
 	token1, token2 := login(t, h), login(t, h)
-	user := store.Snapshot().User.ID
+	user := testUser(store).ID
 	_, reader := openEventSocket(t, server, token2)
 	// UserSettings are not part of the user and send nothing.
 	expectStatus(t, request(h, "POST", "/UserSettings/"+user+"/Partial", "application/json", `{"theme":"dark"}`, token1), 204)

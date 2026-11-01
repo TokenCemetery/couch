@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // TestAdministratorRole checks that the policy reports the stored role and
@@ -32,7 +33,11 @@ func TestAdministratorRole(t *testing.T) {
 		expectStatus(t, request(h, "GET", path, "", "", token), 200)
 		expectStatus(t, request(h, "GET", path, "", "", ""), 401)
 	}
-	if err := store.SetAdministrator(store.Snapshot().User.ID, false); err != nil {
+	// A second administrator lets the test user give up the role.
+	if _, err := store.CreateUser("other", state.Policy{IsAdministrator: true, EnableAllFolders: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetPolicy(testUser(store).ID, state.Policy{EnableAllFolders: true}); err != nil {
 		t.Fatal(err)
 	}
 	if isAdministrator() {
@@ -49,7 +54,7 @@ func TestItemsAreNotEditable(t *testing.T) {
 	store, _, _ := newTestServer(t)
 	h := New(store, "test", nil, &media.Catalog{ID: "movies", Items: []media.Item{playbackMovie()}}).Handler()
 	token := login(t, h)
-	for _, path := range []string{"/Items?Recursive=true&IncludeItemTypes=Movie", "/Users/" + store.Snapshot().User.ID + "/Views"} {
+	for _, path := range []string{"/Items?Recursive=true&IncludeItemTypes=Movie", "/Users/" + testUser(store).ID + "/Views"} {
 		w := request(h, "GET", path, "", "", token)
 		expectStatus(t, w, 200)
 		var page struct{ Items []map[string]any }

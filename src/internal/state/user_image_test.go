@@ -31,7 +31,7 @@ func TestUserImageFailedChangeKeepsCommittedFile(t *testing.T) {
 	if err := s.DeleteUserImage(token); !errors.Is(err, ErrSession) {
 		t.Fatalf("delete after logout: %v", err)
 	}
-	file, _, err := s.OpenUserImage()
+	file, _, err := s.OpenUserImage(viewer(s.Snapshot()).ID)
 	if err != nil {
 		t.Fatal("committed avatar file was removed:", err)
 	}

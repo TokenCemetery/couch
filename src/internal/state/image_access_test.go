@@ -52,7 +52,7 @@ func TestImageAccessScopedRevokedAndDurable(t *testing.T) {
 		t.Fatal(err)
 	}
 	tag = store.ImageTag(token, "item", revision)
-	if err := store.Change(token, func(_ *Data, session *Session) { session.ExpiresAt = time.Now().Add(-time.Second) }); err != nil {
+	if err := store.Change(token, func(_ *User, session *Session) { session.ExpiresAt = time.Now().Add(-time.Second) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := store.AuthenticateImageTag("item", tag); !errors.Is(err, ErrSession) {

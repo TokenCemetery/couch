@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 3
+const dbSchemaVersion = 4
 
 const dbSchema = `
 CREATE TABLE server (
@@ -33,7 +33,11 @@ CREATE TABLE users (
 	settings TEXT NOT NULL,
 	image_revision TEXT,
 	image_mime TEXT,
-	is_administrator INTEGER NOT NULL
+	is_administrator INTEGER NOT NULL,
+	is_disabled INTEGER NOT NULL,
+	is_hidden INTEGER NOT NULL,
+	enable_all_folders INTEGER NOT NULL,
+	enabled_folders TEXT NOT NULL
 ) STRICT;
 CREATE TABLE item_state (
 	user_id TEXT NOT NULL REFERENCES users (id),
@@ -52,7 +56,7 @@ CREATE TABLE sessions (
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 ` + metadataSchema + `
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 `
 
 // metadataSchema was added in version 2; migrate adds it to a version 1 file.
@@ -74,6 +78,13 @@ var migrations = map[int]string{
 	// Version 3 adds the administrator role. Earlier releases had only the
 	// owner, created by -init, who becomes the administrator.
 	2: "ALTER TABLE users ADD COLUMN is_administrator INTEGER NOT NULL DEFAULT 0; UPDATE users SET is_administrator = 1; PRAGMA user_version = 3;",
+	// Version 4 stores the rest of the policy Couch enforces; existing users
+	// stay enabled, listed and see every library.
+	3: `ALTER TABLE users ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE users ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE users ADD COLUMN enable_all_folders INTEGER NOT NULL DEFAULT 1;
+		ALTER TABLE users ADD COLUMN enabled_folders TEXT NOT NULL DEFAULT '[]';
+		PRAGMA user_version = 4;`,
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -119,26 +130,11 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 	if err := db.QueryRowContext(ctx, "SELECT server_id FROM server").Scan(&d.ServerID); err != nil {
 		return Data{}, err
 	}
-	var configuration, settings string
-	var revision, mime sql.NullString
-	u := &d.User
-	err := db.QueryRowContext(ctx, "SELECT id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime, is_administrator FROM users").
-		Scan(&u.ID, &u.Name, &u.Salt, &u.PasswordHash, &u.Iterations, &configuration, &settings, &revision, &mime, &u.IsAdministrator)
+	users, err := loadUsers(ctx, db)
 	if err != nil {
 		return Data{}, err
 	}
-	if err := json.Unmarshal([]byte(configuration), &u.Configuration); err != nil {
-		return Data{}, err
-	}
-	if err := json.Unmarshal([]byte(settings), &u.Settings); err != nil {
-		return Data{}, err
-	}
-	if revision.Valid {
-		u.Image = &UserImage{Revision: revision.String, MIME: mime.String}
-	}
-	if err := loadItems(ctx, db, u); err != nil {
-		return Data{}, err
-	}
+	d.Users = users
 	rows, err := db.QueryContext(ctx, "SELECT token_hash, body FROM sessions")
 	if err != nil {
 		return Data{}, err
@@ -156,6 +152,49 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 		d.Sessions[key] = session
 	}
 	return d, rows.Err()
+}
+
+func loadUsers(ctx context.Context, db *sql.DB) (map[string]User, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime,
+		is_administrator, is_disabled, is_hidden, enable_all_folders, enabled_folders FROM users`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	users := map[string]User{}
+	for rows.Next() {
+		var u User
+		var configuration, settings, folders string
+		var revision, mime sql.NullString
+		p := &u.Policy
+		if err := rows.Scan(&u.ID, &u.Name, &u.Salt, &u.PasswordHash, &u.Iterations, &configuration, &settings, &revision, &mime,
+			&p.IsAdministrator, &p.IsDisabled, &p.IsHidden, &p.EnableAllFolders, &folders); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(configuration), &u.Configuration); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(settings), &u.Settings); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(folders), &p.EnabledFolders); err != nil {
+			return nil, err
+		}
+		if revision.Valid {
+			u.Image = &UserImage{Revision: revision.String, MIME: mime.String}
+		}
+		users[u.ID] = u
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for id, u := range users {
+		if err := loadItems(ctx, db, &u); err != nil {
+			return nil, err
+		}
+		users[id] = u
+	}
+	return users, nil
 }
 
 func loadItems(ctx context.Context, db *sql.DB, u *User) error {
@@ -185,51 +224,88 @@ func loadItems(ctx context.Context, db *sql.DB, u *User) error {
 }
 
 // commit writes the rows that differ between prev and next in one
-// transaction: the user and sessions, and of the items only those named in
-// items. Committing from empty Data creates the schema and writes all items.
-func commit(ctx context.Context, db *sql.DB, prev, next Data, items []string) error {
+// transaction: the rows of the users userIDs with, of the first one's items,
+// only those named in items; the users next adds or drops; and the changed
+// sessions. Committing from empty Data creates the schema and writes
+// everything.
+func commit(ctx context.Context, db *sql.DB, prev, next Data, userIDs, items []string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if err := write(ctx, tx, prev, next, items); err != nil {
+	if err := write(ctx, tx, prev, next, userIDs, items); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()
 }
 
-func write(ctx context.Context, tx *sql.Tx, prev, next Data, items []string) error {
+func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []string) error {
 	if prev.SchemaVersion == 0 {
-		items = slices.Collect(maps.Keys(next.User.Items))
 		if _, err := tx.ExecContext(ctx, dbSchema); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "INSERT INTO server (id, server_id) VALUES (1, ?)", next.ServerID); err != nil {
 			return err
 		}
+		for _, u := range next.Users {
+			if err := writeUser(ctx, tx, User{}, u, slices.Collect(maps.Keys(u.Items))); err != nil {
+				return err
+			}
+		}
+		return writeSessions(ctx, tx, prev.Sessions, next.Sessions)
 	}
-	prevUser, err := userRow(prev.User)
-	if err != nil {
-		return err
-	}
-	nextUser, err := userRow(next.User)
-	if err != nil {
-		return err
-	}
-	if !reflect.DeepEqual(prevUser, nextUser) {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime, is_administrator)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (id) DO UPDATE SET name = excluded.name, salt = excluded.salt, password_hash = excluded.password_hash,
-				iterations = excluded.iterations, configuration = excluded.configuration, settings = excluded.settings,
-				image_revision = excluded.image_revision, image_mime = excluded.image_mime, is_administrator = excluded.is_administrator`, nextUser...); err != nil {
+	for id := range prev.Users {
+		if _, ok := next.Users[id]; ok {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM item_state WHERE user_id = ?", id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id); err != nil {
 			return err
 		}
 	}
-	if err := writeItems(ctx, tx, next.User.ID, prev.User.Items, next.User.Items, items); err != nil {
-		return err
+	for i, id := range userIDs {
+		u, ok := next.Users[id]
+		if !ok {
+			continue
+		}
+		var changed []string
+		if i == 0 {
+			changed = items
+		}
+		if err := writeUser(ctx, tx, prev.Users[id], u, changed); err != nil {
+			return err
+		}
 	}
 	return writeSessions(ctx, tx, prev.Sessions, next.Sessions)
+}
+
+// writeUser upserts the user's row when it differs from prev, then the named
+// items.
+func writeUser(ctx context.Context, tx *sql.Tx, prev, next User, items []string) error {
+	prevRow, err := userRow(prev)
+	if err != nil {
+		return err
+	}
+	nextRow, err := userRow(next)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(prevRow, nextRow) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime,
+				is_administrator, is_disabled, is_hidden, enable_all_folders, enabled_folders)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (id) DO UPDATE SET name = excluded.name, salt = excluded.salt, password_hash = excluded.password_hash,
+				iterations = excluded.iterations, configuration = excluded.configuration, settings = excluded.settings,
+				image_revision = excluded.image_revision, image_mime = excluded.image_mime, is_administrator = excluded.is_administrator,
+				is_disabled = excluded.is_disabled, is_hidden = excluded.is_hidden, enable_all_folders = excluded.enable_all_folders,
+				enabled_folders = excluded.enabled_folders`, nextRow...); err != nil {
+			return err
+		}
+	}
+	return writeItems(ctx, tx, next.ID, prev.Items, next.Items, items)
 }
 
 func userRow(u User) ([]any, error) {
@@ -244,11 +320,25 @@ func userRow(u User) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	folders, err := json.Marshal(u.Policy.EnabledFolders)
+	if err != nil {
+		return nil, err
+	}
 	var revision, mime any
 	if u.Image != nil {
 		revision, mime = u.Image.Revision, u.Image.MIME
 	}
-	return []any{u.ID, u.Name, u.Salt, u.PasswordHash, u.Iterations, string(configuration), string(settings), revision, mime, u.IsAdministrator}, nil
+	// A user without a password stores empty blobs, which the columns require.
+	salt, hash := u.Salt, u.PasswordHash
+	if salt == nil {
+		salt = []byte{}
+	}
+	if hash == nil {
+		hash = []byte{}
+	}
+	p := u.Policy
+	return []any{u.ID, u.Name, salt, hash, u.Iterations, string(configuration), string(settings), revision, mime,
+		p.IsAdministrator, p.IsDisabled, p.IsHidden, p.EnableAllFolders, string(folders)}, nil
 }
 
 // writeItems upserts or deletes the rows of ids whose state differs.
@@ -335,10 +425,18 @@ func writeSessions(ctx context.Context, tx *sql.Tx, prev, next map[string]Sessio
 
 var errInvalidSchema = errors.New("invalid or unsupported state schema")
 
-// validate rejects state that does not satisfy schema v1's invariants.
+// validate rejects state that does not satisfy the schema's invariants: at
+// least one user, and each user either with a password or without one.
 func validate(d Data) error {
-	if d.SchemaVersion != 1 || d.ServerID == "" || d.User.ID == "" || d.User.Name == "" || len(d.User.Salt) != 16 || len(d.User.PasswordHash) != 32 || d.User.Iterations != passwordIterations || d.User.Settings == nil || d.User.Configuration == nil || d.Sessions == nil {
+	if d.SchemaVersion != 1 || d.ServerID == "" || len(d.Users) == 0 || d.Sessions == nil {
 		return errInvalidSchema
+	}
+	for id, u := range d.Users {
+		password := len(u.Salt) == 16 && len(u.PasswordHash) == 32 && u.Iterations == passwordIterations
+		none := len(u.Salt) == 0 && len(u.PasswordHash) == 0 && u.Iterations == 0
+		if u.ID != id || u.Name == "" || (!password && !none) || u.Settings == nil || u.Configuration == nil || u.Policy.EnabledFolders == nil {
+			return errInvalidSchema
+		}
 	}
 	return nil
 }

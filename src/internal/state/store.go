@@ -1,4 +1,4 @@
-// Package state persists the local user, sessions and playback state in SQLite.
+// Package state persists the local users, sessions and playback state in SQLite.
 package state
 
 import (
@@ -25,20 +25,46 @@ import (
 
 const passwordIterations = 600000
 
-// maxSettingsBytes bounds the user's settings and configuration, which
+// maxSettingsBytes bounds a user's settings and configuration, which
 // clients replace whole or merge key by key; items and sessions have counts.
 const maxSettingsBytes = 1 << 20
 
+// SessionLifetime is how long a sign-in stays valid.
+const SessionLifetime = 30 * 24 * time.Hour
+
+// maxUsers bounds the number of local accounts.
+const maxUsers = 100
+
 // Errors returned by Store.
 var (
-	ErrCredentials  = errors.New("invalid credentials")
-	ErrSession      = errors.New("invalid or expired session")
-	ErrSessionLimit = errors.New("session limit reached")
-	ErrStateLimit   = errors.New("state size limit reached")
-	ErrPassword     = errors.New("password must contain 12–1024 bytes")
+	ErrCredentials       = errors.New("invalid credentials")
+	ErrSession           = errors.New("invalid or expired session")
+	ErrSessionLimit      = errors.New("session limit reached")
+	ErrStateLimit        = errors.New("state size limit reached")
+	ErrPassword          = errors.New("password must contain 12–1024 bytes")
+	ErrUserName          = errors.New("user name must contain 1–128 bytes")
+	ErrUserNameTaken     = errors.New("user name is already taken")
+	ErrUserNotFound      = errors.New("user not found")
+	ErrLastAdministrator = errors.New("the last administrator cannot be removed, disabled or demoted")
 )
 
-// User is the single local account with its settings and playback state.
+// Policy is the part of a user's Emby policy that Couch stores and enforces.
+type Policy struct {
+	// IsAdministrator allows the server's administrator-only operations.
+	IsAdministrator bool
+	// IsDisabled refuses sign-in.
+	IsDisabled bool
+	// IsHidden leaves the user off the sign-in screen.
+	IsHidden bool
+	// EnableAllFolders shows every library; otherwise only the libraries
+	// whose IDs EnabledFolders lists.
+	EnableAllFolders bool
+	EnabledFolders   []string
+}
+
+// User is a local account with its settings and playback state. A user
+// created from the dashboard has no password until one is set, and cannot
+// sign in until then.
 type User struct {
 	ID            string
 	Name          string
@@ -51,10 +77,12 @@ type User struct {
 	// state written before playback existed and is created on first write.
 	Items map[string]ItemState
 	// Image is the uploaded avatar, absent until one is uploaded.
-	Image *UserImage `json:",omitempty"`
-	// IsAdministrator allows the server's administrator-only operations.
-	IsAdministrator bool
+	Image  *UserImage `json:",omitempty"`
+	Policy Policy
 }
+
+// HasPassword reports whether the user can sign in with a password.
+func (u User) HasPassword() bool { return len(u.PasswordHash) > 0 }
 
 // ItemState is the durable part of an item's UserData.
 type ItemState struct {
@@ -70,7 +98,7 @@ type ItemState struct {
 	HiddenFromResume bool `json:",omitempty"`
 }
 
-// maxTrackedItems bounds the state file independently of its byte limit.
+// maxTrackedItems bounds each user's state independently of its byte limit.
 const maxTrackedItems = 20000
 
 // Session is an authenticated client. Stored keyed by token hash, never by token.
@@ -101,12 +129,32 @@ func (p PlaybackRecord) Is(playID string) bool {
 	return p.ID == playID || slices.Contains(p.Switched, playID)
 }
 
-// Data is the persisted state (schema v1), loaded whole into memory.
+// Data is the persisted state, loaded whole into memory.
 type Data struct {
 	SchemaVersion int
 	ServerID      string
-	User          User
-	Sessions      map[string]Session
+	// Users holds every local account keyed by user ID.
+	Users    map[string]User
+	Sessions map[string]Session
+}
+
+// UserByName finds a user by name, ignoring case.
+func (d Data) UserByName(name string) (User, bool) {
+	for _, u := range d.Users {
+		if strings.EqualFold(u.Name, name) {
+			return u, true
+		}
+	}
+	return User{}, false
+}
+
+// SortedUsers returns the users ordered by name.
+func (d Data) SortedUsers() []User {
+	users := slices.Collect(maps.Values(d.Users))
+	slices.SortFunc(users, func(a, b User) int {
+		return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+	})
+	return users
 }
 
 // Store holds the state in memory and commits every change to the database
@@ -194,12 +242,21 @@ func (s *Store) Initialized() bool {
 	return s.data.SchemaVersion != 0
 }
 
-// Identity returns only the server ID and the user's ID and name, without
-// the deep copy Snapshot makes; anonymous endpoints need nothing else.
+// Identity returns the server ID and each user's ID, name and policy, without
+// the deep copy Snapshot makes; anonymous endpoints need nothing else. The
+// password hash is replaced by a marker, so HasPassword still answers.
 func (s *Store) Identity() Data {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return Data{ServerID: s.data.ServerID, User: User{ID: s.data.User.ID, Name: s.data.User.Name}}
+	users := make(map[string]User, len(s.data.Users))
+	for id, u := range s.data.Users {
+		public := User{ID: u.ID, Name: u.Name, Policy: u.Policy}
+		if u.HasPassword() {
+			public.PasswordHash = []byte{0}
+		}
+		users[id] = public
+	}
+	return Data{ServerID: s.data.ServerID, Users: users}
 }
 
 // Snapshot returns the current state. It is shared with other readers and
@@ -211,29 +268,48 @@ func (s *Store) Snapshot() Data {
 }
 
 // update commits a change to the database, then publishes it. fn works on a
-// copy that shares the published state except the maps it may change: the
-// settings, configuration and sessions maps, and the items map only when
-// items names the IDs fn may change. Only those item rows are written.
-func (s *Store) update(items []string, fn func(*Data) error) error {
+// copy that shares the published state except the users and sessions maps
+// and, for the user userID, the maps it may change: the settings,
+// configuration and enabled folders, and the items map only when items names
+// the IDs fn may change. Only that user's row and those item rows are
+// written, besides users fn adds or removes and changed sessions.
+func (s *Store) update(userID string, items []string, fn func(*Data) error) error {
+	return s.updateUsers([]string{userID}, items, fn)
+}
+
+// updateUsers is update for changes to several users, whose rows are all
+// written; items belong to the first.
+func (s *Store) updateUsers(userIDs, items []string, fn func(*Data) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := s.data
-	next.User.Settings = maps.Clone(s.data.User.Settings)
-	next.User.Configuration = maps.Clone(s.data.User.Configuration)
+	next.Users = maps.Clone(s.data.Users)
 	next.Sessions = maps.Clone(s.data.Sessions)
-	if len(items) > 0 {
-		next.User.Items = maps.Clone(s.data.User.Items)
-		if next.User.Items == nil {
-			next.User.Items = map[string]ItemState{}
+	for i, id := range userIDs {
+		u, ok := next.Users[id]
+		if !ok {
+			continue
 		}
+		u.Settings = maps.Clone(u.Settings)
+		u.Configuration = maps.Clone(u.Configuration)
+		u.Policy.EnabledFolders = slices.Clone(u.Policy.EnabledFolders)
+		if i == 0 && len(items) > 0 {
+			u.Items = maps.Clone(u.Items)
+			if u.Items == nil {
+				u.Items = map[string]ItemState{}
+			}
+		}
+		next.Users[id] = u
 	}
 	if err := fn(&next); err != nil {
 		return err
 	}
-	if settingsBytes(next.User) > maxSettingsBytes {
-		return ErrStateLimit
+	for _, id := range userIDs {
+		if settingsBytes(next.Users[id]) > maxSettingsBytes {
+			return ErrStateLimit
+		}
 	}
-	if err := commit(context.Background(), s.db, s.data, next, items); err != nil {
+	if err := commit(context.Background(), s.db, s.data, next, userIDs, items); err != nil {
 		return err
 	}
 	s.data = next
@@ -262,35 +338,43 @@ func cloneSession(session Session) Session {
 	return session
 }
 
-// Initialize creates the local user as the administrator. It fails if a user
-// already exists.
-func (s *Store) Initialize(name, password string) error {
+func validName(name string) (string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 128 || len(password) < 12 || len(password) > 1024 {
+	if name == "" || len(name) > 128 {
+		return "", ErrUserName
+	}
+	return name, nil
+}
+
+func hashPassword(password string) (salt, hash []byte, err error) {
+	if len(password) < 12 || len(password) > 1024 {
+		return nil, nil, ErrPassword
+	}
+	salt = make([]byte, 16)
+	_, _ = rand.Read(salt)
+	hash, err = pbkdf2.Key(sha256.New, password, salt, passwordIterations, 32)
+	return salt, hash, err
+}
+
+// Initialize creates the first local user as the administrator. It fails if
+// a user already exists.
+func (s *Store) Initialize(name, password string) error {
+	name, err := validName(name)
+	if err != nil || len(password) < 12 || len(password) > 1024 {
 		return errors.New("username must contain 1–128 bytes; password 12–1024 bytes")
 	}
-	salt := make([]byte, 16)
-	_, _ = rand.Read(salt)
-	hash, err := pbkdf2.Key(sha256.New, password, salt, passwordIterations, 32)
+	salt, hash, err := hashPassword(password)
 	if err != nil {
 		return err
 	}
-	return s.update(nil, func(d *Data) error {
+	return s.update("", nil, func(d *Data) error {
 		if d.SchemaVersion != 0 {
 			return errors.New("already initialized")
 		}
-		*d = Data{SchemaVersion: 1, ServerID: randomID(), User: User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: passwordIterations, IsAdministrator: true, Configuration: map[string]json.RawMessage{}, Settings: map[string]json.RawMessage{}}, Sessions: map[string]Session{}}
-		return nil
-	})
-}
-
-// SetAdministrator grants or revokes the administrator role of the user.
-func (s *Store) SetAdministrator(userID string, administrator bool) error {
-	return s.update(nil, func(d *Data) error {
-		if d.User.ID != userID {
-			return ErrCredentials
-		}
-		d.User.IsAdministrator = administrator
+		u := User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: passwordIterations,
+			Configuration: map[string]json.RawMessage{}, Settings: map[string]json.RawMessage{},
+			Policy: Policy{IsAdministrator: true, EnableAllFolders: true, EnabledFolders: []string{}}}
+		*d = Data{SchemaVersion: 1, ServerID: randomID(), Users: map[string]User{u.ID: u}, Sessions: map[string]Session{}}
 		return nil
 	})
 }
@@ -300,30 +384,35 @@ func tokenHash(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// dummySalt makes a sign-in for an unknown user cost as much as a real one.
+var dummySalt = make([]byte, 16)
+
 // Login verifies the credentials and stores a new 30-day session. It returns the
 // session token, which is not persisted.
 func (s *Store) Login(name, password string, client Session) (string, Session, error) {
 	s.mu.RLock()
-	u := s.data.User
+	u, found := s.data.UserByName(name)
 	s.mu.RUnlock()
-	if u.ID == "" {
-		return "", Session{}, ErrCredentials
+	salt, iterations := u.Salt, u.Iterations
+	if !found || !u.HasPassword() {
+		salt, iterations = dummySalt, passwordIterations
 	}
-	hash, err := pbkdf2.Key(sha256.New, password, u.Salt, u.Iterations, 32)
+	hash, err := pbkdf2.Key(sha256.New, password, salt, iterations, 32)
 	if err != nil {
 		return "", Session{}, err
 	}
-	valid := subtle.ConstantTimeCompare(hash, u.PasswordHash)
-	if !strings.EqualFold(name, u.Name) || valid != 1 {
+	if !found || !u.HasPassword() || u.Policy.IsDisabled || subtle.ConstantTimeCompare(hash, u.PasswordHash) != 1 {
 		return "", Session{}, ErrCredentials
 	}
 	token := randomID() + randomID()
 	client.ID, client.UserID = randomID(), u.ID
-	client.ExpiresAt = time.Now().UTC().Add(30 * 24 * time.Hour)
-	err = s.update(nil, func(d *Data) error {
-		// The password may have changed while it was verified without the lock;
-		// a session must not outlive the revocation that change performs.
-		if subtle.ConstantTimeCompare(d.User.PasswordHash, u.PasswordHash) != 1 {
+	client.ExpiresAt = time.Now().UTC().Add(SessionLifetime)
+	err = s.update("", nil, func(d *Data) error {
+		// The password or the policy may have changed while it was verified
+		// without the lock; a session must not outlive the revocation that
+		// change performs.
+		current, ok := d.Users[u.ID]
+		if !ok || current.Policy.IsDisabled || subtle.ConstantTimeCompare(current.PasswordHash, u.PasswordHash) != 1 {
 			return ErrCredentials
 		}
 		for key, session := range d.Sessions {
@@ -340,16 +429,37 @@ func (s *Store) Login(name, password string, client Session) (string, Session, e
 	return token, client, err
 }
 
-// ChangePassword replaces the password after verifying the current one. The
-// calling session stays signed in; every other session is revoked, and their
-// IDs are returned so open connections can be closed.
+// revokeSessions deletes the sessions of userID except the one keyed keep,
+// and returns their IDs so open connections can be closed.
+func revokeSessions(d *Data, userID, keep string) []string {
+	revoked := []string{}
+	for k, session := range d.Sessions {
+		if session.UserID == userID && k != keep {
+			revoked = append(revoked, session.ID)
+			delete(d.Sessions, k)
+		}
+	}
+	return revoked
+}
+
+// ChangePassword replaces the caller's password after verifying the current
+// one. The calling session stays signed in; the user's other sessions are
+// revoked, and their IDs are returned so open connections can be closed.
 func (s *Store) ChangePassword(token, current, next string) ([]string, error) {
-	if len(next) < 12 || len(next) > 1024 {
-		return nil, ErrPassword
+	salt, nextHash, err := hashPassword(next)
+	if err != nil {
+		return nil, err
 	}
 	s.mu.RLock()
-	u := s.data.User
+	session, ok := s.data.Sessions[tokenHash(token)]
+	u := s.data.Users[session.UserID]
 	s.mu.RUnlock()
+	if !ok {
+		return nil, ErrSession
+	}
+	if !u.HasPassword() {
+		return nil, ErrCredentials
+	}
 	hash, err := pbkdf2.Key(sha256.New, current, u.Salt, u.Iterations, 32)
 	if err != nil {
 		return nil, err
@@ -357,29 +467,20 @@ func (s *Store) ChangePassword(token, current, next string) ([]string, error) {
 	if subtle.ConstantTimeCompare(hash, u.PasswordHash) != 1 {
 		return nil, ErrCredentials
 	}
-	salt := make([]byte, 16)
-	_, _ = rand.Read(salt)
-	nextHash, err := pbkdf2.Key(sha256.New, next, salt, passwordIterations, 32)
-	if err != nil {
-		return nil, err
-	}
-	revoked := []string{}
-	err = s.update(nil, func(d *Data) error {
+	var revoked []string
+	err = s.update(u.ID, nil, func(d *Data) error {
 		key := tokenHash(token)
 		if session, ok := d.Sessions[key]; !ok || !session.ExpiresAt.After(time.Now()) {
 			return ErrSession
 		}
+		user, ok := d.Users[u.ID]
 		// A concurrent change must not be overwritten with a stale verification.
-		if subtle.ConstantTimeCompare(d.User.PasswordHash, u.PasswordHash) != 1 {
+		if !ok || subtle.ConstantTimeCompare(user.PasswordHash, u.PasswordHash) != 1 {
 			return ErrCredentials
 		}
-		d.User.Salt, d.User.PasswordHash, d.User.Iterations = salt, nextHash, passwordIterations
-		for k, session := range d.Sessions {
-			if k != key {
-				revoked = append(revoked, session.ID)
-				delete(d.Sessions, k)
-			}
-		}
+		user.Salt, user.PasswordHash, user.Iterations = salt, nextHash, passwordIterations
+		d.Users[u.ID] = user
+		revoked = revokeSessions(d, u.ID, key)
 		return nil
 	})
 	if err != nil {
@@ -404,27 +505,39 @@ func (s *Store) Authenticate(token string) (Session, error) {
 
 // Logout revokes the session for token.
 func (s *Store) Logout(token string) error {
-	return s.update(nil, func(d *Data) error { delete(d.Sessions, tokenHash(token)); return nil })
+	return s.update("", nil, func(d *Data) error { delete(d.Sessions, tokenHash(token)); return nil })
+}
+
+// sessionUser returns the user ID of token's session, empty without one.
+// Writers check the session again under the lock.
+func (s *Store) sessionUser(token string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.Sessions[tokenHash(token)].UserID
 }
 
 // Change checks the session again under the write lock to prevent a concurrent
-// logout from being followed by a successful settings mutation. fn must not
-// change items: SetItem and SetItems do, writing only those rows.
-func (s *Store) Change(token string, fn func(*Data, *Session)) error {
-	return s.update(nil, func(d *Data) error {
+// logout from being followed by a successful settings mutation. fn changes the
+// session's user and the session; it must not change items: SetItem and
+// SetItems do, writing only those rows.
+func (s *Store) Change(token string, fn func(*User, *Session)) error {
+	userID := s.sessionUser(token)
+	return s.update(userID, nil, func(d *Data) error {
 		key := tokenHash(token)
 		session, ok := d.Sessions[key]
-		if !ok || !session.ExpiresAt.After(time.Now()) {
+		u, exists := d.Users[userID]
+		if !ok || !exists || !session.ExpiresAt.After(time.Now()) || session.UserID != userID {
 			return ErrSession
 		}
-		items := d.User.Items
-		d.User.Items = nil
+		items := u.Items
+		u.Items = nil
 		session = cloneSession(session)
-		fn(d, &session)
-		if d.User.Items != nil {
+		fn(&u, &session)
+		if u.Items != nil {
 			return errors.New("state: Change must not modify items")
 		}
-		d.User.Items = items
+		u.Items = items
+		d.Users[userID] = u
 		d.Sessions[key] = session
 		return nil
 	})
@@ -441,24 +554,26 @@ func (s *Store) SetItemSession(token, itemID string, fn func(*ItemState, *Sessio
 	if itemID == "" {
 		return errors.New("item id is required")
 	}
-	return s.update([]string{itemID}, func(d *Data) error {
+	userID := s.sessionUser(token)
+	return s.update(userID, []string{itemID}, func(d *Data) error {
 		key := tokenHash(token)
 		session, ok := d.Sessions[key]
-		if !ok || !session.ExpiresAt.After(time.Now()) {
+		u, exists := d.Users[userID]
+		if !ok || !exists || !session.ExpiresAt.After(time.Now()) || session.UserID != userID {
 			return ErrSession
 		}
 		session = cloneSession(session)
-		current, exists := d.User.Items[itemID]
-		if !exists && len(d.User.Items) >= maxTrackedItems {
+		current, tracked := u.Items[itemID]
+		if !tracked && len(u.Items) >= maxTrackedItems {
 			return ErrStateLimit
 		}
 		fn(&current, &session)
 		d.Sessions[key] = session
 		if current == (ItemState{}) {
-			delete(d.User.Items, itemID)
+			delete(u.Items, itemID)
 			return nil
 		}
-		d.User.Items[itemID] = current
+		u.Items[itemID] = current
 		return nil
 	})
 }
@@ -469,28 +584,30 @@ func (s *Store) SetItemSession(token, itemID string, fn func(*ItemState, *Sessio
 // the limit. It returns the resulting state of each item.
 func (s *Store) SetItems(token string, itemIDs []string, fn func(id string, item *ItemState)) (map[string]ItemState, error) {
 	saved := map[string]ItemState{}
-	err := s.update(itemIDs, func(d *Data) error {
+	userID := s.sessionUser(token)
+	err := s.update(userID, itemIDs, func(d *Data) error {
 		session, ok := d.Sessions[tokenHash(token)]
-		if !ok || !session.ExpiresAt.After(time.Now()) {
+		u, exists := d.Users[userID]
+		if !ok || !exists || !session.ExpiresAt.After(time.Now()) || session.UserID != userID {
 			return ErrSession
 		}
 		added := 0
 		for _, id := range itemIDs {
-			current, exists := d.User.Items[id]
+			current, tracked := u.Items[id]
 			fn(id, &current)
 			saved[id] = current
-			if !exists && current != (ItemState{}) {
+			if !tracked && current != (ItemState{}) {
 				added++
 			}
 		}
-		if added > 0 && len(d.User.Items)+added > maxTrackedItems {
+		if added > 0 && len(u.Items)+added > maxTrackedItems {
 			return ErrStateLimit
 		}
 		for id, current := range saved {
 			if current == (ItemState{}) {
-				delete(d.User.Items, id)
+				delete(u.Items, id)
 			} else {
-				d.User.Items[id] = current
+				u.Items[id] = current
 			}
 		}
 		return nil
@@ -499,6 +616,180 @@ func (s *Store) SetItems(token string, itemIDs []string, fn func(id string, item
 		return nil, err
 	}
 	return saved, nil
+}
+
+// administrators counts the enabled administrators.
+func administrators(d *Data) int {
+	n := 0
+	for _, u := range d.Users {
+		if u.Policy.IsAdministrator && !u.Policy.IsDisabled {
+			n++
+		}
+	}
+	return n
+}
+
+// CreateUser adds a user without a password, with the given policy and
+// client configuration, which may be copied from another user.
+func (s *Store) CreateUser(name string, policy Policy, configuration map[string]json.RawMessage) (User, error) {
+	name, err := validName(name)
+	if err != nil {
+		return User{}, err
+	}
+	policy.EnabledFolders = slices.Clone(policy.EnabledFolders)
+	if policy.EnabledFolders == nil {
+		policy.EnabledFolders = []string{}
+	}
+	configuration = maps.Clone(configuration)
+	if configuration == nil {
+		configuration = map[string]json.RawMessage{}
+	}
+	u := User{ID: randomID(), Name: name, Configuration: configuration, Settings: map[string]json.RawMessage{}, Policy: policy}
+	err = s.update(u.ID, nil, func(d *Data) error {
+		if _, taken := d.UserByName(name); taken {
+			return ErrUserNameTaken
+		}
+		if len(d.Users) >= maxUsers {
+			return ErrStateLimit
+		}
+		d.Users[u.ID] = u
+		return nil
+	})
+	return u, err
+}
+
+// RenameUser changes the user's name, which stays unique ignoring case.
+func (s *Store) RenameUser(id, name string) error {
+	name, err := validName(name)
+	if err != nil {
+		return err
+	}
+	return s.update(id, nil, func(d *Data) error {
+		u, ok := d.Users[id]
+		if !ok {
+			return ErrUserNotFound
+		}
+		if other, taken := d.UserByName(name); taken && other.ID != id {
+			return ErrUserNameTaken
+		}
+		u.Name = name
+		d.Users[id] = u
+		return nil
+	})
+}
+
+// SetPolicy replaces the user's policy. Disabling a user revokes their
+// sessions, whose IDs are returned. At least one enabled administrator
+// always remains.
+func (s *Store) SetPolicy(id string, policy Policy) ([]string, error) {
+	policy.EnabledFolders = slices.Clone(policy.EnabledFolders)
+	if policy.EnabledFolders == nil {
+		policy.EnabledFolders = []string{}
+	}
+	var revoked []string
+	err := s.update(id, nil, func(d *Data) error {
+		u, ok := d.Users[id]
+		if !ok {
+			return ErrUserNotFound
+		}
+		u.Policy = policy
+		d.Users[id] = u
+		if administrators(d) == 0 {
+			return ErrLastAdministrator
+		}
+		if policy.IsDisabled {
+			revoked = revokeSessions(d, id, "")
+		}
+		return nil
+	})
+	return revoked, err
+}
+
+// SetPassword sets the user's password without the current one, as an
+// administrator does; an empty password removes it, so the user cannot sign
+// in until a new one is set. The user's sessions are revoked, except the one
+// of token, and their IDs are returned.
+func (s *Store) SetPassword(token, id, password string) ([]string, error) {
+	var salt, hash []byte
+	iterations := 0
+	if password != "" {
+		var err error
+		if salt, hash, err = hashPassword(password); err != nil {
+			return nil, err
+		}
+		iterations = passwordIterations
+	}
+	var revoked []string
+	err := s.update(id, nil, func(d *Data) error {
+		u, ok := d.Users[id]
+		if !ok {
+			return ErrUserNotFound
+		}
+		u.Salt, u.PasswordHash, u.Iterations = salt, hash, iterations
+		d.Users[id] = u
+		revoked = revokeSessions(d, id, tokenHash(token))
+		return nil
+	})
+	return revoked, err
+}
+
+// CopyUserData copies the policy, the client configuration or both from the
+// user from to the users to, in one transaction. Copying the policy revokes
+// the sessions of a user it disables, whose IDs are returned.
+func (s *Store) CopyUserData(from string, to []string, policy, configuration bool) ([]string, error) {
+	var revoked []string
+	err := s.updateUsers(to, nil, func(d *Data) error {
+		source, ok := d.Users[from]
+		if !ok {
+			return ErrUserNotFound
+		}
+		for _, id := range to {
+			u, ok := d.Users[id]
+			if !ok {
+				return ErrUserNotFound
+			}
+			if policy {
+				u.Policy = source.Policy
+				u.Policy.EnabledFolders = slices.Clone(source.Policy.EnabledFolders)
+				if u.Policy.IsDisabled {
+					revoked = append(revoked, revokeSessions(d, id, "")...)
+				}
+			}
+			if configuration {
+				u.Configuration = maps.Clone(source.Configuration)
+			}
+			d.Users[id] = u
+		}
+		if administrators(d) == 0 {
+			return ErrLastAdministrator
+		}
+		return nil
+	})
+	return revoked, err
+}
+
+// DeleteUser removes the user with their playback state, avatar and
+// sessions, whose IDs are returned. The last administrator cannot be deleted.
+func (s *Store) DeleteUser(id string) ([]string, error) {
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
+	var revoked []string
+	var image *UserImage
+	err := s.update("", nil, func(d *Data) error {
+		u, ok := d.Users[id]
+		if !ok {
+			return ErrUserNotFound
+		}
+		image = u.Image
+		delete(d.Users, id)
+		if administrators(d) == 0 {
+			return ErrLastAdministrator
+		}
+		revoked = revokeSessions(d, id, "")
+		return nil
+	})
+	s.removeUnreferencedImages(image)
+	return revoked, err
 }
 
 // ReadPassword reads a bounded password and strips one trailing newline.

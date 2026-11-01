@@ -15,7 +15,7 @@ func TestMetadataRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A database written before metadata existed is migrated on open.
-	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE metadata; ALTER TABLE users DROP COLUMN is_administrator; PRAGMA user_version = 1"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE metadata;"+dropPolicyColumns+"PRAGMA user_version = 1"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

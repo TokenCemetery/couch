@@ -16,7 +16,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 |---|---|---|
 | Connect by address; stable ServerId across restarts | Supported | M1 acceptance, [ROADMAP](ROADMAP.md) M1 |
 | Sign in, sign out, session restored after restart, revoked token refused | Supported | M1 acceptance; sign-in is rate limited |
-| User account | Partial | One local user created with `-init` as the administrator (#110); no user management in the UI (#111) |
+| User accounts and user management | Partial | `-init` creates the administrator; the Users pages create, edit, disable, hide and delete users, set passwords and copy data (#111); limiting a user to some libraries is refused (#116) |
 | Emby Connect, Emby Premiere | Unsupported | The Premiere check to `mb3admin.com` is blocked by the UI's CSP; the client shows "Get Emby Premiere" (#89) |
 
 ## Browsing
@@ -74,5 +74,5 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Catalog kept across restarts | Supported | Saved to `catalog.json`; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
 | Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; a first start, or a `-media-dir` that does not exist, fails (#31, #39) |
 | Backup and restore of user state | Partial | By copying the data directory; the Emby backup API is not implemented (#32) |
-| Server administration in the UI (libraries, users, tasks, logs) | Partial | The administrator opens the dashboard home; scheduled tasks and activity are empty, and the other pages fail (#111, #112, #113); identify and refresh are offered but not served (#115) |
+| Server administration in the UI (libraries, users, tasks, logs) | Partial | Users are managed (#111); the dashboard home opens with empty scheduled tasks and activity, and the library, task, log and settings pages fail (#112, #113); identify and refresh are offered but not served (#115) |
 | Container image (Linux amd64, FFmpeg 8.1) | Supported | `Dockerfile`, checked in CI; install, upgrade and recovery on the target host not verified (#114) |

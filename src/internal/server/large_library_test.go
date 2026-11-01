@@ -33,7 +33,7 @@ func BenchmarkSeriesPage(b *testing.B) {
 	catalog := largeLibrary()
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(b, h)
-	path := "/Users/" + store.Snapshot().User.ID + "/Items?ParentId=" + catalog.SeriesLibraryID() + "&IncludeItemTypes=Series&Recursive=true&Limit=100&Filters=IsUnplayed"
+	path := "/Users/" + testUser(store).ID + "/Items?ParentId=" + catalog.SeriesLibraryID() + "&IncludeItemTypes=Series&Recursive=true&Limit=100&Filters=IsUnplayed"
 	for b.Loop() {
 		if w := request(h, "GET", path, "", "", token); w.Code != 200 {
 			b.Fatal(w.Code)
@@ -48,7 +48,7 @@ func BenchmarkScreens(b *testing.B) {
 	catalog := largeLibrary()
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(b, h)
-	uid := store.Snapshot().User.ID
+	uid := testUser(store).ID
 	started := map[string]state.ItemState{}
 	for s := range 300 {
 		started["series-"+strconv.Itoa(s)+"-s1-e1"] = state.ItemState{Played: true, LastPlayed: time.Now().Add(-time.Duration(s) * time.Minute)}

@@ -20,7 +20,7 @@ func TestMovieCatalog(t *testing.T) {
 	}}
 	h := New(s, "test", nil, catalog).Handler()
 	token := login(t, h)
-	uid := s.Snapshot().User.ID
+	uid := testUser(s).ID
 	base := "/emby/Users/" + uid
 	page := func(path string) (ids []string, total int) {
 		t.Helper()
@@ -115,7 +115,7 @@ func TestRescannedLibraryOpens(t *testing.T) {
 	next := &media.Catalog{ID: "movies", Items: []media.Item{playbackMovie()},
 		Folders: []media.Item{{ID: "series", Kind: "Series", Name: "Show"}}}
 	api.SetCatalog(next)
-	for _, path := range []string{"/Items/" + next.SeriesLibraryID(), "/Users/" + store.Snapshot().User.ID + "/Items/" + next.SeriesLibraryID()} {
+	for _, path := range []string{"/Items/" + next.SeriesLibraryID(), "/Users/" + testUser(store).ID + "/Items/" + next.SeriesLibraryID()} {
 		expectStatus(t, request(h, "GET", path, "", "", token), 200)
 	}
 }
@@ -134,7 +134,7 @@ func TestItemsQueriesFromEmbyWeb(t *testing.T) {
 	}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	user := store.Snapshot().User.ID
+	user := testUser(store).ID
 	for types, want := range map[string]string{"movies": "movie", "tvshows": "episode,season,series", "music": "", "music,Movies": "movie"} {
 		w := request(h, "GET", "/Users/"+user+"/Items?Recursive=true&SortBy=SortName&CollectionTypes="+types, "", "", token)
 		expectStatus(t, w, 200)
@@ -189,7 +189,7 @@ func TestLibraryMenuSorts(t *testing.T) {
 	}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	user := store.Snapshot().User.ID
+	user := testUser(store).ID
 	order := func(query string) string {
 		t.Helper()
 		w := request(h, "GET", "/Users/"+user+"/Items?Recursive=true&"+query, "", "", token)

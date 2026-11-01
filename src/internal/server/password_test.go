@@ -8,7 +8,7 @@ import (
 func TestChangePassword(t *testing.T) {
 	store, h, _ := newTestServer(t)
 	token, other := login(t, h), login(t, h)
-	path := "/Users/" + store.Snapshot().User.ID + "/Password"
+	path := "/Users/" + testUser(store).ID + "/Password"
 	const next = "another-test-only-password"
 	form := func(values url.Values) string { return values.Encode() }
 	for _, tc := range []struct {
@@ -17,10 +17,11 @@ func TestChangePassword(t *testing.T) {
 	}{
 		{path, form(url.Values{"CurrentPw": {"wrong-test-password"}, "NewPw": {next}}), 401},
 		{path, form(url.Values{"CurrentPw": {testPassword}, "NewPw": {"short"}}), 400},
-		{path, form(url.Values{"ResetPassword": {"true"}}), 403},
+		// Removing one's own password would lock the user out.
+		{path, form(url.Values{"ResetPassword": {"true"}}), 400},
 		// Emby Web sends the current password empty.
 		{path, form(url.Values{"CurrentPw": {""}, "NewPw": {next}}), 400},
-		{"/Users/other/Password", form(url.Values{"CurrentPw": {testPassword}, "NewPw": {next}}), 403},
+		{"/Users/other/Password", form(url.Values{"CurrentPw": {testPassword}, "NewPw": {next}}), 404},
 	} {
 		w := request(h, "POST", tc.path, "application/x-www-form-urlencoded; charset=UTF-8", tc.body, token)
 		if w.Code != tc.status {

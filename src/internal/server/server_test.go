@@ -32,6 +32,12 @@ func newTestServer(t testing.TB) (*state.Store, http.Handler, string) {
 	return s, New(s, "Couch test", nil, nil).Handler(), dir
 }
 
+// testUser returns the user newTestServer creates.
+func testUser(store *state.Store) state.User {
+	u, _ := store.Snapshot().UserByName("viewer")
+	return u
+}
+
 func request(h http.Handler, method, path, contentType, body, token string) *httptest.ResponseRecorder {
 	r := httptest.NewRequestWithContext(context.Background(), method, path, strings.NewReader(body))
 	if contentType != "" {
@@ -106,7 +112,7 @@ func TestEmbyLoginSettingsRestartLogout(t *testing.T) {
 	}
 	expectStatus(t, request(h, "POST", "/Users/AuthenticateByName", "application/json", `{"Username":"viewer","Pw":"wrong"}`, ""), 401)
 	token := login(t, h)
-	uid := initial.User.ID
+	uid := testUser(s).ID
 	for _, path := range []string{"/Users/" + uid, "/Users/Me", "/System/Info", "/Users/" + uid + "/Views", "/usersettings/" + uid} {
 		expectStatus(t, request(h, "GET", path, "", "", ""), 401)
 		expectStatus(t, request(h, "GET", path, "", "", token), 200)
@@ -135,7 +141,7 @@ func TestEmbyLoginSettingsRestartLogout(t *testing.T) {
 	}
 	defer func() { _ = reopened.Close() }()
 	h = New(reopened, "Couch test", nil, nil).Handler()
-	if reopened.Snapshot().ServerID != initial.ServerID || reopened.Snapshot().User.ID != uid {
+	if reopened.Snapshot().ServerID != initial.ServerID || testUser(reopened).ID != uid {
 		t.Fatal("identity changed on restart")
 	}
 	expectStatus(t, request(h, "GET", "/Users/"+uid, "", "", token), 200)
@@ -178,9 +184,11 @@ func TestTokenFormsAndAccessIsolation(t *testing.T) {
 			expectStatus(t, w, 200)
 		}
 	}
-	for _, path := range []string{"/Users/other", "/usersettings/other", "/Users/other/Views", "/Items?UserId=other", "/Items?UserId=" + s.Snapshot().User.ID + "&userid=other"} {
+	for _, path := range []string{"/usersettings/other", "/Users/other/Views", "/Items?UserId=other", "/Items?UserId=" + testUser(s).ID + "&userid=other"} {
 		expectStatus(t, request(h, "GET", path, "", "", token), 403)
 	}
+	// The administrator may read other users; this one does not exist.
+	expectStatus(t, request(h, "GET", "/Users/other", "", "", token), 404)
 	expectStatus(t, request(h, "GET", "/Users/Me?api_key=different", "", "", token), 400)
 	expectStatus(t, request(h, "GET", "/Users/Me?X-Emby-Token="+token+"&X-Emby-Token=different", "", "", ""), 400)
 	expectStatus(t, request(h, "POST", "/usersettings/other", "application/json", `{}`, token), 403)
@@ -191,12 +199,12 @@ func TestTokenFormsAndAccessIsolation(t *testing.T) {
 func TestMalformedRequestsAndLimits(t *testing.T) {
 	s, h, _ := newTestServer(t)
 	token := login(t, h)
-	path := "/usersettings/" + s.Snapshot().User.ID
+	path := "/usersettings/" + testUser(s).ID
 	for _, body := range []string{"null", "[]", "{", "{} {}", strings.Repeat("x", 70<<10)} {
 		expectStatus(t, request(h, "POST", path, "application/json", body, token), 400)
 	}
 	expectStatus(t, request(h, "POST", "/Users/AuthenticateByName", "text/plain", `{"Username":"viewer","Pw":"whatever"}`, ""), 415)
-	expectStatus(t, request(h, "POST", "/Users/"+s.Snapshot().User.ID+"/Configuration/Partial", "application/json", `{"LatestItemsExcludes":null}`, token), 400)
+	expectStatus(t, request(h, "POST", "/Users/"+testUser(s).ID+"/Configuration/Partial", "application/json", `{"LatestItemsExcludes":null}`, token), 400)
 	expectStatus(t, request(h, "OPTIONS", "/Users/AuthenticateByName", "", "", ""), 204)
 	// Cheap malformed attempts still count toward the address's login window.
 	// The earlier login and the 415 above came from the same address.
@@ -250,7 +258,7 @@ func TestLoginLimit(t *testing.T) {
 func TestSettingsPageLists(t *testing.T) {
 	store, h, _ := newTestServer(t)
 	token := login(t, h)
-	user := store.Snapshot().User.ID
+	user := testUser(store).ID
 	for _, path := range []string{
 		// Under the API prefix this is an API route, not a static /web file.
 		"/emby/web/configurationpages?PageType=PluginConfiguration&UserId=" + user + "&EnableInUserMenu=true",

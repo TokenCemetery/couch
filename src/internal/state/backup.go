@@ -12,7 +12,7 @@ import (
 )
 
 // Backup writes a consistent copy of the state in dir to dest, a new or empty
-// directory: the database through VACUUM INTO, then the avatar file that copy
+// directory: the database through VACUUM INTO, then the avatar files that copy
 // references. It does not take the data directory lock, so it works while
 // Couch runs; a commit waits for the snapshot instead of interleaving with it.
 // The copy is loaded and validated as Open would before Backup succeeds.
@@ -70,7 +70,13 @@ func backupOnce(ctx context.Context, src *sql.DB, dir, dest string) error {
 	if err := syncFile(target); err != nil {
 		return err
 	}
-	if image := d.User.Image; image != nil {
+	copied := map[string]bool{}
+	for _, u := range d.Users {
+		image := u.Image
+		if image == nil || copied[image.Revision] {
+			continue
+		}
+		copied[image.Revision] = true
 		if b, err := hex.DecodeString(image.Revision); err != nil || len(b) != 16 {
 			return fmt.Errorf("invalid avatar revision %q", image.Revision)
 		}

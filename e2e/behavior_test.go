@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"mime"
 	"net/url"
 	"os"
@@ -283,6 +284,67 @@ var behaviors = []behavior{
 			}
 			if got, err := isFavorite(); err != nil || !got {
 				check.Errorf("after recovery: IsFavorite %v, err %v, want true", got, err)
+			}
+		},
+	},
+	{
+		Key:     "second-user-lifecycle",
+		Title:   "An administrator creates a user who signs in with separate state, survives a forced stop, and is deleted",
+		Feature: "UserService",
+		Run: func(inst *Instance, check *Check) {
+			form := "application/x-www-form-urlencoded"
+			resp, err := inst.Send(Request{Method: "POST", Path: "/Users/New", ContentType: form, Body: []byte("Name=Second")}, true)
+			var user struct{ Id string }
+			if err != nil || resp.Status != 200 || json.Unmarshal(resp.Body, &user) != nil || user.Id == "" {
+				check.Errorf("create: status %d, err %v", resp.Status, err)
+				return
+			}
+			password := Request{Method: "POST", Path: "/Users/" + user.Id + "/Password", ContentType: form, Body: []byte("NewPw=second-e2e-password")}
+			if resp, err := inst.Send(password, true); err != nil || resp.Status != 204 {
+				check.Errorf("set password: status %d, err %v", resp.Status, err)
+				return
+			}
+			signIn := func() (string, int) {
+				resp, err := inst.Send(Request{Method: "POST", Path: "/Users/AuthenticateByName", ContentType: form, Body: []byte("Username=second&Pw=second-e2e-password")}, false)
+				var result struct{ AccessToken string }
+				if err != nil || json.Unmarshal(resp.Body, &result) != nil {
+					return "", resp.Status
+				}
+				return result.AccessToken, resp.Status
+			}
+			token, status := signIn()
+			if status != 200 {
+				check.Errorf("sign in: status %d", status)
+				return
+			}
+			as := url.Values{"api_key": {token}}
+			played := Request{Method: "POST", Path: "/Users/" + user.Id + "/PlayedItems/" + inst.IDs.MovieID, Query: as}
+			if resp, err := inst.Send(played, false); err != nil || resp.Status != 200 {
+				check.Errorf("mark played: status %d, err %v", resp.Status, err)
+				return
+			}
+			if err := inst.KillAndRestart(); err != nil {
+				check.Errorf("restart after SIGKILL: %v", err)
+				return
+			}
+			var item struct{ UserData struct{ Played bool } }
+			read := Request{Method: "GET", Path: "/Users/" + user.Id + "/Items/" + inst.IDs.MovieID, Query: as}
+			resp, err = inst.Send(read, false)
+			if err != nil || resp.Status != 200 || json.Unmarshal(resp.Body, &item) != nil || !item.UserData.Played {
+				check.Errorf("second user's item after restart: status %d, played %v, err %v", resp.Status, item.UserData.Played, err)
+			}
+			if err := inst.Get("/emby/Users/"+inst.IDs.UserID+"/Items/"+inst.IDs.MovieID, &item); err != nil || item.UserData.Played {
+				check.Errorf("the administrator's item is played too (err %v)", err)
+			}
+			if resp, err := inst.Send(Request{Method: "GET", Path: "/Users/Query", Query: as}, false); err != nil || resp.Status != 403 {
+				check.Errorf("users query as the second user: status %d, err %v, want 403", resp.Status, err)
+			}
+			if resp, err := inst.Send(Request{Method: "DELETE", Path: "/Users/" + user.Id}, true); err != nil || resp.Status != 204 {
+				check.Errorf("delete: status %d, err %v", resp.Status, err)
+				return
+			}
+			if _, status := signIn(); status != 401 {
+				check.Errorf("sign in after delete: status %d, want 401", status)
 			}
 		},
 	},

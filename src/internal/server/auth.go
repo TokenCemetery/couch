@@ -162,10 +162,12 @@ func (s *Server) verifying(w http.ResponseWriter, r *http.Request) (release func
 	}
 }
 
-// changePassword serves the Profile page form, which posts CurrentPw and NewPw.
-// The administrator reset (ResetPassword without the current password) is
-// refused until users can be managed (#111).
-func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+// changePassword serves the password forms, which post CurrentPw and NewPw,
+// or ResetPassword. A user changes their own password with the current one;
+// an administrator sets another user's without it, or resets it, which
+// removes it until a new one is set. manage has checked the caller may act
+// on target.
+func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token string, session state.Session, target state.User) {
 	release, ok := s.verifying(w, r)
 	if !ok {
 		return
@@ -175,29 +177,38 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token st
 	if !ok {
 		return
 	}
-	if fields["resetpassword"] == "true" {
-		fail(w, 403, "Forbidden")
+	self := target.ID == session.UserID
+	var revoked []string
+	var err error
+	switch current, next := fields["currentpw"], fields["newpw"]; {
+	case fields["resetpassword"] == "true" && self:
+		failText(w, 400, "Couch does not remove your own password: you could not sign in again.")
 		return
-	}
-	current, next := fields["currentpw"], fields["newpw"]
-	if len(current) > 1024 {
+	case fields["resetpassword"] == "true":
+		revoked, err = s.store.SetPassword(token, target.ID, "")
+	case !self:
+		revoked, err = s.store.SetPassword(token, target.ID, next)
+	case len(current) > 1024:
 		fail(w, 400, "InvalidRequest")
 		return
-	}
 	// Emby Web hides the current-password field for servers from 4.8.0.38 and
 	// sends it empty. Couch still requires it (#46), and answers in plain text,
 	// which the client's error dialog shows as written.
-	if current == "" {
+	case current == "":
 		failText(w, 400, "Couch requires the current password to change it, and this client did not send one.")
 		return
+	default:
+		revoked, err = s.store.ChangePassword(token, current, next)
 	}
-	revoked, err := s.store.ChangePassword(token, current, next)
 	switch {
 	case errors.Is(err, state.ErrPassword):
 		failText(w, 400, "The new password must contain 12 to 1024 bytes.")
 		return
 	case errors.Is(err, state.ErrCredentials):
 		failText(w, 401, "The current password is incorrect.")
+		return
+	case errors.Is(err, state.ErrUserNotFound):
+		fail(w, 404, "NotFound")
 		return
 	case err != nil:
 		s.changed(w, err)
@@ -285,7 +296,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := s.store.Snapshot()
-	respond(w, 200, object{"User": s.userDTO(d, token), "SessionInfo": sessionDTO(d, session), "AccessToken": token, "ServerId": d.ServerID})
+	respond(w, 200, object{"User": s.userDTO(d, userOf(d, session), token), "SessionInfo": sessionDTO(d, session), "AccessToken": token, "ServerId": d.ServerID})
 }
 
 type authenticated func(http.ResponseWriter, *http.Request, string, state.Session)
@@ -293,7 +304,7 @@ type authenticated func(http.ResponseWriter, *http.Request, string, state.Sessio
 // admin is protect for operations only an administrator may perform.
 func (s *Server) admin(next authenticated) http.HandlerFunc {
 	return s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if !s.store.Snapshot().User.IsAdministrator {
+		if !userOf(s.store.Snapshot(), session).Policy.IsAdministrator {
 			fail(w, 403, "Forbidden")
 			return
 		}
@@ -301,7 +312,23 @@ func (s *Server) admin(next authenticated) http.HandlerFunc {
 	})
 }
 
+// protect authenticates the request and refuses one whose UserId or {user}
+// names another user.
 func (s *Server) protect(next authenticated) http.HandlerFunc {
+	return s.protectAny(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		ids := append(values(r, "UserId"), r.PathValue("user"))
+		for _, id := range ids {
+			if id != "" && !strings.EqualFold(id, session.UserID) {
+				fail(w, 403, "Forbidden")
+				return
+			}
+		}
+		next(w, r, token, session)
+	})
+}
+
+// protectAny authenticates the request whichever user it names.
+func (s *Server) protectAny(next authenticated) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, err := requestToken(r)
 		if err != nil {
@@ -312,13 +339,6 @@ func (s *Server) protect(next authenticated) http.HandlerFunc {
 		if err != nil {
 			fail(w, 401, "Unauthorized")
 			return
-		}
-		ids := append(values(r, "UserId"), r.PathValue("user"))
-		for _, id := range ids {
-			if id != "" && !strings.EqualFold(id, session.UserID) {
-				fail(w, 403, "Forbidden")
-				return
-			}
 		}
 		next(w, r, token, session)
 	}

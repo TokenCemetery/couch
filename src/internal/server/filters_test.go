@@ -26,7 +26,7 @@ func TestLibraryFilters(t *testing.T) {
 	}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	user := store.Snapshot().User.ID
+	user := testUser(store).ID
 	names := func(path string) string {
 		t.Helper()
 		w := request(h, "GET", path, "", "", token)

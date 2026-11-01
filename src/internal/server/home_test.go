@@ -16,7 +16,7 @@ func TestHomeSectionTitlesFollowLanguage(t *testing.T) {
 	catalog := &media.Catalog{ID: "movies", Items: []media.Item{{ID: "m", Name: "Movie"}}}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	path := "/Users/" + store.Snapshot().User.ID + "/HomeSections"
+	path := "/Users/" + testUser(store).ID + "/HomeSections"
 	titles := func(query, header string) string {
 		r := httptest.NewRequestWithContext(t.Context(), "GET", path+query, nil)
 		r.Header.Set("X-Emby-Token", token)

@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 )
 
-// UserImage describes the stored avatar. The file is named by its revision, a
-// content hash, so a reader never sees a partly replaced image.
+// UserImage describes a stored avatar. The file is named by its revision, a
+// content hash, so a reader never sees a partly replaced image; users who
+// upload the same image share the file.
 type UserImage struct {
 	Revision string
 	MIME     string
@@ -18,7 +19,7 @@ func (s *Store) userImagePath(revision string) string {
 	return filepath.Join(s.dir, "user-image-"+revision)
 }
 
-// SetUserImage stores an already validated avatar. The file is written and
+// SetUserImage stores an already validated avatar for the user of token. The file is written and
 // synced before the state refers to it. Afterwards, whether or not the change
 // was committed, only files the committed state no longer references are
 // removed.
@@ -31,22 +32,23 @@ func (s *Store) SetUserImage(token string, content []byte, mime string) error {
 		return err
 	}
 	var previous *UserImage
-	err := s.Change(token, func(d *Data, _ *Session) {
-		previous = d.User.Image
-		d.User.Image = &image
+	err := s.Change(token, func(u *User, _ *Session) {
+		previous = u.Image
+		u.Image = &image
 	})
 	s.removeUnreferencedImages(previous, &image)
 	return err
 }
 
-// DeleteUserImage removes the avatar. Deleting a missing avatar succeeds.
+// DeleteUserImage removes the avatar of the user of token. Deleting a missing
+// avatar succeeds.
 func (s *Store) DeleteUserImage(token string) error {
 	s.imageMu.Lock()
 	defer s.imageMu.Unlock()
 	var previous *UserImage
-	err := s.Change(token, func(d *Data, _ *Session) {
-		previous = d.User.Image
-		d.User.Image = nil
+	err := s.Change(token, func(u *User, _ *Session) {
+		previous = u.Image
+		u.Image = nil
 	})
 	s.removeUnreferencedImages(previous)
 	return err
@@ -56,19 +58,24 @@ func (s *Store) DeleteUserImage(token string) error {
 // committed state still references them. Callers hold imageMu.
 func (s *Store) removeUnreferencedImages(images ...*UserImage) {
 	s.mu.RLock()
-	current := s.data.User.Image
+	current := map[string]bool{}
+	for _, u := range s.data.Users {
+		if u.Image != nil {
+			current[u.Image.Revision] = true
+		}
+	}
 	s.mu.RUnlock()
 	for _, image := range images {
-		if image != nil && (current == nil || current.Revision != image.Revision) {
+		if image != nil && !current[image.Revision] {
 			_ = os.Remove(s.userImagePath(image.Revision))
 		}
 	}
 }
 
-// OpenUserImage opens the current avatar file.
-func (s *Store) OpenUserImage() (*os.File, UserImage, error) {
+// OpenUserImage opens the user's current avatar file.
+func (s *Store) OpenUserImage(userID string) (*os.File, UserImage, error) {
 	s.mu.RLock()
-	image := s.data.User.Image
+	image := s.data.Users[userID].Image
 	s.mu.RUnlock()
 	if image == nil {
 		return nil, UserImage{}, os.ErrNotExist

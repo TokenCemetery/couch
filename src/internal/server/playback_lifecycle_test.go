@@ -26,12 +26,12 @@ func TestPlaybackReportRetriesSurviveRestart(t *testing.T) {
 	report("", "first", 0)
 	report("/Progress", "first", 25000000)
 	report("", "first", 0)
-	before := store.Snapshot().User.Items["movie"]
+	before := testUser(store).Items["movie"]
 	if before.PositionTicks != 25000000 || before.PlayCount != 1 {
 		t.Fatal("duplicate start changed progress/count")
 	}
 	report("/Stopped", "first", 100000000)
-	finished := store.Snapshot().User.Items["movie"]
+	finished := testUser(store).Items["movie"]
 	if !finished.Played || finished.PositionTicks != 0 {
 		t.Fatal("completion not saved")
 	}
@@ -47,24 +47,24 @@ func TestPlaybackReportRetriesSurviveRestart(t *testing.T) {
 	report("/Progress", "first", 25000000)
 	report("", "first", 0)
 	report("/Stopped", "first", 25000000)
-	if got := store.Snapshot().User.Items["movie"]; got != finished {
+	if got := testUser(store).Items["movie"]; got != finished {
 		t.Fatal("old report reopened completed playback")
 	}
 	report("", "second", 0)
 	report("/Progress", "second", 40000000)
-	current := store.Snapshot().User.Items["movie"]
+	current := testUser(store).Items["movie"]
 	report("", "first", 0)
 	report("/Stopped", "first", 100000000)
-	if got := store.Snapshot().User.Items["movie"]; got != current || got.PlayCount != 2 {
+	if got := testUser(store).Items["movie"]; got != current || got.PlayCount != 2 {
 		t.Fatal("old playback changed the current play")
 	}
 	report("/Progress", "second", 10000000)
-	if store.Snapshot().User.Items["movie"].PositionTicks != 10000000 {
+	if testUser(store).Items["movie"].PositionTicks != 10000000 {
 		t.Fatal("backward seek refused")
 	}
 	// Reports without IDs keep compatibility with older clients.
 	report("/Progress", "", 20000000)
-	if store.Snapshot().User.Items["movie"].PositionTicks != 20000000 {
+	if testUser(store).Items["movie"].PositionTicks != 20000000 {
 		t.Fatal("legacy report refused")
 	}
 }
@@ -134,7 +134,7 @@ func TestStreamSwitchContinuesPlay(t *testing.T) {
 		}
 		return response.PlaySessionId
 	}
-	position := func() int64 { return store.Snapshot().User.Items["movie"].PositionTicks }
+	position := func() int64 { return testUser(store).Items["movie"].PositionTicks }
 	expect := func(want int64, why string) {
 		t.Helper()
 		if got := position(); got != want {
@@ -162,7 +162,7 @@ func TestStreamSwitchContinuesPlay(t *testing.T) {
 	report("/Progress", third, 30000000)
 	expect(30000000, "progress after a second switch")
 	report("/Stopped", third, 40000000)
-	if got := store.Snapshot().User.Items["movie"]; got.PositionTicks != 40000000 || got.PlayCount != 1 {
+	if got := testUser(store).Items["movie"]; got.PositionTicks != 40000000 || got.PlayCount != 1 {
 		t.Fatalf("after stop: %+v", got)
 	}
 	// A stopped play neither moves nor continues.

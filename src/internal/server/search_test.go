@@ -61,7 +61,7 @@ func TestSearchHistory(t *testing.T) {
 	}}
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
-	base := "/Users/" + store.Snapshot().User.ID
+	base := "/Users/" + testUser(store).ID
 	report := func(body string, status int) {
 		t.Helper()
 		expectStatus(t, request(h, "POST", base+"/SearchedItems", "application/json", body, token), status)
@@ -96,7 +96,7 @@ func TestSearchHistory(t *testing.T) {
 	if got := ids("/Items?Recursive=true&WasSearched=false"); got != "a,c" {
 		t.Fatal(got)
 	}
-	if _, kept := store.Snapshot().User.Items["c"]; kept {
+	if _, kept := testUser(store).Items["c"]; kept {
 		t.Fatal("cleared search state was kept")
 	}
 	expectStatus(t, request(h, "POST", base+"/PlayedItems/a", "", "", token), 200)
@@ -105,7 +105,7 @@ func TestSearchHistory(t *testing.T) {
 	if got := ids("/Items?Recursive=true&WasSearched=true"); got != "" {
 		t.Fatal(got)
 	}
-	if st := store.Snapshot().User.Items; !st["a"].Played || len(st) != 1 {
+	if st := testUser(store).Items; !st["a"].Played || len(st) != 1 {
 		t.Fatal("clearing search history changed other state", st)
 	}
 	report(`{"Ids":["missing"],"WasSearched":true}`, 404)

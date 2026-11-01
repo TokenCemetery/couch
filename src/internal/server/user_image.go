@@ -35,17 +35,20 @@ func (s *Server) userImageRoutes(mux *http.ServeMux) {
 	}
 }
 
+// userImage serves a user's avatar to that user and to an administrator,
+// whose user list shows every avatar.
 func (s *Server) userImage(w http.ResponseWriter, r *http.Request) {
-	user := r.PathValue("user")
-	_, revision, ok := s.imageAccess(w, r, userImageSubject(user))
+	user := strings.ToLower(r.PathValue("user"))
+	session, revision, ok := s.imageAccess(w, r, userImageSubject(user))
 	if !ok {
 		return
 	}
-	if !primaryImage(r) || !strings.EqualFold(user, s.store.Snapshot().User.ID) {
+	snapshot := s.store.Snapshot()
+	if _, exists := snapshot.Users[user]; !primaryImage(r) || !exists || (user != session.UserID && !userOf(snapshot, session).Policy.IsAdministrator) {
 		fail(w, 404, "NotFound")
 		return
 	}
-	file, info, err := s.store.OpenUserImage()
+	file, info, err := s.store.OpenUserImage(user)
 	if err != nil {
 		fail(w, 404, "ImageUnavailable")
 		return
@@ -94,11 +97,11 @@ func (s *Server) deleteUserImage(w http.ResponseWriter, r *http.Request, token s
 	s.changed(w, s.store.DeleteUserImage(token))
 }
 
-// userImageTag is the user's PrimaryImageTag for this session, or "" when
-// there is no avatar.
-func (s *Server) userImageTag(d state.Data, token string) string {
-	if d.User.Image == nil {
+// userImageTag is u's PrimaryImageTag for this session, or "" when there is
+// no avatar.
+func (s *Server) userImageTag(u state.User, token string) string {
+	if u.Image == nil {
 		return ""
 	}
-	return s.store.ImageTag(token, userImageSubject(d.User.ID), d.User.Image.Revision)
+	return s.store.ImageTag(token, userImageSubject(u.ID), u.Image.Revision)
 }

@@ -121,9 +121,9 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 	case body.SubtitleStreamIndex == nil:
 		// The client left the choice to the server's subtitle mode. A text
 		// track is preferred to one that needs a transcode.
-		subtitle = defaultSubtitle(item, s.subtitleSelection(), audio, deliverable)
+		subtitle = defaultSubtitle(item, s.subtitleSelection(session), audio, deliverable)
 		if subtitle < 0 {
-			subtitle = defaultSubtitle(item, s.subtitleSelection(), audio, burnable)
+			subtitle = defaultSubtitle(item, s.subtitleSelection(session), audio, burnable)
 		}
 	}
 	if subtitle >= 0 && !deliverable(subtitle) && !burnable(subtitle) {
@@ -231,8 +231,8 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 
 // subtitleSelection reads the user's subtitle mode and languages, with Emby's
 // defaults for values the user never saved.
-func (s *Server) subtitleSelection() subtitleSelection {
-	config := s.store.Snapshot().User.Configuration
+func (s *Server) subtitleSelection(session state.Session) subtitleSelection {
+	config := userOf(s.store.Snapshot(), session).Configuration
 	selection := subtitleSelection{SubtitleMode: "Default"}
 	_ = json.Unmarshal(config["SubtitleMode"], &selection.SubtitleMode)
 	_ = json.Unmarshal(config["SubtitleLanguagePreference"], &selection.SubtitleLanguagePreference)
@@ -462,7 +462,7 @@ const maxSwitches = 8
 func (s *Server) continuePlay(token, itemID, current, playSession string) error {
 	s.itemMu.Lock()
 	defer s.itemMu.Unlock()
-	return s.store.Change(token, func(_ *state.Data, session *state.Session) {
+	return s.store.Change(token, func(_ *state.User, session *state.Session) {
 		n := len(session.RecentPlays)
 		if n == 0 {
 			return
@@ -536,7 +536,7 @@ func (s *Server) setItemFlag(favorite, value bool) authenticated {
 				s.changed(w, err)
 				return
 			}
-			data := s.folderPlayedData(item, s.store.Snapshot().User.Items)
+			data := s.folderPlayedData(item, userOf(s.store.Snapshot(), session).Items)
 			data["ItemId"] = item.ID
 			respond(w, 200, data)
 			return
@@ -621,14 +621,14 @@ func (s *Server) hideFromResume(w http.ResponseWriter, r *http.Request, token st
 // stored progress plus, because the section advertises IncludeNextUpInResume,
 // each started series' next episode dated by the series' last watch. Most
 // recent first.
-func (s *Server) resumeItems(limit int, token string) []object {
+func (s *Server) resumeItems(limit int, token string, session state.Session) []object {
 	catalog := s.catalog()
 	snapshot := s.store.Snapshot()
 	serverID := snapshot.ServerID
 	candidates := []*media.Item{}
 	played := map[string]time.Time{}
-	for _, c := range s.nextUpEpisodes(snapshot.User.Items, "", "") {
-		if snapshot.User.Items[c.next.ID].HiddenFromResume {
+	for _, c := range s.nextUpEpisodes(userOf(snapshot, session).Items, "", "") {
+		if userOf(snapshot, session).Items[c.next.ID].HiddenFromResume {
 			continue
 		}
 		candidates = append(candidates, c.next)
@@ -637,7 +637,7 @@ func (s *Server) resumeItems(limit int, token string) []object {
 	if catalog != nil {
 		for i := range catalog.Items {
 			item := &catalog.Items[i]
-			st := snapshot.User.Items[item.ID]
+			st := userOf(snapshot, session).Items[item.ID]
 			if !resumable(st, item.RunTimeTicks) {
 				continue
 			}
@@ -657,7 +657,7 @@ func (s *Server) resumeItems(limit int, token string) []object {
 	})
 	result := []object{}
 	for _, item := range candidates[:min(limit, len(candidates))] {
-		result = append(result, s.movieDTO(*item, serverID, snapshot.User.Items, token))
+		result = append(result, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token))
 	}
 	return result
 }
@@ -679,7 +679,7 @@ func (s *Server) playbackRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("POST /users/{user}/items/{item}/hidefromresume", s.protect(s.hideFromResume))
 	mux.HandleFunc("GET /users/{user}/items/resume", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		s.listItems(w, r, false, true)
+		s.listItems(w, r, session, false, true)
 	}))
 	mux.HandleFunc("POST /items/{item}/playbackinfo", s.protect(s.playbackInfo))
 	// Emby also answers GET for clients that cannot post a profile.

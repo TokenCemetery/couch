@@ -133,7 +133,7 @@ func (s *Server) metadataValueList(kind string) authenticated {
 			return
 		}
 		favorites := member(query["filters"], "IsFavorite") || strings.EqualFold(query["isfavorite"], "true")
-		userItems := s.store.Snapshot().User.Items
+		userItems := userOf(s.store.Snapshot(), session).Items
 		catalog := s.catalog()
 		found, seen := []string{}, map[string]bool{}
 		if catalog != nil {

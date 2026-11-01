@@ -168,12 +168,18 @@ func (s *Server) publish(message object, match func(*socket) bool) {
 	}
 }
 
-// publishUserConfiguration sends the user's connections the user as each of
-// them sees it after its settings changed. Emby Web replaces its cached user
-// with the message's, so the subtitle and audio preferences saved on one
-// device apply to playback started on another without a reload.
-func (s *Server) publishUserConfiguration(userID string) {
+// publishUser sends the user's connections the user as each of them sees it
+// after it changed: UserConfigurationUpdated after its settings,
+// UserPolicyUpdated after its policy, UserUpdated after its name. Emby Web
+// replaces its cached user with the message's, so the subtitle and audio
+// preferences saved on one device apply to playback started on another
+// without a reload.
+func (s *Server) publishUser(userID, messageType string) {
 	d := s.store.Snapshot()
+	user, ok := d.Users[userID]
+	if !ok {
+		return
+	}
 	s.socketMu.Lock()
 	defer s.socketMu.Unlock()
 	for sock := range s.connections {
@@ -181,7 +187,7 @@ func (s *Server) publishUserConfiguration(userID string) {
 			continue
 		}
 		// The avatar tag in the user is signed for the connection's token.
-		body, err := json.Marshal(object{"MessageType": "UserConfigurationUpdated", "Data": s.userDTO(d, sock.token)})
+		body, err := json.Marshal(object{"MessageType": messageType, "Data": s.userDTO(d, user, sock.token)})
 		if err == nil {
 			s.enqueue(sock, body)
 		}
