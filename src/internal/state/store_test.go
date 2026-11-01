@@ -419,7 +419,8 @@ func TestOwnerBecomesAdministrator(t *testing.T) {
 // version 2 shape.
 const dropPolicyColumns = `ALTER TABLE users DROP COLUMN is_administrator; ALTER TABLE users DROP COLUMN is_disabled;
 	ALTER TABLE users DROP COLUMN is_hidden; ALTER TABLE users DROP COLUMN enable_all_folders;
-	ALTER TABLE users DROP COLUMN enabled_folders; ALTER TABLE server DROP COLUMN libraries_configured; DROP TABLE libraries;`
+	ALTER TABLE users DROP COLUMN enabled_folders; ALTER TABLE server DROP COLUMN libraries_configured; DROP TABLE libraries;
+	ALTER TABLE server DROP COLUMN server_name; DROP TABLE activity;`
 
 // TestLibrariesPersist stores libraries in order and reads them back, and
 // checks that an upgraded database has none configured yet.
@@ -449,5 +450,27 @@ func TestLibrariesPersist(t *testing.T) {
 	}
 	if d := s.Snapshot(); !d.LibrariesConfigured || len(d.Libraries) != 0 || d.Libraries == nil {
 		t.Fatalf("libraries after removing all: %+v", d)
+	}
+}
+
+func TestActivityLog(t *testing.T) {
+	s, _ := testStore(t)
+	start := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	for n := range maxActivity + 5 {
+		if err := s.AddActivity(t.Context(), Activity{Date: start.Add(time.Duration(n) * time.Second), Type: "Test", Name: fmt.Sprint(n), Severity: "Info"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, total, err := s.ActivityLog(t.Context(), time.Time{}, 0, 2)
+	if err != nil || total != maxActivity || len(entries) != 2 || entries[0].Name != fmt.Sprint(maxActivity+4) || !entries[0].Date.Equal(start.Add((maxActivity+4)*time.Second)) {
+		t.Fatalf("entries %+v, total %d, %v", entries, total, err)
+	}
+	// A minimum date within a second keeps the order of fractions.
+	recent, total, err := s.ActivityLog(t.Context(), start.Add((maxActivity+3)*time.Second+time.Millisecond), 0, 10)
+	if err != nil || total != 1 || recent[0].Name != fmt.Sprint(maxActivity+4) {
+		t.Fatalf("recent %+v, total %d, %v", recent, total, err)
+	}
+	if err := s.SetServerName("Living room"); err != nil || s.Snapshot().ServerName != "Living room" {
+		t.Fatalf("server name: %v", err)
 	}
 }

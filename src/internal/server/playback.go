@@ -369,6 +369,7 @@ type playstateReport struct {
 	ItemId        string
 	PositionTicks *int64
 	PlaySessionId string
+	IsPaused      bool
 }
 
 // reportPlaystate records progress. A report for an unknown item is refused
@@ -446,6 +447,9 @@ func (s *Server) reportPlaystate(event string) authenticated {
 		}
 		if err == nil && problem == "" && event == "stop" && !hasPosition {
 			slog.Info("Playback stopped without a position", "item", item.ID)
+		}
+		if err == nil && problem == "" {
+			s.played(session, event, item, position, body.IsPaused)
 		}
 		s.changed(w, err)
 	}

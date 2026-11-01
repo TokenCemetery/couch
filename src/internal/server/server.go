@@ -7,13 +7,16 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/TokenCemetery/couch/internal/hls"
 	"github.com/TokenCemetery/couch/internal/library"
 	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/metadata"
 	"github.com/TokenCemetery/couch/internal/state"
 )
 
@@ -38,16 +41,28 @@ type Server struct {
 	metadataImages string
 	hls            *hls.Manager
 	libraries      *library.Manager
+	refresher      *metadata.Refresher
 	sockets        atomic.Int64
 	socketMu       sync.Mutex
 	connections    map[*socket]struct{}
 	closing        bool
 	itemMu         sync.Mutex
+
+	// logDir holds the server log files; empty when they are not kept.
+	logDir string
+	// refreshRequested is set while a metadata refresh an administrator ran
+	// is pending.
+	refreshRequested atomic.Bool
+	// sessionMu guards when each session was last seen and what it plays.
+	sessionMu sync.Mutex
+	seen      map[string]time.Time
+	playing   map[string]nowPlaying
 }
 
 // New creates a Server. web and catalog may be nil.
 func New(store *state.Store, name string, web http.Handler, catalog *media.Catalog) *Server {
-	s := &Server{store: store, name: name, web: web, logins: loginLimit{active: make(chan struct{}, 2)}, connections: make(map[*socket]struct{})}
+	s := &Server{store: store, name: name, web: web, logins: loginLimit{active: make(chan struct{}, 2)}, connections: make(map[*socket]struct{}),
+		seen: map[string]time.Time{}, playing: map[string]nowPlaying{}}
 	s.media.Store(catalog)
 	return s
 }
@@ -74,7 +89,7 @@ func respond(w http.ResponseWriter, status int, data any) {
 func failText(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(message)) //nolint:gosec // text/plain, and every response is sent with nosniff
+	_, _ = w.Write([]byte(message)) //nolint:gosec,nolintlint // text/plain, sent with nosniff; gosec reports this only on some runs
 }
 
 // errorMessages holds the text for each fail code. Like the reference Emby,
@@ -129,7 +144,7 @@ func (s *Server) internalError(w http.ResponseWriter) {
 
 func (s *Server) publicInfo() object {
 	d := s.store.Identity()
-	return object{"LocalAddresses": []string{}, "RemoteAddresses": []string{}, "ServerName": s.name, "Version": CompatibilityVersion, "Id": d.ServerID}
+	return object{"LocalAddresses": []string{}, "RemoteAddresses": []string{}, "ServerName": s.serverName(), "Version": CompatibilityVersion, "Id": d.ServerID}
 }
 
 func publicUser(serverID string, u state.User) object {
@@ -238,6 +253,12 @@ func (s *Server) Handler() http.Handler {
 		info["SupportsLibraryMonitor"], info["SupportsLocalPortConfiguration"], info["SupportsHttps"] = false, false, false
 		// The library folder browser reads these; the names are Emby's.
 		info["OperatingSystem"], info["OperatingSystemDisplayName"] = operatingSystem()
+		// The dashboard names the port the request came in on.
+		if addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+			if _, port, err := net.SplitHostPort(addr.String()); err == nil {
+				info["HttpServerPortNumber"], _ = strconv.Atoi(port)
+			}
+		}
 		respond(w, 200, info)
 	}))
 	mux.HandleFunc("GET /system/endpoint", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
@@ -262,9 +283,6 @@ func (s *Server) Handler() http.Handler {
 		}
 		s.disconnectSession(session.ID)
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	mux.HandleFunc("GET /sessions", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		respond(w, 200, []any{sessionDTO(s.store.Snapshot(), session)})
 	}))
 	mux.HandleFunc("POST /sessions/capabilities/full", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		var caps map[string]json.RawMessage
@@ -338,19 +356,12 @@ func (s *Server) Handler() http.Handler {
 	for _, path := range []string{"/localization/countries", "/features", "/movies/recommendations", "/web/configurationpages", "/notifications/services/configured", "/notifications/types"} {
 		mux.HandleFunc("GET "+path, emptyList)
 	}
-	// The dashboard home lists scheduled tasks and recent activity. The
-	// library scan is the only task, and Couch records no activity yet (#113).
-	mux.HandleFunc("GET /scheduledtasks", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		respond(w, 200, s.scheduledTasks())
-	}))
-	mux.HandleFunc("GET /system/activitylog/entries", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		respond(w, 200, object{"Items": []any{}, "TotalRecordCount": 0})
-	}))
 	// Emby Web strips the "/emby" prefix when it derives the socket address, so
 	// this route is registered at the root and not under the API prefix.
 	mux.HandleFunc("GET /embywebsocket", s.protect(s.websocket))
 	s.catalogRoutes(mux)
 	s.libraryRoutes(mux)
+	s.dashboardRoutes(mux)
 	s.filterRoutes(mux)
 	s.homeRoutes(mux)
 	s.playbackRoutes(mux)

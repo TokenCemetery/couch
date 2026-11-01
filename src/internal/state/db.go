@@ -16,13 +16,14 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 5
+const dbSchemaVersion = 6
 
 const dbSchema = `
 CREATE TABLE server (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	server_id TEXT NOT NULL,
-	libraries_configured INTEGER NOT NULL
+	libraries_configured INTEGER NOT NULL,
+	server_name TEXT NOT NULL
 ) STRICT;
 CREATE TABLE users (
 	id TEXT PRIMARY KEY,
@@ -56,8 +57,22 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + `
-PRAGMA user_version = 5;
+` + metadataSchema + librariesSchema + activitySchema + `
+PRAGMA user_version = 6;
+`
+
+// activitySchema was added in version 6.
+const activitySchema = `
+CREATE TABLE activity (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	date TEXT NOT NULL,
+	type TEXT NOT NULL,
+	name TEXT NOT NULL,
+	overview TEXT NOT NULL,
+	severity TEXT NOT NULL,
+	user_id TEXT NOT NULL,
+	item_id TEXT NOT NULL
+) STRICT;
 `
 
 // librariesSchema was added in version 5.
@@ -100,6 +115,9 @@ var migrations = map[int]string{
 	// Version 5 stores the libraries; until one is configured, -media-dir
 	// creates them.
 	4: "ALTER TABLE server ADD COLUMN libraries_configured INTEGER NOT NULL DEFAULT 0;" + librariesSchema + "PRAGMA user_version = 5;",
+	// Version 6 records the activity log and the server name set in Emby
+	// Web; until one is set, -name names the server.
+	5: "ALTER TABLE server ADD COLUMN server_name TEXT NOT NULL DEFAULT '';" + activitySchema + "PRAGMA user_version = 6;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -142,7 +160,7 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 		return Data{}, fmt.Errorf("unsupported database schema version %d", version)
 	}
 	d := Data{SchemaVersion: 1, Sessions: map[string]Session{}}
-	if err := db.QueryRowContext(ctx, "SELECT server_id, libraries_configured FROM server").Scan(&d.ServerID, &d.LibrariesConfigured); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT server_id, libraries_configured, server_name FROM server").Scan(&d.ServerID, &d.LibrariesConfigured, &d.ServerName); err != nil {
 		return Data{}, err
 	}
 	libraries, err := loadLibraries(ctx, db)
@@ -265,7 +283,7 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 		if _, err := tx.ExecContext(ctx, dbSchema); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO server (id, server_id, libraries_configured) VALUES (1, ?, 0)", next.ServerID); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO server (id, server_id, libraries_configured, server_name) VALUES (1, ?, 0, '')", next.ServerID); err != nil {
 			return err
 		}
 		for _, u := range next.Users {
@@ -280,6 +298,11 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 	}
 	if err := writeLibraries(ctx, tx, prev, next); err != nil {
 		return err
+	}
+	if prev.ServerName != next.ServerName {
+		if _, err := tx.ExecContext(ctx, "UPDATE server SET server_name = ?", next.ServerName); err != nil {
+			return err
+		}
 	}
 	for id := range prev.Users {
 		if _, ok := next.Users[id]; ok {

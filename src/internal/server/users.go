@@ -64,13 +64,20 @@ var (
 	ignoredPolicy = []string{"EnableContentDeletion", "EnableSubtitleManagement", "EnableAllChannels", "EnabledChannels"}
 )
 
-// fixedPolicyChange returns the first posted field that Couch reports with a
-// fixed value and that the post changes, or "". Fields Couch does not report
-// are ignored, null equals an empty list, and a number may be posted as text.
+// fixedPolicyChange returns the first posted policy field that Couch reports
+// with a fixed value and that the post changes, or "".
 func fixedPolicyChange(posted map[string]json.RawMessage, reported object) string {
+	return fixedChange(posted, reported, slices.Concat(storedPolicy, ignoredPolicy))
+}
+
+// fixedChange returns the first posted field that reported has, that skip
+// does not name, and whose value the post changes, or "". Fields reported
+// lacks are ignored, null equals an empty list, and a number may be posted
+// as text.
+func fixedChange(posted map[string]json.RawMessage, reported object, skip []string) string {
 	for _, key := range slices.Sorted(maps.Keys(posted)) {
 		value, known := reported[key]
-		if !known || slices.Contains(storedPolicy, key) || slices.Contains(ignoredPolicy, key) {
+		if !known || slices.Contains(skip, key) {
 			continue
 		}
 		var got, want any
@@ -127,6 +134,7 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 			s.userFailure(w, err)
 			return
 		}
+		s.record(state.Activity{Type: "UserRenamed", Name: target.Name + " was renamed " + s.userName(target.ID), Severity: "Info", UserID: session.UserID})
 		s.publishUser(target.ID, "UserUpdated")
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -147,14 +155,20 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 			failText(w, 400, "Couch does not support changing the "+field+" setting.")
 			return
 		}
-		revoked, err := s.store.SetPolicy(target.ID, state.Policy{IsAdministrator: body.IsAdministrator, IsDisabled: body.IsDisabled,
-			IsHidden: body.IsHidden, EnableAllFolders: true})
+		policy := state.Policy{IsAdministrator: body.IsAdministrator, IsDisabled: body.IsDisabled,
+			IsHidden: body.IsHidden, EnableAllFolders: true, EnabledFolders: []string{}}
+		revoked, err := s.store.SetPolicy(target.ID, policy)
 		if err != nil {
 			s.userFailure(w, err)
 			return
 		}
 		for _, id := range revoked {
 			s.disconnectSession(id)
+		}
+		// The profile page posts the policy on every save; only a change is
+		// recorded.
+		if !reflect.DeepEqual(target.Policy, policy) {
+			s.record(state.Activity{Type: "UserPolicyUpdated", Name: "The policy of " + target.Name + " was changed", Severity: "Info", UserID: session.UserID})
 		}
 		s.publishUser(target.ID, "UserPolicyUpdated")
 		w.WriteHeader(http.StatusNoContent)
@@ -172,6 +186,7 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 		for _, id := range revoked {
 			s.disconnectSession(id)
 		}
+		s.record(state.Activity{Type: "UserDeleted", Name: target.Name + " was deleted", Severity: "Info", UserID: session.UserID})
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("DELETE /users/{user}", remove)
@@ -223,6 +238,7 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 			s.userFailure(w, err)
 			return
 		}
+		s.record(state.Activity{Type: "UserCreated", Name: created.Name + " was created", Severity: "Info", UserID: session.UserID})
 		respond(w, 200, s.userDTO(s.store.Snapshot(), created, token))
 	}))
 	// "Copy Data to Users" in the users list, with the copyOptions choices.
@@ -285,25 +301,6 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 			folders = append(folders, object{"Name": dto["Name"], "Id": id, "Guid": dto["Guid"], "SubFolders": []any{}, "IsUserAccessConfigurable": true})
 		}
 		respond(w, 200, folders)
-	}))
-	// The access tab lists devices: each device a session signed in from,
-	// with its latest sign-in.
-	mux.HandleFunc("GET /devices", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		d := s.store.Snapshot()
-		latest := map[string]state.Session{}
-		for _, other := range d.Sessions {
-			if other.DeviceID != "" && other.ExpiresAt.After(latest[other.DeviceID].ExpiresAt) {
-				latest[other.DeviceID] = other
-			}
-		}
-		devices := []object{}
-		for _, id := range slices.Sorted(maps.Keys(latest)) {
-			last := latest[id]
-			devices = append(devices, object{"Name": last.DeviceName, "Id": id, "ReportedDeviceId": id, "InternalId": len(devices) + 1,
-				"LastUserId": last.UserID, "LastUserName": d.Users[last.UserID].Name, "AppName": last.Client, "AppVersion": last.Version,
-				"DateLastActivity": embyDate(last.ExpiresAt.Add(-state.SessionLifetime))})
-		}
-		respond(w, 200, object{"Items": devices, "TotalRecordCount": len(devices)})
 	}))
 	mux.HandleFunc("GET /library/mediafolders", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		items := []any{}

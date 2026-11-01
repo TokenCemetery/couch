@@ -192,7 +192,7 @@ func TestTokenFormsAndAccessIsolation(t *testing.T) {
 	expectStatus(t, request(h, "GET", "/Users/Me?api_key=different", "", "", token), 400)
 	expectStatus(t, request(h, "GET", "/Users/Me?X-Emby-Token="+token+"&X-Emby-Token=different", "", "", ""), 400)
 	expectStatus(t, request(h, "POST", "/usersettings/other", "application/json", `{}`, token), 403)
-	expectStatus(t, request(h, "POST", "/System/Restart", "", "", token), 404)
+	expectStatus(t, request(h, "POST", "/System/Unknown", "", "", token), 404)
 	expectStatus(t, request(h, "GET", "/Items/missing", "", "", token), 404)
 }
 

@@ -140,6 +140,8 @@ type Data struct {
 	// LibrariesConfigured, none has been stored, and -media-dir creates them.
 	Libraries           []Library
 	LibrariesConfigured bool
+	// ServerName is the name set in Emby Web, empty until one is set.
+	ServerName string
 }
 
 // Library is a media library: a name, a content type and absolute folders.
@@ -254,7 +256,7 @@ func (s *Store) Initialized() bool {
 	return s.data.SchemaVersion != 0
 }
 
-// Identity returns the server ID and each user's ID, name and policy, without
+// Identity returns the server ID and name and each user's ID, name and policy, without
 // the deep copy Snapshot makes; anonymous endpoints need nothing else. The
 // password hash is replaced by a marker, so HasPassword still answers.
 func (s *Store) Identity() Data {
@@ -268,7 +270,7 @@ func (s *Store) Identity() Data {
 		}
 		users[id] = public
 	}
-	return Data{ServerID: s.data.ServerID, Users: users}
+	return Data{ServerID: s.data.ServerID, Users: users, ServerName: s.data.ServerName}
 }
 
 // Snapshot returns the current state. It is shared with other readers and
@@ -780,6 +782,14 @@ func (s *Store) CopyUserData(from string, to []string, policy, configuration boo
 	return revoked, err
 }
 
+// SetServerName stores the server's name; empty returns to -name.
+func (s *Store) SetServerName(name string) error {
+	return s.update("", nil, func(d *Data) error {
+		d.ServerName = name
+		return nil
+	})
+}
+
 // SetLibraries stores the libraries in display order and marks them
 // configured, so -media-dir no longer creates any.
 func (s *Store) SetLibraries(libraries []Library) error {
@@ -795,6 +805,21 @@ func (s *Store) SetLibraries(libraries []Library) error {
 		d.Libraries, d.LibrariesConfigured = stored, true
 		return nil
 	})
+}
+
+// RevokeDevice signs out every session of the device and returns their IDs.
+func (s *Store) RevokeDevice(deviceID string) ([]string, error) {
+	var revoked []string
+	err := s.update("", nil, func(d *Data) error {
+		for key, session := range d.Sessions {
+			if session.DeviceID == deviceID {
+				revoked = append(revoked, session.ID)
+				delete(d.Sessions, key)
+			}
+		}
+		return nil
+	})
+	return revoked, err
 }
 
 // DeleteUser removes the user with their playback state, avatar and

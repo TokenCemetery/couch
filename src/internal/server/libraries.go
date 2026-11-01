@@ -17,7 +17,20 @@ import (
 // the library scan task. Without it the library routes refuse.
 func (s *Server) SetLibraries(m *library.Manager) {
 	s.libraries = m
-	m.OnChange(s.publishTasks)
+	var last *library.Result
+	m.OnChange(func() {
+		s.publishTasks()
+		running, result := m.Status()
+		if running || result == nil || result == last {
+			return
+		}
+		last = result
+		if result.Err == "" {
+			s.record(state.Activity{Type: "LibraryScanCompleted", Name: "Library scan completed", Severity: "Info"})
+		} else {
+			s.record(state.Activity{Type: "LibraryScanFailed", Name: "Library scan could not read every folder", Overview: result.Err, Severity: "Warn"})
+		}
+	})
 }
 
 // scanTaskKey is the key Emby Web's library page looks up to run a scan.
@@ -62,10 +75,11 @@ func libraryByID(libraries []media.Library, id string) (int, bool) {
 	return n, n >= 0
 }
 
-// changeLibraries applies change to a copy of the stored libraries and
-// stores the result; change writes any error response itself.
-func (s *Server) changeLibraries(w http.ResponseWriter, change func(libraries []media.Library) ([]media.Library, bool)) {
-	next, ok := change(slices.Clone(s.libraries.Libraries()))
+// changeLibraries applies change to a copy of the stored libraries, stores
+// the result and records what change describes in the activity log; change
+// writes any error response itself.
+func (s *Server) changeLibraries(w http.ResponseWriter, session state.Session, change func(libraries []media.Library) ([]media.Library, string, bool)) {
+	next, activity, ok := change(slices.Clone(s.libraries.Libraries()))
 	if !ok {
 		return
 	}
@@ -73,6 +87,7 @@ func (s *Server) changeLibraries(w http.ResponseWriter, change func(libraries []
 		s.internalError(w)
 		return
 	}
+	s.record(state.Activity{Type: "LibraryChanged", Name: activity, Severity: "Info", UserID: session.UserID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -120,47 +135,49 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 		for _, info := range body.LibraryOptions.PathInfos {
 			paths = append(paths, info.Path)
 		}
-		s.changeLibraries(w, func(libraries []media.Library) ([]media.Library, bool) {
+		s.changeLibraries(w, session, func(libraries []media.Library) ([]media.Library, string, bool) {
 			name, ok := libraryName(w, libraries, "", value(r, "name"))
 			if !ok {
-				return nil, false
+				return nil, "", false
 			}
 			created := media.Library{ID: media.NewLibraryID(), Name: name, Type: strings.ToLower(value(r, "collectionType")), Paths: []string{}}
 			if created.Type != media.Movies && created.Type != media.TVShows {
 				libraryFailure(w, library.ErrType)
-				return nil, false
+				return nil, "", false
 			}
 			for _, p := range paths {
 				folder, err := s.libraries.Folder(libraries, created, p)
 				if err != nil {
 					libraryFailure(w, err)
-					return nil, false
+					return nil, "", false
 				}
 				created.Paths = append(created.Paths, folder)
 			}
-			return append(libraries, created), true
+			return append(libraries, created), "Library " + name + " was created", true
 		})
 	})
 	route("POST /library/virtualfolders/name", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		s.changeLibraries(w, func(libraries []media.Library) ([]media.Library, bool) {
+		s.changeLibraries(w, session, func(libraries []media.Library) ([]media.Library, string, bool) {
 			n, ok := libraryByID(libraries, value(r, "id"))
 			if !ok {
 				fail(w, 404, "NotFound")
-				return nil, false
+				return nil, "", false
 			}
 			name, ok := libraryName(w, libraries, libraries[n].ID, value(r, "newName"))
+			old := libraries[n].Name
 			libraries[n].Name = name
-			return libraries, ok
+			return libraries, "Library " + old + " was renamed " + name, ok
 		})
 	})
 	remove := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		s.changeLibraries(w, func(libraries []media.Library) ([]media.Library, bool) {
+		s.changeLibraries(w, session, func(libraries []media.Library) ([]media.Library, string, bool) {
 			n, ok := libraryByID(libraries, value(r, "id"))
 			if !ok {
 				fail(w, 404, "NotFound")
-				return nil, false
+				return nil, "", false
 			}
-			return slices.Delete(libraries, n, n+1), true
+			name := libraries[n].Name
+			return slices.Delete(libraries, n, n+1), "Library " + name + " was removed", true
 		})
 	}
 	route("POST /library/virtualfolders/delete", remove)
@@ -178,31 +195,31 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 		if body.Path == "" {
 			body.Path = body.PathInfo.Path
 		}
-		s.changeLibraries(w, func(libraries []media.Library) ([]media.Library, bool) {
+		s.changeLibraries(w, session, func(libraries []media.Library) ([]media.Library, string, bool) {
 			n, ok := libraryByID(libraries, body.ID)
 			if !ok {
 				fail(w, 404, "NotFound")
-				return nil, false
+				return nil, "", false
 			}
 			folder, err := s.libraries.Folder(libraries, libraries[n], body.Path)
 			if err != nil {
 				libraryFailure(w, err)
-				return nil, false
+				return nil, "", false
 			}
 			libraries[n].Paths = append(slices.Clone(libraries[n].Paths), folder)
-			return libraries, true
+			return libraries, "A folder was added to library " + libraries[n].Name, true
 		})
 	})
 	removePath := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		s.changeLibraries(w, func(libraries []media.Library) ([]media.Library, bool) {
+		s.changeLibraries(w, session, func(libraries []media.Library) ([]media.Library, string, bool) {
 			n, ok := libraryByID(libraries, value(r, "id"))
 			path := filepath.Clean(value(r, "path"))
 			if !ok || !slices.Contains(libraries[n].Paths, path) {
 				fail(w, 404, "NotFound")
-				return nil, false
+				return nil, "", false
 			}
 			libraries[n].Paths = slices.DeleteFunc(slices.Clone(libraries[n].Paths), func(p string) bool { return p == path })
-			return libraries, true
+			return libraries, "A folder was removed from library " + libraries[n].Name, true
 		})
 	}
 	route("POST /library/virtualfolders/paths/delete", removePath)
@@ -336,64 +353,4 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 			respond(w, 200, []any{})
 		})
 	}
-
-	// The library scan is the one scheduled task.
-	route("GET /scheduledtasks/{task}", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if r.PathValue("task") != scanTaskID {
-			fail(w, 404, "NotFound")
-			return
-		}
-		respond(w, 200, s.scanTask())
-	})
-	route("POST /scheduledtasks/running/{task}", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if r.PathValue("task") != scanTaskID {
-			fail(w, 404, "NotFound")
-			return
-		}
-		s.libraries.Scan()
-		w.WriteHeader(http.StatusNoContent)
-	})
-	stop := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		failText(w, 400, "Couch cannot stop a running library scan.")
-	}
-	route("DELETE /scheduledtasks/running/{task}", stop)
-	route("POST /scheduledtasks/running/{task}/delete", stop)
-}
-
-// scanTask is the library scan as a scheduled task.
-func (s *Server) scanTask() object {
-	running, last := s.libraries.Status()
-	taskState := "Idle"
-	if running {
-		taskState = "Running"
-	}
-	task := object{"Name": "Scan media library", "Key": scanTaskKey, "Id": scanTaskID, "State": taskState, "Category": "Library",
-		"Description": "Scans the library folders for new, changed and removed files.", "IsHidden": false, "Triggers": []any{}}
-	if interval := s.libraries.Interval(); interval > 0 {
-		task["Triggers"] = []object{{"Type": "IntervalTrigger", "IntervalTicks": int64(interval / 100)}}
-	}
-	if last != nil {
-		result := object{"StartTimeUtc": embyDate(last.Start), "EndTimeUtc": embyDate(last.End), "Status": "Completed",
-			"Name": "Scan media library", "Key": scanTaskKey, "Id": scanTaskID}
-		if last.Err != "" {
-			result["Status"], result["ErrorMessage"] = "Failed", last.Err
-		}
-		task["LastExecutionResult"] = result
-	}
-	return task
-}
-
-// scheduledTasks lists the tasks: the library scan when libraries can be
-// managed.
-func (s *Server) scheduledTasks() []object {
-	if s.libraries == nil {
-		return []object{}
-	}
-	return []object{s.scanTask()}
-}
-
-// publishTasks tells the administrators watching the tasks that one started
-// or ended; Emby Web's task buttons wait for this message.
-func (s *Server) publishTasks() {
-	s.publish(object{"MessageType": "ScheduledTasksInfo", "Data": s.scheduledTasks()}, func(sock *socket) bool { return sock.tasks })
 }

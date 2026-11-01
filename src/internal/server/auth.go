@@ -217,6 +217,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token st
 	for _, id := range revoked {
 		s.disconnectSession(id)
 	}
+	s.record(state.Activity{Type: "UserPasswordChanged", Name: "The password of " + target.Name + " was changed", Severity: "Info", UserID: session.UserID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -284,6 +285,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	token, session, err := s.store.Login(username, pw, clientInfo(r))
 	if errors.Is(err, state.ErrCredentials) {
+		s.record(state.Activity{Type: "AuthenticationFailed", Name: "Failed sign-in for " + username,
+			Overview: "From " + clientAddress(r).String(), Severity: "Warn"})
 		fail(w, 401, "Unauthorized")
 		return
 	}
@@ -295,6 +298,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w)
 		return
 	}
+	s.touch(session.ID)
+	s.record(state.Activity{Type: "AuthenticationSucceeded", Name: s.userName(session.UserID) + " signed in from " + session.Client + " on " + session.DeviceName,
+		Overview: "From " + clientAddress(r).String(), Severity: "Info", UserID: session.UserID})
 	d := s.store.Snapshot()
 	respond(w, 200, object{"User": s.userDTO(d, userOf(d, session), token), "SessionInfo": sessionDTO(d, session), "AccessToken": token, "ServerId": d.ServerID})
 }
@@ -340,6 +346,7 @@ func (s *Server) protectAny(next authenticated) http.HandlerFunc {
 			fail(w, 401, "Unauthorized")
 			return
 		}
+		s.touch(session.ID)
 		next(w, r, token, session)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/TokenCemetery/couch/internal/hls"
 	"github.com/TokenCemetery/couch/internal/library"
+	"github.com/TokenCemetery/couch/internal/logfile"
 	"github.com/TokenCemetery/couch/internal/media"
 	"github.com/TokenCemetery/couch/internal/metadata"
 	"github.com/TokenCemetery/couch/internal/procusage"
@@ -106,6 +109,15 @@ func run() error {
 	if !s.Initialized() {
 		return errors.New("initialize first with -init -username NAME and a password on stdin")
 	}
+	// The log also goes to files in -data, which the dashboard's logs page
+	// shows; standard error keeps it for the service manager.
+	logDir := filepath.Join(*data, "logs")
+	logFile, err := logfile.Open(logDir)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	defer func() { _ = logFile.Close() }()
+	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
 	var web http.Handler
 	if *webDir != "" {
 		local, err := server.OpenWebDirectory(*webDir)
@@ -166,6 +178,8 @@ func run() error {
 		return err
 	}
 	api.SetMetadataImages(config.ImageDir)
+	api.SetRefresher(refresher)
+	api.SetLogDir(logDir)
 	slog.Info("Metadata sources", "nfo", true, "tmdb", config.TMDbKey != "", "tvdb", config.TVDbKey != "", "language", config.Language)
 	libraries, err := library.New(s, mediaRoots, filepath.Join(*data, "catalog.json"), func(next *media.Catalog) {
 		api.SetCatalog(next)

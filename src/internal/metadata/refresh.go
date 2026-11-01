@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TokenCemetery/couch/internal/media"
@@ -58,6 +59,20 @@ type Refresher struct {
 	lang     language
 	publish  func(Library)
 	catalogs chan *media.Catalog
+	requests chan struct{}
+
+	mu      sync.Mutex
+	running bool
+	last    *Result
+	// changed is called when a refresh starts or ends.
+	changed func()
+}
+
+// Result is how the last refresh went: Complete is false when it stopped
+// early, as when a provider failed or a newer catalogue replaced it.
+type Result struct {
+	Start, End time.Time
+	Complete   bool
 }
 
 // NewRefresher checks cfg. publish receives every new Library.
@@ -66,7 +81,44 @@ func NewRefresher(store metadataStore, cfg Config, publish func(Library)) (*Refr
 	if !ok {
 		return nil, fmt.Errorf("metadata language must be one of %s", strings.Join(SupportedLanguages(), ", "))
 	}
-	return &Refresher{store: store, cfg: cfg, lang: lang, publish: publish, catalogs: make(chan *media.Catalog, 1)}, nil
+	return &Refresher{store: store, cfg: cfg, lang: lang, publish: publish, catalogs: make(chan *media.Catalog, 1), requests: make(chan struct{}, 1)}, nil
+}
+
+// RefreshNow asks Run to refresh the current catalogue: changed .nfo files,
+// items not found or looked up yet, missing images and, with a Refresh
+// interval, what has aged. It returns at once.
+func (r *Refresher) RefreshNow() {
+	select {
+	case r.requests <- struct{}{}:
+	default:
+	}
+}
+
+// OnChange sets the function called when a refresh starts or ends.
+func (r *Refresher) OnChange(changed func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.changed = changed
+}
+
+// Status reports whether a refresh runs and how the last one ended.
+func (r *Refresher) Status() (running bool, last *Result) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.running, r.last
+}
+
+func (r *Refresher) setStatus(running bool, last *Result) {
+	r.mu.Lock()
+	r.running = running
+	if last != nil {
+		r.last = last
+	}
+	changed := r.changed
+	r.mu.Unlock()
+	if changed != nil {
+		changed()
+	}
 }
 
 // Online reports whether any online provider has a key.
@@ -115,6 +167,7 @@ func (r *Refresher) Run(ctx context.Context) {
 			case current = <-r.catalogs:
 			case <-tick:
 			case <-retry.C:
+			case <-r.requests:
 			}
 		}
 		pending = false
@@ -124,7 +177,11 @@ func (r *Refresher) Run(ctx context.Context) {
 		run, cancel := context.WithCancel(ctx)
 		done := make(chan bool, 1)
 		go func(catalog *media.Catalog) {
-			done <- r.refresh(run, slices.Concat(catalog.Folders, catalog.Items), catalog)
+			start := time.Now().UTC()
+			r.setStatus(true, nil)
+			complete := r.refresh(run, slices.Concat(catalog.Folders, catalog.Items), catalog)
+			r.setStatus(false, &Result{Start: start, End: time.Now().UTC(), Complete: complete})
+			done <- complete
 		}(current)
 		complete := false
 	wait:

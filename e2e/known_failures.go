@@ -18,6 +18,7 @@ var (
 	refusedLibrary  = knownFailure{112, "implemented; the generated request names no library, folder or task Couch has, or a folder outside the media roots, which Couch refuses"}
 	parentPathText  = knownFailure{112, "implemented as text/plain, which Emby Web reads as text; the contract says JSON"}
 	scanNotStopped  = knownFailure{112, "implemented; Couch cannot stop a running library scan and says so"}
+	refusedAdmin    = knownFailure{113, "implemented; the generated request names no log, device or setting Couch has, or asks for an API key, a restart or a shutdown, which Couch refuses"}
 	refusedUserEdit = knownFailure{111, "implemented; the generated request deletes the caller, limits libraries (#116), has no name or no target users, which Couch refuses"}
 	backup          = knownFailure{32, "backup and restore are not implemented"}
 	unranked        = knownFailure{34, "not implemented; not ranked by real usage yet"}
@@ -52,10 +53,7 @@ var knownFailures = map[string]knownFailure{
 	"postCollectionsByIdItems":        administration,
 	"postCollectionsByIdItemsDelete":  administration,
 	// ConfigurationService
-	"getSystemConfiguration":         administration,
-	"getSystemConfigurationByKey":    administration,
-	"postSystemConfiguration":        administration,
-	"postSystemConfigurationByKey":   administration,
+	"postSystemConfigurationByKey":   refusedAdmin,
 	"postSystemConfigurationPartial": administration,
 	// ConnectService
 	"deleteUsersByIdConnectLink":     unranked,
@@ -68,13 +66,9 @@ var knownFailures = map[string]knownFailure{
 	"postUsersByUseridHomesectionsDelete": homeSections,
 	"postUsersByUseridHomesectionsMove":   homeSections,
 	// DeviceService
-	"deleteDevices":            administration,
 	"getDevicesCamerauploads":  administration,
-	"getDevicesInfo":           administration,
-	"getDevicesOptions":        administration,
+	"getDevicesInfo":           refusedAdmin,
 	"postDevicesCamerauploads": administration,
-	"postDevicesDelete":        administration,
-	"postDevicesOptions":       administration,
 	// DisplayPreferencesService
 	"getDisplaypreferencesById":                    notOfferedByWeb,
 	"postDisplaypreferencesByDisplaypreferencesid": notOfferedByWeb,
@@ -88,9 +82,6 @@ var knownFailures = map[string]knownFailure{
 	"headAudioByIdHls1ByPlaylistidBySegmentidBySegmentcontainer": notOfferedByWeb,
 	"headAudioByIdMasterM3u8":                                    notOfferedByWeb,
 	// EncodingInfoService
-	"getEncodingCodecconfigurationDefaults": administration,
-	"getEncodingCodecinformationVideo":      administration,
-	"getEncodingTonemapoptions":             administration,
 	// EnvironmentService
 	"getEnvironmentDirectorycontents":  refusedLibrary,
 	"getEnvironmentParentpath":         parentPathText,
@@ -243,7 +234,6 @@ var knownFailures = map[string]knownFailure{
 	"getLivetvFolder":                       unranked,
 	"getLivetvGuideinfo":                    unranked,
 	"getLivetvInfo":                         unranked,
-	"getLivetvListingproviders":             unranked,
 	"getLivetvListingprovidersAvailable":    unranked,
 	"getLivetvListingprovidersDefault":      unranked,
 	"getLivetvListingprovidersLineups":      notCalledByWeb,
@@ -258,7 +248,6 @@ var knownFailures = map[string]knownFailure{
 	"getLivetvTimers":                       unranked,
 	"getLivetvTimersById":                   unranked,
 	"getLivetvTimersDefaults":               unranked,
-	"getLivetvTunerhosts":                   unranked,
 	"getLivetvTunerhostsDefaultByType":      unranked,
 	"getLivetvTunerhostsTypes":              unranked,
 	"getLivetvTunersDiscover":               notCalledByWeb,
@@ -285,7 +274,6 @@ var knownFailures = map[string]knownFailure{
 	"putLivetvChannelmappingoptions":        unranked,
 	"putLivetvChannelmappings":              unranked,
 	// LocalizationService
-	"getLocalizationOptions":         administration,
 	"getLocalizationParentalratings": administration,
 	// MediaInfoService
 	"getPlaybackBitratetest":   notCalledByWeb,
@@ -339,7 +327,6 @@ var knownFailures = map[string]knownFailure{
 	"postUsersByUseridPlayingitemsByIdProgress": notCalledByWeb,
 	// PluginService
 	"deletePluginsById":            administration,
-	"getPlugins":                   administration,
 	"getPluginsByIdConfiguration":  administration,
 	"getPluginsByIdThumb":          administration,
 	"postPluginsByIdConfiguration": administration,
@@ -358,9 +345,8 @@ var knownFailures = map[string]knownFailure{
 	// SessionsService
 	"deleteAuthKeysByKey":                 administration,
 	"deleteSessionsByIdUsersByUserid":     unranked,
-	"getAuthKeys":                         administration,
 	"getSessionsPlayqueue":                unranked,
-	"postAuthKeys":                        administration,
+	"postAuthKeys":                        refusedAdmin,
 	"postAuthKeysByKeyDelete":             administration,
 	"postSessionsByIdCommand":             unranked,
 	"postSessionsByIdCommandByCommand":    unranked,
@@ -396,7 +382,6 @@ var knownFailures = map[string]knownFailure{
 	"getSyncJobitems":                      unranked,
 	"getSyncJobitemsByIdAdditionalfiles":   unranked,
 	"getSyncJobitemsByIdFile":              unranked,
-	"getSyncJobs":                          unranked,
 	"getSyncJobsById":                      unranked,
 	"getSyncOptions":                       unranked,
 	"getSyncTargets":                       notCalledByWeb,
@@ -415,14 +400,11 @@ var knownFailures = map[string]knownFailure{
 	"postSyncJobsByIdDelete":               unranked,
 	"postSyncOfflineactions":               unranked,
 	// SystemService
-	"getSystemLogsByName":           administration,
-	"getSystemLogsByNameLines":      administration,
-	"getSystemLogsQuery":            administration,
-	"getSystemReleasenotes":         administration,
-	"getSystemReleasenotesVersions": administration,
-	"getSystemWakeonlaninfo":        administration,
-	"postSystemRestart":             administration,
-	"postSystemShutdown":            administration,
+	"getSystemLogsByName":      refusedAdmin,
+	"getSystemLogsByNameLines": refusedAdmin,
+	"getSystemReleasenotes":    administration,
+	"postSystemRestart":        refusedAdmin,
+	"postSystemShutdown":       refusedAdmin,
 	// TagService
 	"getArtistsPrefixes":      unranked,
 	"getItemsPrefixes":        unranked,
