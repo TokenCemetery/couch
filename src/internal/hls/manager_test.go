@@ -514,8 +514,26 @@ func TestKeyframesFromTheIndexMatchAFullScan(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if indexed(context.Background(), "ffprobe", file, 0, start, duration) == nil {
+			times, gotStart, gotDuration, timed := indexed(context.Background(), "ffprobe", file, 0)
+			if times == nil {
 				t.Fatal("the index does not agree with FFprobe")
+			}
+			if !timed || gotStart != start || gotDuration != duration {
+				t.Fatalf("times %v %v %v, want %v %v", timed, gotStart, gotDuration, start, duration)
+			}
+			// One FFprobe run checks the index and reads the file's times.
+			ffprobe, _ := exec.LookPath("ffprobe")
+			dir := t.TempDir()
+			wrapper := filepath.Join(dir, "ffprobe")
+			script := "#!/bin/sh\necho run >> " + filepath.Join(dir, "runs") + "\nexec " + ffprobe + " \"$@\"\n"
+			if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // test script in a temp dir
+				t.Fatal(err)
+			}
+			if _, _, err := keyframes(context.Background(), wrapper, file, 0); err != nil {
+				t.Fatal(err)
+			}
+			if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.Count(string(runs), "run") != 1 {
+				t.Fatalf("FFprobe ran %d times, want 1", strings.Count(string(runs), "run"))
 			}
 			// Another stream than the video has no keyframe index.
 			if _, err := indexKeyframes(io.NewSectionReader(file, 0, info.Size()), 1); !errors.Is(err, errNoIndex) {

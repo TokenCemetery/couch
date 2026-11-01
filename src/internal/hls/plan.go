@@ -94,12 +94,14 @@ func Playlist(bounds []float64, duration float64, segmentURL func(n int) string)
 func keyframes(ctx context.Context, ffprobe string, file *os.File, stream int) ([]float64, float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, keyframeLimit)
 	defer cancel()
-	start, duration, err := fileTimes(ctx, ffprobe, file)
-	if err != nil {
-		return nil, 0, errors.New("cannot list keyframes")
-	}
-	times := indexed(ctx, ffprobe, file, stream, start, duration)
+	times, start, duration, timed := indexed(ctx, ffprobe, file, stream)
 	if times == nil {
+		var err error
+		if !timed {
+			if start, duration, err = fileTimes(ctx, ffprobe, file); err != nil {
+				return nil, 0, errors.New("cannot list keyframes")
+			}
+		}
 		if times, err = listKeyframes(ctx, ffprobe, file, stream, start, duration); err != nil {
 			return nil, 0, err
 		}
@@ -120,33 +122,44 @@ func keyframes(ctx context.Context, ffprobe string, file *os.File, stream int) (
 // first must be the stream's first packet, and the last the keyframe a seek
 // to the end lands on, so neither end of the index is missing; no two may be
 // more than two segments apart, as a sparse index would lengthen segments.
-func indexed(ctx context.Context, ffprobe string, file *os.File, stream int, start, duration float64) []float64 {
+// The same FFprobe run reads the file's start time and duration, which timed
+// reports, so a rejected index does not need another run for them.
+func indexed(ctx context.Context, ffprobe string, file *os.File, stream int) (times []float64, start, duration float64, timed bool) {
 	info, err := file.Stat()
 	if err != nil {
-		return nil
+		return nil, 0, 0, false
 	}
-	times, err := indexKeyframes(io.NewSectionReader(file, 0, info.Size()), stream)
+	times, err = indexKeyframes(io.NewSectionReader(file, 0, info.Size()), stream)
 	if err != nil || len(times) == 0 {
-		return nil
+		return nil, 0, 0, false
 	}
 	slices.Sort(times)
-	for i := 1; i < len(times); i++ {
-		if times[i]-times[i-1] > 2*SegmentSeconds {
-			return nil
-		}
-	}
 	var ends []float64
-	end := strconv.FormatFloat(start+duration, 'f', 3, 64)
-	err = probe(ctx, ffprobe, file, []string{"-select_streams", strconv.Itoa(stream), "-show_entries", "packet=pts_time,flags", "-read_intervals", "%+#1," + end + "%+#1"}, func(fields []string) error {
+	// A seek past the end lands on the last keyframe, as one to the end does,
+	// before the file's times are known.
+	err = probe(ctx, ffprobe, file, []string{"-select_streams", strconv.Itoa(stream), "-show_entries", "format=start_time,duration:packet=pts_time,flags", "-read_intervals", "%+#1,99999999%+#1"}, func(fields []string) error {
 		if t, key, ok := packet(fields); ok && key {
 			ends = append(ends, t)
 		}
+		if len(fields) >= 3 && fields[0] == "format" {
+			start, _ = strconv.ParseFloat(fields[1], 64)
+			duration, _ = strconv.ParseFloat(fields[2], 64)
+			timed = true
+		}
 		return nil
 	})
-	if err != nil || len(ends) != 2 || math.Abs(ends[0]-times[0]) > 0.001 || math.Abs(ends[1]-times[len(times)-1]) > 0.001 {
-		return nil
+	if err != nil {
+		return nil, 0, 0, false
 	}
-	return times
+	for i := 1; i < len(times); i++ {
+		if times[i]-times[i-1] > 2*SegmentSeconds {
+			return nil, start, duration, timed
+		}
+	}
+	if !timed || len(ends) != 2 || math.Abs(ends[0]-times[0]) > 0.001 || math.Abs(ends[1]-times[len(times)-1]) > 0.001 {
+		return nil, start, duration, timed
+	}
+	return times, start, duration, timed
 }
 
 // listKeyframes lists keyframe times of one video stream with FFprobe. It

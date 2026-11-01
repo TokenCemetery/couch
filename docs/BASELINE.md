@@ -1,6 +1,6 @@
 # Resource baseline: Emby and Couch (#14)
 
-Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately; a fifth tries the 3 s transcode segments; the sixth repeats both servers on all profiles with no other load on the host, and the budgets compare with its Emby figures; the seventh repeats Couch after the thread and keyframe changes, and the budgets' Couch figures are from it. Phases shared across runs agree within about 5 %. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
+Status: two runs, 2026-10-31, plus a third Couch run after the x264 change ("Couch after Emby's x264 options" below). The second run adds I/O, temporary files and seek time; a fourth, on the large profile, measures the server process and FFmpeg separately; a fifth tries the 3 s transcode segments; the sixth repeats both servers on all profiles with no other load on the host, and the budgets compare with its Emby figures; the seventh repeats Couch after the thread and keyframe changes; the eighth, twice on every profile, after the remux plan's FFprobe runs were cut from two to one, and the budgets' Couch figures are from it. Phases shared across runs agree within about 5 %. Requirements: [PRD](PRD.md) G-2; budgets that build on this: #15.
 
 ## Method
 
@@ -347,8 +347,36 @@ API p95 in ms, Couch now against Emby, small / average / large: Views 0.5 agains
   - transcode reads on small by 0.9 MiB (39.9 against 38.9–39.0 MiB); average and large equal Emby's.
 - **Variance:** the phases that neither commit touched (startup, idle, Direct Stream, remux memory, the API's p95) agree with the sixth run within about 5 % or 0.1 ms.
 
+## Eighth run: one FFprobe run for an indexed remux plan (2026-11-01, #29)
+
+Couch only, in a release image built from d352009 plus this change, on all profiles, each twice, one after the other, same script, bench and media, with nothing else running on the host. Couch ran with its defaults. Emby's figures are from the sixth run.
+
+The change: a remux plan read from the container index needed two FFprobe runs, one for the file's start time and duration and one checking the index's first and last keyframe. One run now does both: it reads the format's times and seeks past the end (`-read_intervals %+#1,99999999%+#1`) instead of to the start time plus the duration, which it does not know yet. On every MKV and MP4 of the media set (R03–R15 and the series episodes) that seek lands on the same last keyframe as the exact one. AVI and MPEG-TS, which have no index, still read the times first and then list the keyframes, as before.
+
+Small / average / large, the range over the two runs where they differ:
+
+| Phase | Measure | Couch now | Couch, seventh run | Emby |
+|---|---|---|---|---|
+| Remux of R03, 120 s | CPU / memory | 2.14–2.23 / 2.22–2.26 / 2.24–2.25 s / 22 MiB | 2.3 s / 22 MiB | 1.9–2.0 s / 74–88 MiB |
+| | first segment | 0.37 / 0.26–0.27 / 0.27 s | 0.40 / 0.40 / 0.30 s | 0.34 / 0.33 / 0.32 s |
+| | seek to 50 % / 75 % | 0.21 / 0.31–0.32, 0.21 / 0.21, 0.21 / 0.21 s | 0.21 / 0.31, 0.21 / 0.21, 0.21 / 0.21 s | 0.22 / 0.19, 0.20 / 0.20, 0.20 / 0.14 s |
+| Transcode of R06, 120 s | CPU / memory | 29.1–29.2 / 28.9 / 31.4 s / 139–140 / 140 / 162–163 MiB | 28.9 / 28.6 / 31.3 s / 140 / 140 / 163 MiB | 34.8 / 33.7 / 33.8 s / 368 MiB |
+| | first segment | 1.01–1.13 / 0.65–0.66 / 0.41 s | 1.18 / 0.61 / 0.51 s | 1.39 / 0.79 / 0.47 s |
+| | seek to 50 % / 75 % | 1.33–1.42 / 1.43, 0.81 / 0.71–0.86, 0.51 / 0.51–0.52 s | 1.42 / 1.44, 0.81 / 0.82, 0.51 / 0.51 s | 1.75 / 1.67, 0.88 / 0.89, 0.40 / 0.52 s |
+| | reads / temp folder peak | 39.0 MiB / 3.9–4.9 MiB | 39.9 / 39.0 / 39.0 MiB / 4.0–4.7 MiB | 38.9–39.0 MiB / 94–100 MiB |
+| 4K transcode of R09, 18 s | first segment / CPU / memory | 7.8 / 4.1 / 2.9 s / 61 / 61 / 68 s / 922 / 922 / 1142 MiB | 8.0 / 4.1 / 2.9 s / 61 / 61 / 68 s / 922 / 922 / 1141 MiB | out of memory on small and average; 4.4 s / 91 s / 2602 MiB on large |
+
+Startup and scan (1.2 s, 0.8–0.9 s CPU, 18.6 MiB read), idle (4 MiB, 11–12 MiB RSS, 0 s CPU), Direct Stream (0.31–0.34 s CPU, 7 MiB, 0.5–0.7 ms to the first byte of a seek) and the API's p95 (0.4–2.5 ms, every endpoint at or below Emby's) match the seventh run within 0.1 s, 0.1 ms or 2 MiB.
+
+- **Met now, newly:** the remux first segment on average and large (0.26–0.27 against 0.33 / 0.32 s); the transcode first segment on large (0.41 against 0.47 s) and the transcode reads on small (39.0 MiB, Emby's upper figure). The transcode path does not run the changed code, so those two transcode figures are run-to-run variance: the seventh run's 0.51 s and 39.9 MiB were single runs, and both runs here agree.
+- **Still not met:**
+  - remux first segment on small, 0.37 against 0.34 s;
+  - remux CPU, 2.1–2.3 against 1.9–2.0 s, mostly the FFmpeg build ("Where the remaining FFmpeg CPU goes");
+  - remux seek to 50 % on average and large, 0.21 against 0.20 s;
+  - transcode seek to 50 % on large, 0.51 against 0.40 s.
+
 ## Not measured yet
 
 - Picture quality of the two encoders.
-- More runs for variance: three runs so far, agreeing within about 5 %.
+- More runs for variance: five Couch runs and two Emby runs so far; Couch's two runs here agree within 0.12 s on the transcode first segment on small and 0.1 s or 8 MiB elsewhere.
 - A real NAS, where the read volumes above turn into time, and Emby's internet metadata, which the offline network rules out.
