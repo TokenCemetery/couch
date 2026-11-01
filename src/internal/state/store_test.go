@@ -379,3 +379,30 @@ func TestChangeMustNotModifyItems(t *testing.T) {
 		t.Fatalf("rejected change was applied: %+v", d.User)
 	}
 }
+
+// TestOwnerBecomesAdministrator opens a database written before the
+// administrator role existed: its only user, the owner, gets the role.
+func TestOwnerBecomesAdministrator(t *testing.T) {
+	s, dir := testStore(t)
+	if !s.Snapshot().User.IsAdministrator {
+		t.Fatal("-init did not create an administrator")
+	}
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE users DROP COLUMN is_administrator; PRAGMA user_version = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	var version int
+	if err := s.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != dbSchemaVersion {
+		t.Fatalf("version %d, %v", version, err)
+	}
+	if !s.Snapshot().User.IsAdministrator {
+		t.Fatal("the migrated owner is not an administrator")
+	}
+}

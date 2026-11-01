@@ -145,19 +145,20 @@ func (s *Server) userDTO(d state.Data, token string) object {
 		config[k] = v
 	}
 	u["Configuration"] = config
-	u["Policy"] = policy(s.hls != nil)
+	u["Policy"] = policy(s.hls != nil, d.User.IsAdministrator)
 	return u
 }
 
 // policy mirrors the reference policy shape with values that match what Couch
-// can actually do: direct playback and downloading of the original file, video
-// remux and transcoding to HLS when FFmpeg is available (hls), and no audio
-// transcoding, Live TV, sync or remote control. Emby Web refuses to start
-// playback when EnableMediaPlayback is false, and offers the quality menu only
-// with EnableVideoPlaybackTranscoding, so this is load-bearing.
-func policy(hls bool) object {
+// can actually do: the user's administrator role, direct playback and
+// downloading of the original file, video remux and transcoding to HLS when
+// FFmpeg is available (hls), and no audio transcoding, Live TV, sync or
+// remote control. Emby Web refuses to start playback when EnableMediaPlayback
+// is false, and offers the quality menu only with
+// EnableVideoPlaybackTranscoding, so this is load-bearing.
+func policy(hls, administrator bool) object {
 	return object{
-		"IsAdministrator": false, "IsHidden": false, "IsHiddenRemotely": true,
+		"IsAdministrator": administrator, "IsHidden": false, "IsHiddenRemotely": true,
 		"IsHiddenFromUnusedDevices": false, "IsDisabled": false, "LockedOutDate": 0,
 		"AllowTagOrRating": false, "BlockedTags": []string{}, "IsTagBlockingModeInclusive": false,
 		"IncludeTags": []string{}, "EnableUserPreferenceAccess": true, "AccessSchedules": []any{},
@@ -321,6 +322,14 @@ func (s *Server) Handler() http.Handler {
 	for _, path := range []string{"/features", "/movies/recommendations", "/web/configurationpages", "/notifications/services/configured", "/notifications/types"} {
 		mux.HandleFunc("GET "+path, emptyList)
 	}
+	// The dashboard home lists scheduled tasks and recent activity. Couch
+	// records neither yet (#113), so an administrator gets empty lists.
+	mux.HandleFunc("GET /scheduledtasks", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		respond(w, 200, []any{})
+	}))
+	mux.HandleFunc("GET /system/activitylog/entries", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		respond(w, 200, object{"Items": []any{}, "TotalRecordCount": 0})
+	}))
 	// Emby Web strips the "/emby" prefix when it derives the socket address, so
 	// this route is registered at the root and not under the API prefix.
 	mux.HandleFunc("GET /embywebsocket", s.protect(s.websocket))

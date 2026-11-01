@@ -31,7 +31,10 @@ func derive(purpose, id string) string {
 
 // baseFields carries the properties Emby returns on every item. Emby Web
 // dereferences several of these arrays without a guard, so they are always
-// emitted even when empty; omitting them crashes the client.
+// emitted even when empty; omitting them crashes the client. The library is
+// read-only: CanEditItems false keeps Emby Web from offering an administrator
+// the metadata and image editors, identify and refresh, which it otherwise
+// decides by the role alone.
 func baseFields(id, name, kind, serverID string) object {
 	guid := derive("guid", id)
 	return object{
@@ -43,6 +46,7 @@ func baseFields(id, name, kind, serverID string) object {
 		"DateModified":          zeroDate,
 		"CanDelete":             false,
 		"CanDownload":           false,
+		"CanEditItems":          false,
 		"PresentationUniqueKey": guid,
 		"SupportsSync":          false,
 		"SortName":              name,

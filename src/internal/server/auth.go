@@ -164,7 +164,7 @@ func (s *Server) verifying(w http.ResponseWriter, r *http.Request) (release func
 
 // changePassword serves the Profile page form, which posts CurrentPw and NewPw.
 // The administrator reset (ResetPassword without the current password) is
-// refused: Couch's single user is not an administrator.
+// refused until users can be managed (#111).
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 	release, ok := s.verifying(w, r)
 	if !ok {
@@ -289,6 +289,17 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 type authenticated func(http.ResponseWriter, *http.Request, string, state.Session)
+
+// admin is protect for operations only an administrator may perform.
+func (s *Server) admin(next authenticated) http.HandlerFunc {
+	return s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		if !s.store.Snapshot().User.IsAdministrator {
+			fail(w, 403, "Forbidden")
+			return
+		}
+		next(w, r, token, session)
+	})
+}
 
 func (s *Server) protect(next authenticated) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

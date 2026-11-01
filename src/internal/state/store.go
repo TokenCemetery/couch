@@ -52,6 +52,8 @@ type User struct {
 	Items map[string]ItemState
 	// Image is the uploaded avatar, absent until one is uploaded.
 	Image *UserImage `json:",omitempty"`
+	// IsAdministrator allows the server's administrator-only operations.
+	IsAdministrator bool
 }
 
 // ItemState is the durable part of an item's UserData.
@@ -260,7 +262,8 @@ func cloneSession(session Session) Session {
 	return session
 }
 
-// Initialize creates the single local user. It fails if one already exists.
+// Initialize creates the local user as the administrator. It fails if a user
+// already exists.
 func (s *Store) Initialize(name, password string) error {
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > 128 || len(password) < 12 || len(password) > 1024 {
@@ -276,7 +279,18 @@ func (s *Store) Initialize(name, password string) error {
 		if d.SchemaVersion != 0 {
 			return errors.New("already initialized")
 		}
-		*d = Data{SchemaVersion: 1, ServerID: randomID(), User: User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: passwordIterations, Configuration: map[string]json.RawMessage{}, Settings: map[string]json.RawMessage{}}, Sessions: map[string]Session{}}
+		*d = Data{SchemaVersion: 1, ServerID: randomID(), User: User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: passwordIterations, IsAdministrator: true, Configuration: map[string]json.RawMessage{}, Settings: map[string]json.RawMessage{}}, Sessions: map[string]Session{}}
+		return nil
+	})
+}
+
+// SetAdministrator grants or revokes the administrator role of the user.
+func (s *Store) SetAdministrator(userID string, administrator bool) error {
+	return s.update(nil, func(d *Data) error {
+		if d.User.ID != userID {
+			return ErrCredentials
+		}
+		d.User.IsAdministrator = administrator
 		return nil
 	})
 }

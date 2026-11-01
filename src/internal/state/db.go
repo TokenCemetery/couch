@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 2
+const dbSchemaVersion = 3
 
 const dbSchema = `
 CREATE TABLE server (
@@ -32,7 +32,8 @@ CREATE TABLE users (
 	configuration TEXT NOT NULL,
 	settings TEXT NOT NULL,
 	image_revision TEXT,
-	image_mime TEXT
+	image_mime TEXT,
+	is_administrator INTEGER NOT NULL
 ) STRICT;
 CREATE TABLE item_state (
 	user_id TEXT NOT NULL REFERENCES users (id),
@@ -51,7 +52,7 @@ CREATE TABLE sessions (
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 ` + metadataSchema + `
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 `
 
 // metadataSchema was added in version 2; migrate adds it to a version 1 file.
@@ -65,6 +66,15 @@ CREATE TABLE metadata (
 	fetched_at TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 `
+
+// migrations upgrade a database written by an older release from the version
+// in the key to the next one.
+var migrations = map[int]string{
+	1: metadataSchema + "PRAGMA user_version = 2;",
+	// Version 3 adds the administrator role. Earlier releases had only the
+	// owner, created by -init, who becomes the administrator.
+	2: "ALTER TABLE users ADD COLUMN is_administrator INTEGER NOT NULL DEFAULT 0; UPDATE users SET is_administrator = 1; PRAGMA user_version = 3;",
+}
 
 // openDB opens the database file, creating it private to the owner. Reads are
 // served from memory, so the rollback journal is used instead of WAL: every
@@ -95,12 +105,12 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 	if version == 0 {
 		return Data{}, nil
 	}
-	if version == 1 {
-		if _, err := db.ExecContext(ctx, "BEGIN;"+metadataSchema+"PRAGMA user_version = 2; COMMIT;"); err != nil {
+	for migrations[version] != "" {
+		if _, err := db.ExecContext(ctx, "BEGIN;"+migrations[version]+"COMMIT;"); err != nil {
 			_, _ = db.ExecContext(ctx, "ROLLBACK")
 			return Data{}, err
 		}
-		version = 2
+		version++
 	}
 	if version != dbSchemaVersion {
 		return Data{}, fmt.Errorf("unsupported database schema version %d", version)
@@ -112,8 +122,8 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 	var configuration, settings string
 	var revision, mime sql.NullString
 	u := &d.User
-	err := db.QueryRowContext(ctx, "SELECT id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime FROM users").
-		Scan(&u.ID, &u.Name, &u.Salt, &u.PasswordHash, &u.Iterations, &configuration, &settings, &revision, &mime)
+	err := db.QueryRowContext(ctx, "SELECT id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime, is_administrator FROM users").
+		Scan(&u.ID, &u.Name, &u.Salt, &u.PasswordHash, &u.Iterations, &configuration, &settings, &revision, &mime, &u.IsAdministrator)
 	if err != nil {
 		return Data{}, err
 	}
@@ -208,11 +218,11 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, items []string) err
 		return err
 	}
 	if !reflect.DeepEqual(prevUser, nextUser) {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime, is_administrator)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET name = excluded.name, salt = excluded.salt, password_hash = excluded.password_hash,
 				iterations = excluded.iterations, configuration = excluded.configuration, settings = excluded.settings,
-				image_revision = excluded.image_revision, image_mime = excluded.image_mime`, nextUser...); err != nil {
+				image_revision = excluded.image_revision, image_mime = excluded.image_mime, is_administrator = excluded.is_administrator`, nextUser...); err != nil {
 			return err
 		}
 	}
@@ -238,7 +248,7 @@ func userRow(u User) ([]any, error) {
 	if u.Image != nil {
 		revision, mime = u.Image.Revision, u.Image.MIME
 	}
-	return []any{u.ID, u.Name, u.Salt, u.PasswordHash, u.Iterations, string(configuration), string(settings), revision, mime}, nil
+	return []any{u.ID, u.Name, u.Salt, u.PasswordHash, u.Iterations, string(configuration), string(settings), revision, mime, u.IsAdministrator}, nil
 }
 
 // writeItems upserts or deletes the rows of ids whose state differs.

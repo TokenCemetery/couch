@@ -13,7 +13,8 @@ func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 
 var (
 	homeSections    = knownFailure{100, "Home Screen settings cannot add, remove or move sections"}
-	administration  = knownFailure{33, "administration is not implemented (single non-admin user)"}
+	administration  = knownFailure{33, "administration is not implemented"}
+	adminMetadata   = knownFailure{115, "Emby Web offers it to administrators; not implemented"}
 	backup          = knownFailure{32, "backup and restore are not implemented"}
 	unranked        = knownFailure{34, "not implemented; not ranked by real usage yet"}
 	notCalledByWeb  = knownFailure{34, "Emby Web 4.10.0.40 does not call it; use by other clients is not ranked yet"}
@@ -27,8 +28,6 @@ var (
 // Grouped by Emby service; generated from the first run and edited by hand.
 var knownFailures = map[string]knownFailure{
 	// Behavior checks
-	// ActivityLogService
-	"getSystemActivitylogEntries": administration,
 	// ArtistsService
 	"getArtistsAlbumartists": unranked,
 	"getArtistsByName":       unranked,
@@ -158,24 +157,24 @@ var knownFailures = map[string]knownFailure{
 	"getPlaylistsByIdInstantmix":     unranked,
 	"getSongsByIdInstantmix":         unranked,
 	// ItemLookupService
-	"getItemsByIdExternalidinfos":      unranked,
-	"getItemsRemotesearchImage":        unranked,
+	"getItemsByIdExternalidinfos":      adminMetadata,
+	"getItemsRemotesearchImage":        adminMetadata,
 	"postItemsMetadataReset":           unranked,
-	"postItemsRemotesearchApplyById":   unranked,
+	"postItemsRemotesearchApplyById":   adminMetadata,
 	"postItemsRemotesearchBook":        unranked,
 	"postItemsRemotesearchBoxset":      unranked,
 	"postItemsRemotesearchGame":        unranked,
-	"postItemsRemotesearchMovie":       unranked,
+	"postItemsRemotesearchMovie":       adminMetadata,
 	"postItemsRemotesearchMusicalbum":  unranked,
 	"postItemsRemotesearchMusicartist": unranked,
 	"postItemsRemotesearchMusicvideo":  unranked,
 	"postItemsRemotesearchPerson":      unranked,
-	"postItemsRemotesearchSeries":      unranked,
+	"postItemsRemotesearchSeries":      adminMetadata,
 	"postItemsRemotesearchTrailer":     unranked,
 	// ItemRefreshService
-	"postItemsByIdRefresh": unranked,
+	"postItemsByIdRefresh": adminMetadata,
 	// ItemUpdateService
-	"getItemsByItemidMetadataeditor": unranked,
+	"getItemsByItemidMetadataeditor": adminMetadata,
 	"postItemsByItemid":              unranked,
 	// LibraryService
 	"deleteItems":                      administration,
@@ -360,7 +359,6 @@ var knownFailures = map[string]knownFailure{
 	"postItemsByIdRemoteimagesDownload": unranked,
 	// ScheduledTaskService
 	"deleteScheduledtasksRunningById":     administration,
-	"getScheduledtasks":                   administration,
 	"getScheduledtasksById":               administration,
 	"postScheduledtasksByIdTriggers":      administration,
 	"postScheduledtasksRunningById":       administration,
