@@ -26,17 +26,20 @@ type object map[string]any
 
 // Server serves the API for one state store and an optional media catalogue.
 type Server struct {
-	store       *state.Store
-	name        string
-	web         http.Handler
-	logins      loginLimit
-	media       atomic.Pointer[media.Catalog]
-	hls         *hls.Manager
-	sockets     atomic.Int64
-	socketMu    sync.Mutex
-	connections map[*socket]struct{}
-	closing     bool
-	itemMu      sync.Mutex
+	store    *state.Store
+	name     string
+	web      http.Handler
+	logins   loginLimit
+	media    atomic.Pointer[media.Catalog]
+	metadata atomic.Pointer[metadataIndex]
+	// metadataImages is the directory of downloaded provider images.
+	metadataImages string
+	hls            *hls.Manager
+	sockets        atomic.Int64
+	socketMu       sync.Mutex
+	connections    map[*socket]struct{}
+	closing        bool
+	itemMu         sync.Mutex
 }
 
 // New creates a Server. web and catalog may be nil.

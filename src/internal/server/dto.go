@@ -172,20 +172,19 @@ func (s *Server) childCount(id string) int {
 
 func (s *Server) movieDTO(item media.Item, serverID string, items map[string]state.ItemState, token string) object {
 	catalog := s.catalog()
-	dto := baseFields(item.ID, item.Name, item.Type(), serverID)
+	dto := baseFields(item.ID, s.displayName(item), item.Type(), serverID)
+	dto["SortName"] = s.sortName(item)
 	dto["DateCreated"] = embyDate(item.Added)
 	dto["DateModified"] = embyDate(item.Modified)
 	dto["IsFolder"] = item.IsFolder()
 	dto["ParentId"] = catalog.Parent(item)
-	dto["GenreItems"] = []any{}
-	dto["TagItems"] = []any{}
 	dto["UserData"] = itemUserData(items[item.ID], item.RunTimeTicks)
 	// Like Emby, a season or episode without its own backdrop, logo or thumb
 	// names its series' image, and always names the series' cover, which
 	// cards and the player fall back to.
 	var series *media.Item
 	var seriesImages map[string]media.Image
-	images := catalog.ImageInfos(item)
+	images := s.imageInfos(catalog, item)
 	for _, kind := range media.ImageTypes {
 		info, own := images[kind]
 		if own {
@@ -210,7 +209,7 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 				continue
 			}
 			series = &folder
-			seriesImages = catalog.ImageInfos(folder)
+			seriesImages = s.imageInfos(catalog, folder)
 		}
 		info, found := seriesImages[kind]
 		if !found {
@@ -230,15 +229,16 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 		}
 	}
 	if item.SeriesID != "" {
-		dto["SeriesId"], dto["SeriesName"] = item.SeriesID, item.SeriesName
+		dto["SeriesId"], dto["SeriesName"] = item.SeriesID, s.seriesName(item)
 	}
 	if item.Type() == "Season" {
 		dto["IndexNumber"] = item.SeasonNumber
 	}
 	if item.Type() == "Episode" {
 		dto["IndexNumber"], dto["ParentIndexNumber"] = item.EpisodeNumber, item.SeasonNumber
-		dto["SeasonId"], dto["SeasonName"] = item.SeasonID, "Season "+itoa(item.SeasonNumber)
+		dto["SeasonId"], dto["SeasonName"] = item.SeasonID, s.seasonName(item)
 	}
+	addMetadata(dto, s.info(item.ID))
 	if item.IsFolder() {
 		dto["ChildCount"] = s.childCount(item.ID)
 		dto["UserData"] = s.folderPlayedData(item, items)
@@ -250,8 +250,6 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 	dto["Size"] = item.Size
 	dto["PartCount"] = 1
 	dto["LocalTrailerCount"] = 0
-	dto["GenreItems"] = []any{}
-	dto["TagItems"] = []any{}
 	dto["UserData"] = itemUserData(items[item.ID], item.RunTimeTicks)
 	dto["CanDownload"] = true
 	if mime := containerMIME(item.Container); mime != "" {

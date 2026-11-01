@@ -87,7 +87,7 @@ func (s *Server) itemImage(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "NotFound")
 		return
 	}
-	file, info, err := s.catalog().OpenImage(item, kind)
+	file, info, err := s.openImage(s.catalog(), item, kind)
 	if err != nil {
 		fail(w, 404, "ImageUnavailable")
 		return

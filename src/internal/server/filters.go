@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/metadata"
 	"github.com/TokenCemetery/couch/internal/state"
 )
 
@@ -26,9 +27,23 @@ var mediaFilters = map[string]func(item media.Item) []string{
 	"extendedvideotypes": func(media.Item) []string { return []string{"None"} },
 }
 
-// metadataFilters are Items filters on metadata Couch does not have, so a
-// value given for them matches no item.
-var metadataFilters = []string{"genres", "studios", "tags", "officialratings", "years"}
+// metadataFilters maps the Items filters on metadata to the list type
+// whose values they name, and how a value list is delimited. Emby joins
+// names with "|", since a name may contain a comma, and years and IDs with ",".
+var metadataFilters = map[string]struct {
+	kind, delimiter string
+	byID            bool
+}{
+	"genres":          {"Genre", "|", false},
+	"studios":         {"Studio", "|", false},
+	"tags":            {"Tag", "|", false},
+	"officialratings": {"OfficialRating", "|", false},
+	"years":           {"Year", ",", false},
+	"genreids":        {"Genre", ",", true},
+	"studioids":       {"Studio", ",", true},
+	"tagids":          {"Tag", ",", true},
+	"personids":       {"Person", ",", true},
+}
 
 func nonEmpty(values ...string) []string {
 	return slices.DeleteFunc(values, func(v string) bool { return v == "" })
@@ -63,9 +78,28 @@ func filterValues(catalog *media.Catalog, item *media.Item, values func(media.It
 
 // failsMediaFilters reports whether item is excluded by the stream and
 // metadata filters in query, whose keys are lower case.
-func failsMediaFilters(catalog *media.Catalog, item *media.Item, query map[string]string) bool {
-	for _, key := range metadataFilters {
-		if query[key] != "" {
+func failsMediaFilters(catalog *media.Catalog, item *media.Item, query map[string]string, info *metadata.Info) bool {
+	for key, filter := range metadataFilters {
+		if query[key] == "" {
+			continue
+		}
+		wanted := strings.Split(query[key], filter.delimiter)
+		names := metadataNames(info, filter.kind)
+		if filter.kind == "Person" && query["persontypes"] != "" {
+			names = []string{}
+			for _, p := range info.People {
+				if member(query["persontypes"], p.Type) {
+					names = append(names, p.Name)
+				}
+			}
+		}
+		if !slices.ContainsFunc(names, func(name string) bool {
+			value := name
+			if filter.byID {
+				value = metadata.ID(filter.kind, name)
+			}
+			return slices.ContainsFunc(wanted, func(w string) bool { return strings.EqualFold(strings.TrimSpace(w), value) })
+		}) {
 			return true
 		}
 	}
@@ -81,10 +115,96 @@ func failsMediaFilters(catalog *media.Catalog, item *media.Item, query map[strin
 	return false
 }
 
-// filterValueList answers the value lists of the library filter dialog:
-// the distinct values of the videos in scope (ParentId, IncludeItemTypes),
-// each as a TagItem with the same Name and Id. values is nil for metadata
-// Couch does not have, which lists nothing.
+// metadataValueList answers the genre, studio, tag, rating, year and person
+// lists: the distinct values of the items in scope (ParentId,
+// IncludeItemTypes), sorted by name in SortOrder. Genres, studios, tags and
+// people carry the IDs Items filters by; ratings and years are their own ID.
+// The home Favorites tab asks for favorite people (#80).
+func (s *Server) metadataValueList(kind string) authenticated {
+	return func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		query, err := catalogQuery(r)
+		if err != nil {
+			fail(w, 400, "InvalidQuery")
+			return
+		}
+		start, limit, ok := pageBounds(query["startindex"], query["limit"])
+		if !ok {
+			fail(w, 400, "InvalidPagination")
+			return
+		}
+		favorites := member(query["filters"], "IsFavorite") || strings.EqualFold(query["isfavorite"], "true")
+		userItems := s.store.Snapshot().User.Items
+		catalog := s.catalog()
+		found, seen := []string{}, map[string]bool{}
+		if catalog != nil {
+			for _, items := range [][]media.Item{catalog.Items, catalog.Folders} {
+				for i := range items {
+					item := &items[i]
+					if !inMetadataScope(catalog, item, query["parentid"], query["includeitemtypes"]) {
+						continue
+					}
+					info := s.info(item.ID)
+					for _, v := range metadataNames(info, kind) {
+						if kind == "Person" && query["persontypes"] != "" && !slices.ContainsFunc(info.People, func(p metadata.Person) bool {
+							return p.Name == v && member(query["persontypes"], p.Type)
+						}) {
+							continue
+						}
+						if favorites && !userItems[metadata.ID(kind, v)].IsFavorite {
+							continue
+						}
+						if key := strings.ToLower(v); !seen[key] {
+							seen[key] = true
+							found = append(found, v)
+						}
+					}
+				}
+			}
+		}
+		slices.SortFunc(found, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+		if strings.EqualFold(query["sortorder"], "Descending") {
+			slices.Reverse(found)
+		}
+		from := min(start, len(found))
+		page := found[from : from+min(limit, len(found)-from)]
+		items := make([]object, 0, len(page))
+		for _, v := range page {
+			id := v
+			if kind != "OfficialRating" && kind != "Year" {
+				id = metadata.ID(kind, v)
+			}
+			items = append(items, object{"Name": v, "Id": id, "Type": kind})
+		}
+		respond(w, 200, object{"Items": items, "TotalRecordCount": len(found)})
+	}
+}
+
+// inMetadataScope reports whether an item belongs to the library, series or
+// season parent and is of one of the requested types.
+func inMetadataScope(catalog *media.Catalog, item *media.Item, parent, types string) bool {
+	kind := item.Type()
+	switch parent {
+	case "", "root":
+	case catalog.ID:
+		if kind != "Movie" {
+			return false
+		}
+	case catalog.SeriesLibraryID():
+		if kind == "Movie" {
+			return false
+		}
+	default:
+		if item.SeriesID != parent && item.SeasonID != parent && item.ID != parent {
+			return false
+		}
+	}
+	return types == "" || member(types, kind)
+}
+
+// filterValueList answers the value lists of the library filter dialog for
+// stream metadata: the distinct values of the videos in scope (ParentId,
+// IncludeItemTypes), each as a TagItem with the same Name and Id. values
+// is nil for a list Couch has nothing for.
 func (s *Server) filterValueList(values func(media.Item) []string) authenticated {
 	return func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		query := r.URL.Query()
@@ -182,11 +302,13 @@ func (s *Server) filterRoutes(mux *http.ServeMux) {
 		}
 		s.filterValueList(mediaFilters[key])(w, r, token, session)
 	}))
-	// Couch has no genres, studios, tags, ratings or years, and every video
-	// is of the plain type, so these lists are empty. Without music libraries
-	// or people metadata it has no artists or persons either; the home
-	// Favorites tab asks for both (#80).
-	for _, path := range []string{"/genres", "/studios", "/tags", "/officialratings", "/years", "/extendedvideotypes", "/artists", "/persons"} {
+	for path, kind := range map[string]string{"/genres": "Genre", "/studios": "Studio", "/tags": "Tag",
+		"/officialratings": "OfficialRating", "/years": "Year", "/persons": "Person"} {
+		mux.HandleFunc("GET "+path, s.protect(s.metadataValueList(kind)))
+	}
+	// Every video is of the plain type, and without music libraries Couch
+	// has no artists; the home Favorites tab asks for them (#80).
+	for _, path := range []string{"/extendedvideotypes", "/artists"} {
 		mux.HandleFunc("GET "+path, s.protect(s.filterValueList(nil)))
 	}
 }

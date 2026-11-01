@@ -78,6 +78,10 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 					respond(w, 200, s.movieDTO(item, snapshot.ServerID, snapshot.User.Items, token))
 					return
 				}
+				if e, found := s.entity(id); found {
+					respond(w, 200, entityDTO(id, e, snapshot.ServerID))
+					return
+				}
 			}
 			fail(w, 404, "NotFound")
 		}))
@@ -116,7 +120,8 @@ func (s *Server) extrasRoutes(mux *http.ServeMux) {
 	known := func(r *http.Request) bool {
 		id := r.PathValue("item")
 		_, found := s.findItem(id)
-		return found || slices.Contains(s.libraryIDs(), id)
+		_, isEntity := s.entity(id)
+		return found || isEntity || slices.Contains(s.libraryIDs(), id)
 	}
 	emptyPage := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		if !known(r) {
@@ -209,7 +214,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			"groupprogramsbyseries", "includesearchtypes", "isstandalonespecial", "collapseboxsetitems", "excludelocationtypes",
 			"userid", "api_key", "x-mediabrowser-token", "reqformat", "listitemids", "wassearched", "minpremieredate", "isunaired", "includenextup", "isspecialepisode", "ismissing", "isvirtualunaired", "collectiontypes", "canedititems",
 			"containers", "videocodecs", "audiocodecs", "audiolayouts", "subtitlecodecs", "audiolanguages", "subtitlelanguages", "extendedvideotypes",
-			"genres", "studios", "tags", "officialratings", "years":
+			"genres", "studios", "tags", "officialratings", "years", "genreids", "studioids", "tagids", "personids", "persontypes":
 		default:
 			if !strings.HasPrefix(key, "x-emby-") {
 				fail(w, 400, "UnsupportedQuery")
@@ -258,22 +263,12 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			*target = v
 		}
 	}
+	var minPremiere time.Time
 	if text, exists := query["minpremieredate"]; exists {
-		if _, err := time.Parse(time.RFC3339, text); err != nil {
+		if minPremiere, err = time.Parse(time.RFC3339, text); err != nil {
 			fail(w, 400, "InvalidQuery")
 			return
 		}
-	}
-	// Catalogued items carry no premiere date, so they never satisfy a premiere
-	// bound and are never unaired; Emby likewise omits undated items. The result
-	// is empty whatever the requested sort, so the sort is not validated.
-	if query["minpremieredate"] != "" || query["isunaired"] == "true" {
-		if latest {
-			respond(w, 200, []any{})
-		} else {
-			respond(w, 200, object{"Items": []any{}, "TotalRecordCount": 0})
-		}
-		return
 	}
 	sortBy, order := strings.ToLower(query["sortby"]), strings.ToLower(query["sortorder"])
 	if latest && sortBy == "" {
@@ -287,19 +282,25 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	}
 	sortKeys := strings.Split(sortBy, ",")
 	for _, key := range sortKeys {
-		if !member("sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber,"+
+		if !member("sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber,"+
 			"totalbitrate,videocodec,container,size,resolution,framerate,playcount,random,seriesdateplayed,datelastcontentadded,"+
 			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate", key) {
 			fail(w, 400, "UnsupportedSort")
 			return
 		}
 	}
-	if order != "" && order != "ascending" && order != "descending" {
-		fail(w, 400, "UnsupportedSort")
-		return
+	// SortOrder may give one order per sort key; the last one applies to
+	// the keys after it.
+	orders := strings.Split(order, ",")
+	for _, o := range orders {
+		if o != "" && o != "ascending" && o != "descending" {
+			fail(w, 400, "UnsupportedSort")
+			return
+		}
 	}
 	snapshot := s.store.Snapshot()
 	serverID := snapshot.ServerID
+	now := time.Now()
 	// Continue Watching also offers each started series' next episode, dated
 	// by when the series was last watched. The reference Emby includes them
 	// without IncludeNextUp; only IncludeNextUp=false leaves them out.
@@ -363,6 +364,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	items = slices.DeleteFunc(items, func(item *media.Item) bool {
 		id, kind, folder := item.ID, item.Type(), item.IsFolder() || isCollection(item)
 		st := snapshot.User.Items[id]
+		info := s.info(id)
 		if item.IsFolder() {
 			st.Played, _ = s.folderPlayed(*item, snapshot.User.Items)
 		}
@@ -375,7 +377,11 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			(query["includeitemtypes"] != "" && !member(query["includeitemtypes"], kind)) || member(query["excludeitemtypes"], kind) ||
 			(query["mediatypes"] != "" && (folder || !member(query["mediatypes"], "Video"))) ||
 			(query["isfolder"] != "" && (query["isfolder"] == "true") != folder) ||
-			!strings.Contains(strings.ToLower(item.Name), strings.ToLower(query["searchterm"])) ||
+			!matchesSearch(query["searchterm"], item.Name, s.displayName(*item), info.OriginalTitle) ||
+			// Undated items never satisfy a premiere bound and are never
+			// unaired; Emby likewise leaves them out.
+			(!minPremiere.IsZero() && (info.Premiere.IsZero() || info.Premiere.Before(minPremiere))) ||
+			(query["isunaired"] != "" && (query["isunaired"] == "true") != info.Premiere.After(now)) ||
 			(query["isplayed"] != "" && (query["isplayed"] == "true") != st.Played) ||
 			(query["isfavorite"] != "" && (query["isfavorite"] == "true") != st.IsFavorite) ||
 			(query["wassearched"] != "" && (query["wassearched"] == "true") == st.LastSearched.IsZero()) ||
@@ -392,7 +398,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			// The library is read-only and Couch has no playlists or
 			// collections, so the user can edit no item (#77).
 			query["canedititems"] == "true" ||
-			failsMediaFilters(catalog, item, query) ||
+			failsMediaFilters(catalog, item, query, info) ||
 			// The series page lists specials (Season 00 episodes) in their own row.
 			(query["isspecialepisode"] != "" && (query["isspecialepisode"] == "true") != (kind == "Episode" && item.SeasonNumber == 0))
 	})
@@ -418,10 +424,11 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	}
 	// A series or season sorts by its episodes for the newest added and the
 	// last watched one.
-	newestAdded, seriesPlayed := map[string]time.Time{}, map[string]time.Time{}
+	newestAdded, seriesPlayed, newestPremiere := map[string]time.Time{}, map[string]time.Time{}, map[string]time.Time{}
 	if catalog != nil {
 		for _, episode := range catalog.Items {
 			played := snapshot.User.Items[episode.ID].LastPlayed
+			premiere := s.info(episode.ID).Premiere
 			for _, folder := range []string{episode.SeriesID, episode.SeasonID} {
 				if folder == "" {
 					continue
@@ -432,8 +439,17 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 				if played.After(seriesPlayed[folder]) {
 					seriesPlayed[folder] = played
 				}
+				if premiere.After(newestPremiere[folder]) {
+					newestPremiere[folder] = premiere
+				}
 			}
 		}
+	}
+	director := func(item *media.Item) string {
+		if names := s.info(item.ID).Directors(); len(names) > 0 {
+			return strings.ToLower(names[0])
+		}
+		return ""
 	}
 	added := func(item *media.Item) time.Time {
 		if t, ok := newestAdded[item.ID]; ok {
@@ -454,8 +470,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	}
 	slices.SortFunc(items, func(a, b *media.Item) int {
 		comparison := 0
-		// Keys are compared in order; SortOrder applies to all of them.
-		for _, key := range sortKeys {
+		// Keys are compared in order, each in its own SortOrder.
+		descending := false
+		for n, key := range sortKeys {
+			descending = orders[min(n, len(orders)-1)] == "descending"
 			switch key {
 			case "datecreated":
 				comparison = a.Added.Compare(b.Added)
@@ -465,9 +483,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 				comparison = snapshot.User.Items[a.ID].LastSearched.Compare(snapshot.User.Items[b.ID].LastSearched)
 			case "runtime":
 				comparison = cmp.Compare(a.RunTimeTicks, b.RunTimeTicks)
-			case "parentindexnumber":
+			case "parentindexnumber", "sortparentindexnumber":
 				comparison = cmp.Compare(a.SeasonNumber, b.SeasonNumber)
-			case "indexnumber":
+			case "indexnumber", "sortindexnumber":
 				comparison = cmp.Compare(a.EpisodeNumber, b.EpisodeNumber)
 			case "isfolder":
 				// Folders first, as in a file browser.
@@ -475,7 +493,21 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 			case "filename":
 				comparison = strings.Compare(strings.ToLower(path.Base(a.Path)), strings.ToLower(path.Base(b.Path)))
 			case "seriessortname":
-				comparison = strings.Compare(strings.ToLower(a.SeriesName), strings.ToLower(b.SeriesName))
+				comparison = strings.Compare(strings.ToLower(s.seriesName(*a)), strings.ToLower(s.seriesName(*b)))
+			case "officialrating":
+				comparison = strings.Compare(s.info(a.ID).OfficialRating, s.info(b.ID).OfficialRating)
+			case "productionyear":
+				comparison = cmp.Compare(s.info(a.ID).Year, s.info(b.ID).Year)
+			case "premieredate":
+				comparison = s.info(a.ID).Premiere.Compare(s.info(b.ID).Premiere)
+			case "communityrating":
+				comparison = cmp.Compare(s.info(a.ID).Community, s.info(b.ID).Community)
+			case "criticrating":
+				comparison = cmp.Compare(s.info(a.ID).Critic, s.info(b.ID).Critic)
+			case "director":
+				comparison = strings.Compare(director(a), director(b))
+			case "lastcontentpremieredate":
+				comparison = newestPremiere[a.ID].Compare(newestPremiere[b.ID])
 			case "totalbitrate":
 				comparison = cmp.Compare(bitrate(*a), bitrate(*b))
 			case "videocodec":
@@ -499,21 +531,22 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 				if key == sortKeys[0] {
 					return 0
 				}
-			case "channelnumber", "officialrating", "productionyear", "premieredate", "communityrating", "criticrating", "director", "lastcontentpremieredate":
-				// Couch has no channels and no such metadata: every item
-				// compares equal and the next key decides (#76, #79).
+			case "channelnumber":
+				// Couch has no channels: every item compares equal and the
+				// next key decides (#79).
 				comparison = 0
 			default:
-				comparison = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+				comparison = strings.Compare(s.sortKey(*a), s.sortKey(*b))
 			}
 			if comparison != 0 {
 				break
 			}
 		}
+		// Ties fall back to the ID, in the order of the last key.
 		if comparison == 0 {
 			comparison = strings.Compare(a.ID, b.ID)
 		}
-		if order == "descending" {
+		if descending {
 			return -comparison
 		}
 		return comparison
@@ -534,4 +567,15 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, latest, resum
 	} else {
 		respond(w, 200, object{"Items": result, "TotalRecordCount": total})
 	}
+}
+
+// matchesSearch reports whether any of names contains term, ignoring case.
+func matchesSearch(term string, names ...string) bool {
+	term = strings.ToLower(term)
+	for _, name := range names {
+		if name != "" && strings.Contains(strings.ToLower(name), term) {
+			return true
+		}
+	}
+	return term == ""
 }

@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 1
+const dbSchemaVersion = 2
 
 const dbSchema = `
 CREATE TABLE server (
@@ -50,7 +50,20 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-PRAGMA user_version = 1;
+` + metadataSchema + `
+PRAGMA user_version = 2;
+`
+
+// metadataSchema was added in version 2; migrate adds it to a version 1 file.
+const metadataSchema = `
+CREATE TABLE metadata (
+	item_id TEXT PRIMARY KEY,
+	nfo_revision TEXT NOT NULL,
+	nfo TEXT NOT NULL,
+	online_key TEXT NOT NULL,
+	online TEXT NOT NULL,
+	fetched_at TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
 `
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -81,6 +94,13 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 	}
 	if version == 0 {
 		return Data{}, nil
+	}
+	if version == 1 {
+		if _, err := db.ExecContext(ctx, "BEGIN;"+metadataSchema+"PRAGMA user_version = 2; COMMIT;"); err != nil {
+			_, _ = db.ExecContext(ctx, "ROLLBACK")
+			return Data{}, err
+		}
+		version = 2
 	}
 	if version != dbSchemaVersion {
 		return Data{}, fmt.Errorf("unsupported database schema version %d", version)

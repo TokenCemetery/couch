@@ -1,0 +1,339 @@
+package metadata
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Provider addresses; tests point them at a local server.
+var (
+	tmdbAPI    = "https://api.themoviedb.org/3"
+	tmdbImages = "https://image.tmdb.org/t/p/original"
+)
+
+const (
+	// maxCast keeps the people list to the billed cast, as Emby shows it.
+	maxCast = 20
+)
+
+// tmdb is a TMDb API v3 client. key is a v3 API key or a v4 read access
+// token, which is sent as a bearer token instead.
+type tmdb struct {
+	key  string
+	lang language
+	pace *throttle
+	// seasons caches season lookups within a refresh run.
+	seasons map[string]tmdbSeason
+}
+
+func newTMDb(key string, lang language) *tmdb {
+	return &tmdb{key: key, lang: lang, pace: &throttle{every: 50 * time.Millisecond}, seasons: map[string]tmdbSeason{}}
+}
+
+func (t *tmdb) get(ctx context.Context, path string, params url.Values, v any) error {
+	if params == nil {
+		params = url.Values{}
+	}
+	params.Set("language", t.lang.tmdb)
+	bearer := strings.HasPrefix(t.key, "eyJ")
+	if !bearer {
+		params.Set("api_key", t.key)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tmdbAPI+path+"?"+params.Encode(), nil)
+	if err != nil {
+		return errRequest
+	}
+	if bearer {
+		req.Header.Set("Authorization", "Bearer "+t.key)
+	}
+	return fetchJSON(req, t.pace, v)
+}
+
+type tmdbNamed struct {
+	Name string `json:"name"`
+}
+
+type tmdbCredits struct {
+	Cast []struct {
+		Name      string `json:"name"`
+		Character string `json:"character"`
+	} `json:"cast"`
+	Crew []struct {
+		Name       string `json:"name"`
+		Job        string `json:"job"`
+		Department string `json:"department"`
+	} `json:"crew"`
+	GuestStars []struct {
+		Name      string `json:"name"`
+		Character string `json:"character"`
+	} `json:"guest_stars"`
+}
+
+func (c tmdbCredits) people() []Person {
+	people := []Person{}
+	for n, p := range c.Cast {
+		if n == maxCast {
+			break
+		}
+		people = append(people, Person{Name: p.Name, Role: p.Character, Type: "Actor"})
+	}
+	for _, p := range c.GuestStars {
+		people = append(people, Person{Name: p.Name, Role: p.Character, Type: "GuestStar"})
+	}
+	for _, p := range c.Crew {
+		switch {
+		case p.Job == "Director":
+			people = append(people, Person{Name: p.Name, Role: "Director", Type: "Director"})
+		case p.Department == "Writing":
+			people = append(people, Person{Name: p.Name, Role: p.Job, Type: "Writer"})
+		}
+	}
+	return people
+}
+
+func names(list []tmdbNamed) []string {
+	values := make([]string, 0, len(list))
+	for _, v := range list {
+		values = append(values, v.Name)
+	}
+	return unique(values)
+}
+
+// unique cleans values and drops empty ones and duplicates.
+func unique(values []string) []string {
+	result := []string{}
+	for _, v := range values {
+		if v = clean(v); v != "" && !containsFold(result, v) {
+			result = append(result, v)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func tmdbImage(path string) string {
+	if path == "" {
+		return ""
+	}
+	return tmdbImages + path
+}
+
+// find resolves an IMDb or TheTVDB ID to a TMDb ID of kind "movie" or "tv".
+func (t *tmdb) find(ctx context.Context, ids map[string]string, kind string) (string, error) {
+	if id := ids["Tmdb"]; id != "" {
+		return id, nil
+	}
+	for _, by := range []struct{ source, key string }{{"imdb_id", "Imdb"}, {"tvdb_id", "Tvdb"}} {
+		source, key := by.source, by.key
+		if ids[key] == "" || (kind == "movie" && key == "Tvdb") {
+			continue
+		}
+		var found struct {
+			Movies []struct {
+				ID int `json:"id"`
+			} `json:"movie_results"`
+			Series []struct {
+				ID int `json:"id"`
+			} `json:"tv_results"`
+		}
+		if err := t.get(ctx, "/find/"+url.PathEscape(ids[key]), url.Values{"external_source": {source}}, &found); err != nil {
+			return "", err
+		}
+		if kind == "movie" && len(found.Movies) > 0 {
+			return strconv.Itoa(found.Movies[0].ID), nil
+		}
+		if kind == "tv" && len(found.Series) > 0 {
+			return strconv.Itoa(found.Series[0].ID), nil
+		}
+	}
+	return "", errNotFound
+}
+
+// search returns the TMDb ID of the best match for a title, trying without
+// the year when nothing matches with it.
+func (t *tmdb) search(ctx context.Context, kind, title string, year int) (string, error) {
+	yearKey := "year"
+	if kind == "tv" {
+		yearKey = "first_air_date_year"
+	}
+	for _, withYear := range []bool{year > 0, false} {
+		params := url.Values{"query": {title}, "include_adult": {"false"}}
+		if withYear {
+			params.Set(yearKey, strconv.Itoa(year))
+		}
+		var result struct {
+			Results []struct {
+				ID int `json:"id"`
+			} `json:"results"`
+		}
+		if err := t.get(ctx, "/search/"+kind, params, &result); err != nil {
+			return "", err
+		}
+		if len(result.Results) > 0 {
+			return strconv.Itoa(result.Results[0].ID), nil
+		}
+		if !withYear {
+			break
+		}
+	}
+	return "", errNotFound
+}
+
+func (t *tmdb) resolve(ctx context.Context, kind string, ids map[string]string, title string, year int) (string, error) {
+	id, err := t.find(ctx, ids, kind)
+	if errors.Is(err, errNotFound) && title != "" {
+		return t.search(ctx, kind, title, year)
+	}
+	return id, err
+}
+
+func (t *tmdb) movie(ctx context.Context, ids map[string]string, title string, year int) (Info, map[string]string, error) {
+	id, err := t.resolve(ctx, "movie", ids, title, year)
+	if err != nil {
+		return Info{}, nil, err
+	}
+	var m struct {
+		Title         string      `json:"title"`
+		OriginalTitle string      `json:"original_title"`
+		Overview      string      `json:"overview"`
+		Tagline       string      `json:"tagline"`
+		ReleaseDate   string      `json:"release_date"`
+		VoteAverage   float64     `json:"vote_average"`
+		Genres        []tmdbNamed `json:"genres"`
+		Companies     []tmdbNamed `json:"production_companies"`
+		PosterPath    string      `json:"poster_path"`
+		BackdropPath  string      `json:"backdrop_path"`
+		IMDbID        string      `json:"imdb_id"`
+		Credits       tmdbCredits `json:"credits"`
+		Keywords      struct {
+			Keywords []tmdbNamed `json:"keywords"`
+		} `json:"keywords"`
+		ReleaseDates struct {
+			Results []struct {
+				Country string `json:"iso_3166_1"`
+				Dates   []struct {
+					Certification string `json:"certification"`
+				} `json:"release_dates"`
+			} `json:"results"`
+		} `json:"release_dates"`
+	}
+	if err := t.get(ctx, "/movie/"+url.PathEscape(id), url.Values{"append_to_response": {"credits,keywords,release_dates"}}, &m); err != nil {
+		return Info{}, nil, err
+	}
+	info := Info{
+		Name: clean(m.Title), OriginalTitle: clean(m.OriginalTitle), Overview: clean(m.Overview), Tagline: clean(m.Tagline),
+		Community: m.VoteAverage, Genres: names(m.Genres), Studios: names(m.Companies), Tags: names(m.Keywords.Keywords),
+		People: m.Credits.people(), ProviderIDs: map[string]string{"Tmdb": id},
+	}
+	setDate(&info, m.ReleaseDate)
+	addID(info.ProviderIDs, "imdb", m.IMDbID)
+	for _, country := range []string{t.lang.country, "US"} {
+		for _, r := range m.ReleaseDates.Results {
+			for _, d := range r.Dates {
+				if r.Country == country && info.OfficialRating == "" && d.Certification != "" {
+					info.OfficialRating = clean(d.Certification)
+				}
+			}
+		}
+	}
+	return info, map[string]string{"Primary": tmdbImage(m.PosterPath), "Backdrop": tmdbImage(m.BackdropPath)}, nil
+}
+
+func (t *tmdb) series(ctx context.Context, ids map[string]string, title string, year int) (Info, map[string]string, error) {
+	id, err := t.resolve(ctx, "tv", ids, title, year)
+	if err != nil {
+		return Info{}, nil, err
+	}
+	var s struct {
+		Name         string      `json:"name"`
+		OriginalName string      `json:"original_name"`
+		Overview     string      `json:"overview"`
+		Tagline      string      `json:"tagline"`
+		FirstAired   string      `json:"first_air_date"`
+		VoteAverage  float64     `json:"vote_average"`
+		Genres       []tmdbNamed `json:"genres"`
+		Networks     []tmdbNamed `json:"networks"`
+		PosterPath   string      `json:"poster_path"`
+		BackdropPath string      `json:"backdrop_path"`
+		Credits      tmdbCredits `json:"credits"`
+		Keywords     struct {
+			Results []tmdbNamed `json:"results"`
+		} `json:"keywords"`
+		ContentRatings struct {
+			Results []struct {
+				Country string `json:"iso_3166_1"`
+				Rating  string `json:"rating"`
+			} `json:"results"`
+		} `json:"content_ratings"`
+		ExternalIDs struct {
+			IMDbID string `json:"imdb_id"`
+			TVDbID int    `json:"tvdb_id"`
+		} `json:"external_ids"`
+	}
+	if err := t.get(ctx, "/tv/"+url.PathEscape(id), url.Values{"append_to_response": {"credits,keywords,content_ratings,external_ids"}}, &s); err != nil {
+		return Info{}, nil, err
+	}
+	info := Info{
+		Name: clean(s.Name), OriginalTitle: clean(s.OriginalName), Overview: clean(s.Overview), Tagline: clean(s.Tagline),
+		Community: s.VoteAverage, Genres: names(s.Genres), Studios: names(s.Networks), Tags: names(s.Keywords.Results),
+		People: s.Credits.people(), ProviderIDs: map[string]string{"Tmdb": id},
+	}
+	setDate(&info, s.FirstAired)
+	addID(info.ProviderIDs, "imdb", s.ExternalIDs.IMDbID)
+	if s.ExternalIDs.TVDbID > 0 {
+		addID(info.ProviderIDs, "tvdb", strconv.Itoa(s.ExternalIDs.TVDbID))
+	}
+	for _, country := range []string{t.lang.country, "US"} {
+		for _, r := range s.ContentRatings.Results {
+			if r.Country == country && info.OfficialRating == "" {
+				info.OfficialRating = clean(r.Rating)
+			}
+		}
+	}
+	return info, map[string]string{"Primary": tmdbImage(s.PosterPath), "Backdrop": tmdbImage(s.BackdropPath)}, nil
+}
+
+type tmdbSeason struct {
+	Episodes []struct {
+		Number      int     `json:"episode_number"`
+		Name        string  `json:"name"`
+		Overview    string  `json:"overview"`
+		AirDate     string  `json:"air_date"`
+		VoteAverage float64 `json:"vote_average"`
+		StillPath   string  `json:"still_path"`
+		tmdbCredits
+	} `json:"episodes"`
+}
+
+func (t *tmdb) episode(ctx context.Context, seriesID string, season, episode int) (Info, map[string]string, error) {
+	key := seriesID + "/" + strconv.Itoa(season)
+	s, cached := t.seasons[key]
+	if !cached {
+		if err := t.get(ctx, "/tv/"+url.PathEscape(seriesID)+"/season/"+strconv.Itoa(season), nil, &s); err != nil && !errors.Is(err, errNotFound) {
+			return Info{}, nil, err
+		}
+		t.seasons[key] = s
+	}
+	for _, e := range s.Episodes {
+		if e.Number != episode {
+			continue
+		}
+		info := Info{Name: clean(e.Name), Overview: clean(e.Overview), Community: e.VoteAverage, People: e.people()}
+		setDate(&info, e.AirDate)
+		return info, map[string]string{"Primary": tmdbImage(e.StillPath)}, nil
+	}
+	return Info{}, nil, errNotFound
+}
+
+func setDate(info *Info, text string) {
+	if t, ok := parseDate(text); ok {
+		info.Premiere, info.Year = t, t.Year()
+	}
+}

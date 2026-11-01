@@ -310,3 +310,29 @@ func walk(ctx context.Context, base *Catalog, previous map[string]Item, now time
 	catalog.groupEpisodes()
 	return catalog, nil
 }
+
+// ReadSidecar reads a small file next to the media, such as a .nfo, confined
+// to the catalogue root. A missing file returns an error matching
+// fs.ErrNotExist; a file larger than limit is not read.
+func (c *Catalog) ReadSidecar(name string, limit int64) ([]byte, fs.FileInfo, error) {
+	if c == nil || c.root == nil {
+		return nil, nil, errors.New("catalogue has no open root")
+	}
+	file, err := c.root.OpenFile(filepath.FromSlash(name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, nil, fs.ErrNotExist
+	}
+	if info.Size() > limit {
+		return nil, info, errors.New("sidecar file is too large")
+	}
+	content, err := io.ReadAll(io.LimitReader(file, limit))
+	return content, info, err
+}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/TokenCemetery/couch/internal/hls"
 	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/metadata"
 	"github.com/TokenCemetery/couch/internal/procusage"
 	"github.com/TokenCemetery/couch/internal/server"
 	"github.com/TokenCemetery/couch/internal/state"
@@ -47,6 +48,8 @@ func run() error {
 	ffmpegThreads := flag.Int("ffmpeg-threads", 0, "cap FFmpeg decoder and encoder threads per transcode; 0 follows a CPU quota, or leaves them to FFmpeg without one")
 	hwaccel := flag.String("hwaccel", "", "encode transcodes on hardware: "+strings.Join(hls.Accels, ", ")+"; empty uses libx264")
 	hwaccelDevice := flag.String("hwaccel-device", "/dev/dri/renderD128", "DRM render node for -hwaccel vaapi and qsv")
+	metadataLanguage := flag.String("metadata-language", "en", "language of online metadata: "+strings.Join(metadata.SupportedLanguages(), ", "))
+	metadataRefresh := flag.Duration("metadata-refresh", 0, "fetch online metadata again once it is this old, for example 720h; 0 never does")
 	flag.Parse()
 	if *webDir != "" && *upstream != "" {
 		return errors.New("choose either -web-dir or -web-upstream")
@@ -56,6 +59,12 @@ func run() error {
 	}
 	if *ffmpegThreads < 0 {
 		return errors.New("-ffmpeg-threads must be 0 or a positive integer")
+	}
+	if *metadataRefresh < 0 || (*metadataRefresh > 0 && *metadataRefresh < time.Hour) {
+		return errors.New("-metadata-refresh must be 0 or at least 1h")
+	}
+	if !slices.Contains(metadata.SupportedLanguages(), *metadataLanguage) {
+		return fmt.Errorf("-metadata-language must be one of %s", strings.Join(metadata.SupportedLanguages(), ", "))
 	}
 	if *hwaccel != "" && !slices.Contains(hls.Accels, *hwaccel) {
 		return fmt.Errorf("-hwaccel must be one of %s", strings.Join(hls.Accels, ", "))
@@ -173,6 +182,27 @@ func run() error {
 		}
 	}
 	if catalog != nil {
+		// An online provider is used only when its key is set (#101).
+		config := metadata.Config{TMDbKey: os.Getenv("COUCH_TMDB_API_KEY"), TVDbKey: os.Getenv("COUCH_TVDB_API_KEY"),
+			Language: *metadataLanguage, Refresh: *metadataRefresh, ImageDir: filepath.Join(*data, "metadata")}
+		refresher, err := metadata.NewRefresher(s, config, api.SetMetadata)
+		if err != nil {
+			return err
+		}
+		api.SetMetadataImages(config.ImageDir)
+		slog.Info("Metadata sources", "nfo", true, "tmdb", config.TMDbKey != "", "tvdb", config.TVDbKey != "", "language", config.Language)
+		refreshCtx, stopRefresh := context.WithCancel(ctx)
+		refreshed := make(chan struct{})
+		go func() {
+			defer close(refreshed)
+			refresher.Run(refreshCtx)
+		}()
+		// Stops the refresher before the deferred catalog.Close.
+		defer func() {
+			stopRefresh()
+			<-refreshed
+		}()
+		refresher.Update(catalog)
 		// Registered before serving: an unhandled SIGHUP would stop Couch.
 		hangup := make(chan os.Signal, 1)
 		signal.Notify(hangup, syscall.SIGHUP)
@@ -180,6 +210,7 @@ func run() error {
 		publish := func(next *media.Catalog) {
 			api.SetCatalog(next)
 			saveCatalog(next, catalogFile)
+			refresher.Update(next)
 		}
 		go rescanLoop(ctx, catalog, hangup, *rescanInterval, loaded, publish)
 	}

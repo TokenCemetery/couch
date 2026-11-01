@@ -25,12 +25,15 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 |---|---|---|
 | Home screen: My Media, Continue Watching (with Next Up), Latest | Supported | Row titles localized for ru, de, fr, es, it; English otherwise (#18) |
 | Movie and TV Shows libraries, item pages, seasons, episodes | Supported | Series need `Show/Season NN/Show.SNNENN.ext` naming; other files are movies |
-| Search, recent searches | Supported | By title |
+| Search, recent searches | Supported | By title, original title or file name |
 | Customizing home sections in Settings → Home Screen | Unsupported | Adding, removing or reordering a section shows "Couch's home screen sections are fixed for now" in Emby Web's error dialog (#100) |
-| Sorting, paging, filters on technical data (container, codecs, audio layout, languages) | Supported | Sorts and filters that need online metadata (genres, studios, years, ratings, people) return nothing or do not change the order (#78, #79, #80) |
+| Sorting, paging, filters on technical data (container, codecs, audio layout, languages) | Supported | #78, #79 |
+| Filters and sorts on metadata: genres, studios, tags, parental ratings, years, people; genre, studio and person pages | Supported | Values come from `.nfo` files and online providers; people cannot be marked favorite (#101, #80) |
 | Next Up, Suggestions tab of TV Shows | Supported | Merge order with in-progress items is an assumption, not captured from Emby (#40) |
 | Local images: Primary, Backdrop, Logo, Thumb; series images on seasons and episodes | Supported | #85, #86, #88 |
-| Titles from file names, duration and technical data from FFprobe | Supported | No NFO, no online metadata, titles are not translated |
+| Titles from file names, duration and technical data from FFprobe | Supported | Used when an item has no metadata |
+| Metadata from `.nfo` files: title, overview, year, genres, studios, tags, ratings, people, provider IDs | Supported | Re-read when the file changes; checked in Emby Web (#101) |
+| Metadata and poster/backdrop from TMDb and TheTVDB | Partial | On only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; checked against a local stand-in for the providers, not the live services (#101) |
 | Collections, playlists, missing and upcoming episodes, recommendations | Unsupported | Empty lists (#40, #34); Emby Web offers creating and editing a collection only to an administrator (#33) |
 | Music, photos, books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
 
