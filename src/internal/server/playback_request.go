@@ -21,6 +21,7 @@ type playbackRequest struct {
 	StartTimeTicks      *int64
 	AudioStreamIndex    *int64
 	SubtitleStreamIndex *int64
+	IsPlayback          *bool
 }
 
 // Emby Web puts the profile in JSON and playback options in the query string.
@@ -47,6 +48,7 @@ func readPlaybackRequest(w http.ResponseWriter, r *http.Request) (playbackReques
 		playbackQuery(query, "StartTimeTicks", &body.StartTimeTicks, integer),
 		playbackQuery(query, "AudioStreamIndex", &body.AudioStreamIndex, integer),
 		playbackQuery(query, "SubtitleStreamIndex", &body.SubtitleStreamIndex, integer),
+		playbackQuery(query, "IsPlayback", &body.IsPlayback, strconv.ParseBool),
 	} {
 		if err != nil {
 			return body, err

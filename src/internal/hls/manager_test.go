@@ -1,13 +1,16 @@
 package hls
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -436,7 +439,7 @@ func TestKeyframesBySeekingMatchAFullScan(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = file.Close() }()
-			// The wrapper counts runs: the header and the seeks, no full scan.
+			// The wrapper counts runs: the seeks, no full scan.
 			ffprobe, _ := exec.LookPath("ffprobe")
 			dir := t.TempDir()
 			wrapper := filepath.Join(dir, "ffprobe")
@@ -444,18 +447,79 @@ func TestKeyframesBySeekingMatchAFullScan(t *testing.T) {
 			if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // test script in a temp dir
 				t.Fatal(err)
 			}
-			got, start, err := keyframes(context.Background(), wrapper, file, 0)
+			start, duration, err := fileTimes(context.Background(), "ffprobe", file)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.Count(string(runs), "run") != 2 {
-				t.Fatalf("FFprobe ran %d times, want 2", strings.Count(string(runs), "run"))
+			got, err := listKeyframes(context.Background(), wrapper, file, 0, start, duration)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runs, _ := os.ReadFile(filepath.Join(dir, "runs")); strings.Count(string(runs), "run") != 1 {
+				t.Fatalf("FFprobe ran %d times, want 1", strings.Count(string(runs), "run"))
+			}
+			if got = slices.Compact(got); !equal(got, want) {
+				t.Fatalf("keyframes %v, full scan %v", got, want)
+			}
+		})
+	}
+}
+
+// The container's index gives every keyframe a full scan finds, with
+// B-frames, and in MP4 an edit list that starts the video half a second in.
+// MPEG-TS and AVI have no index.
+func TestKeyframesFromTheIndexMatchAFullScan(t *testing.T) {
+	for _, name := range []string{"in.mkv", "in.mp4", "in.mov", "in.ts", "in.avi"} {
+		t.Run(name, func(t *testing.T) {
+			path := fixture(t, name)
+			out, err := exec.CommandContext(context.Background(), "ffprobe", "-v", "error", "-select_streams", "0", //nolint:gosec // test fixture path
+				"-show_entries", "packet=pts_time,flags", "-of", "csv", path).Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var want []float64
+			for _, line := range strings.Split(string(out), "\n") {
+				if v, key, ok := packet(strings.Split(line, ",")); ok && key {
+					want = append(want, v)
+				}
+			}
+			file, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = file.Close() }()
+			info, err := file.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := indexKeyframes(io.NewSectionReader(file, 0, info.Size()), 0)
+			if ext := filepath.Ext(name); ext == ".ts" || ext == ".avi" {
+				if !errors.Is(err, errNoIndex) {
+					t.Fatalf("index of %s: %v %v", ext, got, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
 			}
 			for i := range got {
-				got[i] += start
+				if math.Abs(got[i]-want[min(i, len(want)-1)]) > 1e-6 {
+					t.Fatalf("index %v, full scan %v", got, want)
+				}
 			}
-			if !equal(got, want) {
-				t.Fatalf("keyframes %v, full scan %v", got, want)
+			if len(got) != len(want) {
+				t.Fatalf("index %v, full scan %v", got, want)
+			}
+			start, duration, err := fileTimes(context.Background(), "ffprobe", file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if indexed(context.Background(), "ffprobe", file, 0, start, duration) == nil {
+				t.Fatal("the index does not agree with FFprobe")
+			}
+			// Another stream than the video has no keyframe index.
+			if _, err := indexKeyframes(io.NewSectionReader(file, 0, info.Size()), 1); !errors.Is(err, errNoIndex) {
+				t.Fatalf("audio index: %v", err)
 			}
 		})
 	}
@@ -840,4 +904,31 @@ func TestCheckAccelReportsMissingDevice(t *testing.T) {
 	if err := m.CheckAccel(context.Background()); err == nil || !strings.HasPrefix(err.Error(), "h264_vaapi: exit status") {
 		t.Fatalf("check: %v", err)
 	}
+}
+
+// A file of millions of tiny elements or boxes is rejected after a bounded
+// walk instead of reading every header (#98).
+func TestIndexWalkIsBounded(t *testing.T) {
+	mkv := append([]byte{0x1A, 0x45, 0xDF, 0xA3, 0x80, 0x18, 0x53, 0x80, 0x67, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+		bytes.Repeat([]byte{0xEC, 0x80}, 4096)...)
+	mp4 := append([]byte{0, 0, 0, 8, 'f', 't', 'y', 'p'}, bytes.Repeat([]byte{0, 0, 0, 8, 'f', 'r', 'e', 'e'}, 4096)...)
+	for name, file := range map[string][]byte{"mkv": mkv, "mp4": mp4} {
+		reads := &countingReaderAt{r: bytes.NewReader(file)}
+		if _, err := indexKeyframes(io.NewSectionReader(reads, 0, int64(len(file))), 0); !errors.Is(err, errNoIndex) {
+			t.Errorf("%s: %v", name, err)
+		}
+		if reads.n > 2048 {
+			t.Errorf("%s: %d reads", name, reads.n)
+		}
+	}
+}
+
+type countingReaderAt struct {
+	r io.ReaderAt
+	n int
+}
+
+func (c *countingReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	c.n++
+	return c.r.ReadAt(p, off)
 }

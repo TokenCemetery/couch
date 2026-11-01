@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -86,12 +88,9 @@ func Playlist(bounds []float64, duration float64, segmentURL func(n int) string)
 }
 
 // keyframes lists keyframe times of one video stream, relative to the
-// file's start time, and returns that start time. It seeks every
-// seekStep seconds and keeps the keyframe each seek lands on, so it reads a
-// few packets per seek instead of the whole file. Any subset of the keyframes gives a
-// plan FFmpeg follows exactly. Containers whose seeks do not land on
-// keyframes (MPEG-TS) fall back to reading every packet. The result is
-// cached by the Manager.
+// file's start time, and returns that start time. It reads them from the
+// container's index where one agrees with FFprobe (indexed), and lists them
+// with FFprobe otherwise. The result is cached by the Manager.
 func keyframes(ctx context.Context, ffprobe string, file *os.File, stream int) ([]float64, float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, keyframeLimit)
 	defer cancel()
@@ -99,43 +98,10 @@ func keyframes(ctx context.Context, ffprobe string, file *os.File, stream int) (
 	if err != nil {
 		return nil, 0, errors.New("cannot list keyframes")
 	}
-	selected := []string{"-select_streams", strconv.Itoa(stream), "-show_entries", "packet=pts_time,flags"}
-	var times []float64
-	if duration > 0 && duration/seekStep < maxKeyframes {
-		intervals := make([]string, 0, int(duration/seekStep)+1)
-		for t := 0.0; t < duration; t += seekStep {
-			intervals = append(intervals, strconv.FormatFloat(start+t, 'f', 3, 64)+"%+#1")
-		}
-		seeked := true
-		err = probe(ctx, ffprobe, file, append(selected, "-read_intervals", strings.Join(intervals, ",")), func(fields []string) error {
-			t, key, ok := packet(fields)
-			if ok && !key {
-				seeked = false
-			}
-			if ok && key {
-				times = append(times, t)
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, 0, errors.New("cannot list keyframes")
-		}
-		if !seeked {
-			times = nil
-		}
-	}
-	if len(times) == 0 {
-		err = probe(ctx, ffprobe, file, selected, func(fields []string) error {
-			if t, key, ok := packet(fields); ok && key {
-				if len(times) >= maxKeyframes {
-					return errors.New("too many keyframes")
-				}
-				times = append(times, t)
-			}
-			return nil
-		})
-		if err != nil || len(times) == 0 {
-			return nil, 0, errors.New("cannot list keyframes")
+	times := indexed(ctx, ffprobe, file, stream, start, duration)
+	if times == nil {
+		if times, err = listKeyframes(ctx, ffprobe, file, stream, start, duration); err != nil {
+			return nil, 0, err
 		}
 	}
 	// Seeks list keyframes in time order and packets come in decode order;
@@ -147,6 +113,88 @@ func keyframes(ctx context.Context, ffprobe string, file *os.File, stream int) (
 		}
 	}
 	return result, start, nil
+}
+
+// indexed reads the keyframes from the container's index (indexKeyframes)
+// and keeps them only if they agree with FFprobe and are dense enough. The
+// first must be the stream's first packet, and the last the keyframe a seek
+// to the end lands on, so neither end of the index is missing; no two may be
+// more than two segments apart, as a sparse index would lengthen segments.
+func indexed(ctx context.Context, ffprobe string, file *os.File, stream int, start, duration float64) []float64 {
+	info, err := file.Stat()
+	if err != nil {
+		return nil
+	}
+	times, err := indexKeyframes(io.NewSectionReader(file, 0, info.Size()), stream)
+	if err != nil || len(times) == 0 {
+		return nil
+	}
+	slices.Sort(times)
+	for i := 1; i < len(times); i++ {
+		if times[i]-times[i-1] > 2*SegmentSeconds {
+			return nil
+		}
+	}
+	var ends []float64
+	end := strconv.FormatFloat(start+duration, 'f', 3, 64)
+	err = probe(ctx, ffprobe, file, []string{"-select_streams", strconv.Itoa(stream), "-show_entries", "packet=pts_time,flags", "-read_intervals", "%+#1," + end + "%+#1"}, func(fields []string) error {
+		if t, key, ok := packet(fields); ok && key {
+			ends = append(ends, t)
+		}
+		return nil
+	})
+	if err != nil || len(ends) != 2 || math.Abs(ends[0]-times[0]) > 0.001 || math.Abs(ends[1]-times[len(times)-1]) > 0.001 {
+		return nil
+	}
+	return times
+}
+
+// listKeyframes lists keyframe times of one video stream with FFprobe. It
+// seeks every seekStep seconds and keeps the keyframe each seek lands on, so
+// it reads a few packets per seek instead of the whole file. Any subset of
+// the keyframes gives a plan FFmpeg follows exactly. Containers whose seeks
+// do not land on keyframes (MPEG-TS) fall back to reading every packet.
+func listKeyframes(ctx context.Context, ffprobe string, file *os.File, stream int, start, duration float64) ([]float64, error) {
+	selected := []string{"-select_streams", strconv.Itoa(stream), "-show_entries", "packet=pts_time,flags"}
+	var times []float64
+	if duration > 0 && duration/seekStep < maxKeyframes {
+		intervals := make([]string, 0, int(duration/seekStep)+1)
+		for t := 0.0; t < duration; t += seekStep {
+			intervals = append(intervals, strconv.FormatFloat(start+t, 'f', 3, 64)+"%+#1")
+		}
+		seeked := true
+		err := probe(ctx, ffprobe, file, append(selected, "-read_intervals", strings.Join(intervals, ",")), func(fields []string) error {
+			t, key, ok := packet(fields)
+			if ok && !key {
+				seeked = false
+			}
+			if ok && key {
+				times = append(times, t)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, errors.New("cannot list keyframes")
+		}
+		if !seeked {
+			times = nil
+		}
+	}
+	if len(times) == 0 {
+		err := probe(ctx, ffprobe, file, selected, func(fields []string) error {
+			if t, key, ok := packet(fields); ok && key {
+				if len(times) >= maxKeyframes {
+					return errors.New("too many keyframes")
+				}
+				times = append(times, t)
+			}
+			return nil
+		})
+		if err != nil || len(times) == 0 {
+			return nil, errors.New("cannot list keyframes")
+		}
+	}
+	return times, nil
 }
 
 // firstFrame returns the time of the video stream's first packet, relative
@@ -204,7 +252,9 @@ func probe(ctx context.Context, ffprobe string, file *os.File, args []string, li
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	// +genpts fills in missing PTS the way FFmpeg does for the job (#96).
-	args = append([]string{"-v", "error", "-protocol_whitelist", "fd", "-fflags", "+genpts", "-fd", "3"}, args...)
+	// The fd protocol reads in unbounded blocks by default, so each seek in
+	// an MP4 header pulls in megabytes (#98).
+	args = append([]string{"-v", "error", "-protocol_whitelist", "fd", "-fflags", "+genpts", "-blocksize", "65536", "-fd", "3"}, args...)
 	cmd := exec.CommandContext(ctx, ffprobe, append(args, "-of", "csv", "fd:")...) //nolint:gosec // binary is ffprobe from PATH; arguments are numbers and fixed options
 	cmd.Env = []string{"LC_ALL=C"}
 	cmd.ExtraFiles = []*os.File{file}

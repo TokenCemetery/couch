@@ -159,10 +159,14 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 			if burn {
 				transcoding += "&SubtitleStreamIndex=" + strconv.Itoa(subtitle) + "&SubtitleMethod=Encode"
 			}
-			// A transcode's plan needs no keyframe listing (#98).
-			prepared := remuxSource(catalog, item, video)
-			prepared.VideoEncode = encoding.Bitrate > 0
-			s.hls.Prepare(prepared)
+			// A transcode's plan needs no keyframe listing (#98). Emby Web
+			// asks with IsPlayback=false for an item's page, which reads
+			// nothing, as with Emby; a client that leaves it out may play.
+			if body.IsPlayback == nil || *body.IsPlayback {
+				prepared := remuxSource(catalog, item, video)
+				prepared.VideoEncode = encoding.Bitrate > 0
+				s.hls.Prepare(prepared)
+			}
 		default:
 			remuxBusy = true
 		}
