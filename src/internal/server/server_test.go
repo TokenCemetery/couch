@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,6 +67,15 @@ func login(t testing.TB, h http.Handler) string {
 		t.Fatal("missing token or client metadata")
 	}
 	return result.AccessToken
+}
+
+// seedItems saves the given item states for the session of token.
+func seedItems(t testing.TB, store *state.Store, token string, items map[string]state.ItemState) {
+	t.Helper()
+	ids := slices.Collect(maps.Keys(items))
+	if _, err := store.SetItems(token, ids, func(id string, st *state.ItemState) { *st = items[id] }); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestEmbyLoginSettingsRestartLogout(t *testing.T) {

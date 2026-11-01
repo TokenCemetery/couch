@@ -162,7 +162,7 @@ func TestStateSizeLimitDoesNotChangeCommittedData(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = s.Change(token, func(d *Data, session *Session) {
-		d.User.Settings["oversized"] = json.RawMessage(`"` + strings.Repeat("a", maxStateBytes) + `"`)
+		d.User.Settings["oversized"] = json.RawMessage(`"` + strings.Repeat("a", maxSettingsBytes) + `"`)
 	})
 	if !errors.Is(err, ErrStateLimit) {
 		t.Fatal("expected state size limit")
@@ -205,15 +205,14 @@ func TestSetItemsIsAllOrNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Change(token, func(d *Data, _ *Session) {
-		d.User.Items = map[string]ItemState{}
-		for i := range maxTrackedItems - 2 {
-			d.User.Items[fmt.Sprintf("old-%d", i)] = ItemState{IsFavorite: true}
-		}
-	}); err != nil {
+	old := make([]string, maxTrackedItems-2)
+	for i := range old {
+		old[i] = fmt.Sprintf("old-%d", i)
+	}
+	if _, err := s.SetItems(token, old, func(_ string, st *ItemState) { st.IsFavorite = true }); err != nil {
 		t.Fatal(err)
 	}
-	played := func(st *ItemState) { st.Played = true }
+	played := func(_ string, st *ItemState) { st.Played = true }
 	// Three new items do not fit into the two free places: none is saved.
 	if _, err := s.SetItems(token, []string{"a", "b", "c"}, played); !errors.Is(err, ErrStateLimit) {
 		t.Fatalf("over the limit: %v", err)
@@ -225,7 +224,7 @@ func TestSetItemsIsAllOrNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	// At the limit, unmarking items that have no state adds nothing.
-	saved, err := s.SetItems(token, []string{"a", "never-seen"}, func(st *ItemState) { st.Played = false })
+	saved, err := s.SetItems(token, []string{"a", "never-seen"}, func(_ string, st *ItemState) { st.Played = false })
 	if err != nil || saved["a"].Played || len(s.Snapshot().User.Items) != maxTrackedItems-1 {
 		t.Fatalf("unmark at the limit: %v, %d items", err, len(s.Snapshot().User.Items))
 	}
@@ -237,7 +236,7 @@ func TestIdentityCarriesOnlyPublicFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Change(token, func(d *Data, _ *Session) { d.User.Items = map[string]ItemState{"a": {Played: true}} }); err != nil {
+	if err := s.SetItem(token, "a", func(st *ItemState) { st.Played = true }); err != nil {
 		t.Fatal(err)
 	}
 	full, id := s.Snapshot(), s.Identity()
@@ -271,7 +270,7 @@ func TestReopenRestoresAllState(t *testing.T) {
 	if err := s.SetUserImage(token, []byte("png"), "image/png"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetItems(token, []string{"a", "b", "c"}, func(st *ItemState) { st.Played, st.PlayCount, st.LastPlayed = true, 1, now }); err != nil {
+	if _, err := s.SetItems(token, []string{"a", "b", "c"}, func(_ string, st *ItemState) { st.Played, st.PlayCount, st.LastPlayed = true, 1, now }); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetItem(token, "b", func(st *ItemState) {
@@ -297,5 +296,86 @@ func TestReopenRestoresAllState(t *testing.T) {
 	}
 	if _, ok := got.User.Items["c"]; ok || len(got.Sessions) != 2 || got.User.Image == nil {
 		t.Fatalf("items %v, sessions %d, image %v", got.User.Items, len(got.Sessions), got.User.Image)
+	}
+}
+
+// TestPublishedStateIsNotModified checks that later writes, including one
+// whose commit fails, leave a state already handed to readers unchanged.
+func TestPublishedStateIsNotModified(t *testing.T) {
+	s, dir := testStore(t)
+	token, _, err := s.Login("viewer", "test-only-password", Session{Capabilities: map[string]json.RawMessage{"a": json.RawMessage(`1`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetItemSession(token, "a", func(st *ItemState, session *Session) {
+		st.PositionTicks = 1
+		session.RecentPlays = append(session.RecentPlays, PlaybackRecord{ID: "p", ItemID: "a", Switched: []string{"q"}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Change(token, func(d *Data, _ *Session) { d.User.Settings["theme"] = json.RawMessage(`"dark"`) }); err != nil {
+		t.Fatal(err)
+	}
+	published := s.Snapshot()
+	session, err := s.Authenticate(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(published)
+	sessionBefore, _ := json.Marshal(session)
+
+	edit := func(st *ItemState, session *Session) {
+		st.PositionTicks = 2
+		session.RecentPlays[0].Stopped = true
+		session.RecentPlays[0].Switched[0] = "changed"
+		session.Capabilities["a"] = json.RawMessage(`2`)
+	}
+	journal := filepath.Join(dir, "couch.db-journal")
+	if err := os.Mkdir(journal, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetItemSession(token, "a", edit); err == nil {
+		t.Fatal("commit without its journal succeeded")
+	}
+	if err := os.Remove(journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetItemSession(token, "a", edit); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Change(token, func(d *Data, _ *Session) { d.User.Settings["theme"] = json.RawMessage(`"light"`) }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetItems(token, []string{"a", "b"}, func(_ string, st *ItemState) { st.Played = true }); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := json.Marshal(published)
+	sessionAfter, _ := json.Marshal(session)
+	if !bytes.Equal(before, after) || !bytes.Equal(sessionBefore, sessionAfter) {
+		t.Fatalf("published state changed:\n%s\n%s", before, after)
+	}
+	if got := s.Snapshot().User.Items["a"]; got.PositionTicks != 2 || !got.Played {
+		t.Fatalf("current state %+v", got)
+	}
+}
+
+func TestChangeMustNotModifyItems(t *testing.T) {
+	s, _ := testStore(t)
+	token, _, err := s.Login("viewer", "test-only-password", Session{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetItem(token, "a", func(st *ItemState) { st.Played = true }); err != nil {
+		t.Fatal(err)
+	}
+	err = s.Change(token, func(d *Data, _ *Session) {
+		d.User.Items = map[string]ItemState{"b": {Played: true}}
+		d.User.Settings["theme"] = json.RawMessage(`"dark"`)
+	})
+	if err == nil {
+		t.Fatal("Change replaced the items")
+	}
+	if d := s.Snapshot(); len(d.User.Items) != 1 || !d.User.Items["a"].Played || len(d.User.Settings) != 0 {
+		t.Fatalf("rejected change was applied: %+v", d.User)
 	}
 }

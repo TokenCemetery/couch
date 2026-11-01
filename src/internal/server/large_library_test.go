@@ -49,14 +49,11 @@ func BenchmarkScreens(b *testing.B) {
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(b, h)
 	uid := store.Snapshot().User.ID
-	if err := store.Change(token, func(d *state.Data, _ *state.Session) {
-		d.User.Items = map[string]state.ItemState{}
-		for s := range 300 {
-			d.User.Items["series-"+strconv.Itoa(s)+"-s1-e1"] = state.ItemState{Played: true, LastPlayed: time.Now().Add(-time.Duration(s) * time.Minute)}
-		}
-	}); err != nil {
-		b.Fatal(err)
+	started := map[string]state.ItemState{}
+	for s := range 300 {
+		started["series-"+strconv.Itoa(s)+"-s1-e1"] = state.ItemState{Played: true, LastPlayed: time.Now().Add(-time.Duration(s) * time.Minute)}
 	}
+	seedItems(b, store, token, started)
 	for _, tc := range []struct{ name, path string }{
 		{"NextUp", "/Shows/NextUp?UserId=" + uid + "&Limit=24"},
 		{"ResumeSection", "/Users/" + uid + "/Sections/resume/Items?Limit=12"},

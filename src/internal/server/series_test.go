@@ -109,17 +109,13 @@ func TestNextUp(t *testing.T) {
 	now := time.Now()
 	// a: first episode watched earlier; b: an episode skipped, then the second watched
 	// most recently; c: never finished; d: finished with nothing after it.
-	if err := store.Change(token, func(d *state.Data, _ *state.Session) {
-		d.User.Items = map[string]state.ItemState{
-			"a1": {Played: true, LastPlayed: now.Add(-time.Hour)},
-			"a0": {Played: true, LastPlayed: now},
-			"b2": {Played: true, LastPlayed: now.Add(-time.Minute)},
-			"c1": {PositionTicks: 50000000, LastPlayed: now},
-			"d1": {Played: true, LastPlayed: now},
-		}
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedItems(t, store, token, map[string]state.ItemState{
+		"a1": {Played: true, LastPlayed: now.Add(-time.Hour)},
+		"a0": {Played: true, LastPlayed: now},
+		"b2": {Played: true, LastPlayed: now.Add(-time.Minute)},
+		"c1": {PositionTicks: 50000000, LastPlayed: now},
+		"d1": {Played: true, LastPlayed: now},
+	})
 	user := store.Snapshot().User.ID
 	for _, tc := range []struct{ path, ids string }{
 		// a0 is a special and is ignored, so b was watched more recently than a.
@@ -167,16 +163,12 @@ func TestResumeIncludesNextUp(t *testing.T) {
 	h := New(store, "test", nil, catalog).Handler()
 	token := login(t, h)
 	now := time.Now()
-	if err := store.Change(token, func(d *state.Data, _ *state.Session) {
-		d.User.Items = map[string]state.ItemState{
-			"movie": {PositionTicks: 50000000, LastPlayed: now.Add(-30 * time.Minute)},
-			"a1":    {Played: true, LastPlayed: now.Add(-time.Hour)},
-			"b1":    {Played: true, LastPlayed: now.Add(-10 * time.Minute)},
-			"c1":    {PositionTicks: 50000000, LastPlayed: now},
-		}
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedItems(t, store, token, map[string]state.ItemState{
+		"movie": {PositionTicks: 50000000, LastPlayed: now.Add(-30 * time.Minute)},
+		"a1":    {Played: true, LastPlayed: now.Add(-time.Hour)},
+		"b1":    {Played: true, LastPlayed: now.Add(-10 * time.Minute)},
+		"c1":    {PositionTicks: 50000000, LastPlayed: now},
+	})
 	base := "/Users/" + store.Snapshot().User.ID + "/Items/Resume?Recursive=true&MediaTypes=Video"
 	for _, tc := range []struct{ query, ids string }{
 		// Emby includes next-up episodes unless IncludeNextUp=false.

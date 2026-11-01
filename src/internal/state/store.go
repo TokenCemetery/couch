@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,7 +24,10 @@ import (
 )
 
 const passwordIterations = 600000
-const maxStateBytes = 4 << 20
+
+// maxSettingsBytes bounds the user's settings and configuration, which
+// clients replace whole or merge key by key; items and sessions have counts.
+const maxSettingsBytes = 1 << 20
 
 // Errors returned by Store.
 var (
@@ -196,40 +200,64 @@ func (s *Store) Identity() Data {
 	return Data{ServerID: s.data.ServerID, User: User{ID: s.data.User.ID, Name: s.data.User.Name}}
 }
 
-// Snapshot returns a deep copy of the current state.
+// Snapshot returns the current state. It is shared with other readers and
+// must not be modified: writers publish a new state instead of changing it.
 func (s *Store) Snapshot() Data {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return clone(s.data)
+	return s.data
 }
 
-func clone(d Data) Data {
-	b, _ := json.Marshal(d)
-	var out Data
-	_ = json.Unmarshal(b, &out)
-	return out
-}
-
-// update commits to the database before publishing a snapshot to readers.
-func (s *Store) update(fn func(*Data) error) error {
+// update commits a change to the database, then publishes it. fn works on a
+// copy that shares the published state except the maps it may change: the
+// settings, configuration and sessions maps, and the items map only when
+// items names the IDs fn may change. Only those item rows are written.
+func (s *Store) update(items []string, fn func(*Data) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	next := clone(s.data)
+	next := s.data
+	next.User.Settings = maps.Clone(s.data.User.Settings)
+	next.User.Configuration = maps.Clone(s.data.User.Configuration)
+	next.Sessions = maps.Clone(s.data.Sessions)
+	if len(items) > 0 {
+		next.User.Items = maps.Clone(s.data.User.Items)
+		if next.User.Items == nil {
+			next.User.Items = map[string]ItemState{}
+		}
+	}
 	if err := fn(&next); err != nil {
 		return err
 	}
-	b, err := json.Marshal(next)
-	if err != nil {
-		return err
-	}
-	if len(b) > maxStateBytes {
+	if settingsBytes(next.User) > maxSettingsBytes {
 		return ErrStateLimit
 	}
-	if err := commit(context.Background(), s.db, s.data, next); err != nil {
+	if err := commit(context.Background(), s.db, s.data, next, items); err != nil {
 		return err
 	}
 	s.data = next
 	return nil
+}
+
+func settingsBytes(u User) int {
+	n := 0
+	for k, v := range u.Settings {
+		n += len(k) + len(v)
+	}
+	for k, v := range u.Configuration {
+		n += len(k) + len(v)
+	}
+	return n
+}
+
+// cloneSession copies what callers of Change and SetItemSession may modify
+// in place, so the published session stays unchanged until the commit.
+func cloneSession(session Session) Session {
+	session.Capabilities = maps.Clone(session.Capabilities)
+	session.RecentPlays = slices.Clone(session.RecentPlays)
+	for i := range session.RecentPlays {
+		session.RecentPlays[i].Switched = slices.Clone(session.RecentPlays[i].Switched)
+	}
+	return session
 }
 
 // Initialize creates the single local user. It fails if one already exists.
@@ -244,7 +272,7 @@ func (s *Store) Initialize(name, password string) error {
 	if err != nil {
 		return err
 	}
-	return s.update(func(d *Data) error {
+	return s.update(nil, func(d *Data) error {
 		if d.SchemaVersion != 0 {
 			return errors.New("already initialized")
 		}
@@ -278,7 +306,7 @@ func (s *Store) Login(name, password string, client Session) (string, Session, e
 	token := randomID() + randomID()
 	client.ID, client.UserID = randomID(), u.ID
 	client.ExpiresAt = time.Now().UTC().Add(30 * 24 * time.Hour)
-	err = s.update(func(d *Data) error {
+	err = s.update(nil, func(d *Data) error {
 		// The password may have changed while it was verified without the lock;
 		// a session must not outlive the revocation that change performs.
 		if subtle.ConstantTimeCompare(d.User.PasswordHash, u.PasswordHash) != 1 {
@@ -322,7 +350,7 @@ func (s *Store) ChangePassword(token, current, next string) ([]string, error) {
 		return nil, err
 	}
 	revoked := []string{}
-	err = s.update(func(d *Data) error {
+	err = s.update(nil, func(d *Data) error {
 		key := tokenHash(token)
 		if session, ok := d.Sessions[key]; !ok || !session.ExpiresAt.After(time.Now()) {
 			return ErrSession
@@ -362,19 +390,27 @@ func (s *Store) Authenticate(token string) (Session, error) {
 
 // Logout revokes the session for token.
 func (s *Store) Logout(token string) error {
-	return s.update(func(d *Data) error { delete(d.Sessions, tokenHash(token)); return nil })
+	return s.update(nil, func(d *Data) error { delete(d.Sessions, tokenHash(token)); return nil })
 }
 
 // Change checks the session again under the write lock to prevent a concurrent
-// logout from being followed by a successful settings mutation.
+// logout from being followed by a successful settings mutation. fn must not
+// change items: SetItem and SetItems do, writing only those rows.
 func (s *Store) Change(token string, fn func(*Data, *Session)) error {
-	return s.update(func(d *Data) error {
+	return s.update(nil, func(d *Data) error {
 		key := tokenHash(token)
 		session, ok := d.Sessions[key]
 		if !ok || !session.ExpiresAt.After(time.Now()) {
 			return ErrSession
 		}
+		items := d.User.Items
+		d.User.Items = nil
+		session = cloneSession(session)
 		fn(d, &session)
+		if d.User.Items != nil {
+			return errors.New("state: Change must not modify items")
+		}
+		d.User.Items = items
 		d.Sessions[key] = session
 		return nil
 	})
@@ -391,15 +427,13 @@ func (s *Store) SetItemSession(token, itemID string, fn func(*ItemState, *Sessio
 	if itemID == "" {
 		return errors.New("item id is required")
 	}
-	return s.update(func(d *Data) error {
+	return s.update([]string{itemID}, func(d *Data) error {
 		key := tokenHash(token)
 		session, ok := d.Sessions[key]
 		if !ok || !session.ExpiresAt.After(time.Now()) {
 			return ErrSession
 		}
-		if d.User.Items == nil {
-			d.User.Items = map[string]ItemState{}
-		}
+		session = cloneSession(session)
 		current, exists := d.User.Items[itemID]
 		if !exists && len(d.User.Items) >= maxTrackedItems {
 			return ErrStateLimit
@@ -419,20 +453,17 @@ func (s *Store) SetItemSession(token, itemID string, fn func(*ItemState, *Sessio
 // is saved, or none is when the session is invalid or the tracked-item limit
 // would be exceeded. Items fn leaves empty are dropped and never count toward
 // the limit. It returns the resulting state of each item.
-func (s *Store) SetItems(token string, itemIDs []string, fn func(*ItemState)) (map[string]ItemState, error) {
+func (s *Store) SetItems(token string, itemIDs []string, fn func(id string, item *ItemState)) (map[string]ItemState, error) {
 	saved := map[string]ItemState{}
-	err := s.update(func(d *Data) error {
+	err := s.update(itemIDs, func(d *Data) error {
 		session, ok := d.Sessions[tokenHash(token)]
 		if !ok || !session.ExpiresAt.After(time.Now()) {
 			return ErrSession
 		}
-		if d.User.Items == nil {
-			d.User.Items = map[string]ItemState{}
-		}
 		added := 0
 		for _, id := range itemIDs {
 			current, exists := d.User.Items[id]
-			fn(&current)
+			fn(id, &current)
 			saved[id] = current
 			if !exists && current != (ItemState{}) {
 				added++

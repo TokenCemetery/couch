@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
+	"slices"
 	"time"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
@@ -153,21 +155,23 @@ func loadItems(ctx context.Context, db *sql.DB, u *User) error {
 }
 
 // commit writes the rows that differ between prev and next in one
-// transaction. Committing from empty Data creates the schema.
-func commit(ctx context.Context, db *sql.DB, prev, next Data) error {
+// transaction: the user and sessions, and of the items only those named in
+// items. Committing from empty Data creates the schema and writes all items.
+func commit(ctx context.Context, db *sql.DB, prev, next Data, items []string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if err := write(ctx, tx, prev, next); err != nil {
+	if err := write(ctx, tx, prev, next, items); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()
 }
 
-func write(ctx context.Context, tx *sql.Tx, prev, next Data) error {
+func write(ctx context.Context, tx *sql.Tx, prev, next Data, items []string) error {
 	if prev.SchemaVersion == 0 {
+		items = slices.Collect(maps.Keys(next.User.Items))
 		if _, err := tx.ExecContext(ctx, dbSchema); err != nil {
 			return err
 		}
@@ -192,7 +196,7 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 			return err
 		}
 	}
-	if err := writeItems(ctx, tx, next.User.ID, prev.User.Items, next.User.Items); err != nil {
+	if err := writeItems(ctx, tx, next.User.ID, prev.User.Items, next.User.Items, items); err != nil {
 		return err
 	}
 	return writeSessions(ctx, tx, prev.Sessions, next.Sessions)
@@ -217,37 +221,39 @@ func userRow(u User) ([]any, error) {
 	return []any{u.ID, u.Name, u.Salt, u.PasswordHash, u.Iterations, string(configuration), string(settings), revision, mime}, nil
 }
 
-func writeItems(ctx context.Context, tx *sql.Tx, userID string, prev, next map[string]ItemState) error {
-	changed := []string{}
-	for id, item := range next {
-		if old, ok := prev[id]; !ok || old != item {
-			changed = append(changed, id)
-		}
-	}
-	if len(changed) > 0 {
-		upsert, err := tx.PrepareContext(ctx, `INSERT INTO item_state (user_id, item_id, position_ticks, play_count, played, is_favorite, last_played, last_searched, hidden_from_resume)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (user_id, item_id) DO UPDATE SET position_ticks = excluded.position_ticks, play_count = excluded.play_count,
-				played = excluded.played, is_favorite = excluded.is_favorite, last_played = excluded.last_played,
-				last_searched = excluded.last_searched, hidden_from_resume = excluded.hidden_from_resume`)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = upsert.Close() }()
-		for _, id := range changed {
-			if err := upsertItem(ctx, upsert, userID, id, next[id]); err != nil {
+// writeItems upserts or deletes the rows of ids whose state differs.
+func writeItems(ctx context.Context, tx *sql.Tx, userID string, prev, next map[string]ItemState, ids []string) error {
+	var upsert *sql.Stmt
+	for _, id := range ids {
+		item, ok := next[id]
+		old, existed := prev[id]
+		switch {
+		case !ok && existed:
+			if _, err := tx.ExecContext(ctx, "DELETE FROM item_state WHERE user_id = ? AND item_id = ?", userID, id); err != nil {
 				return err
 			}
-		}
-	}
-	for id := range prev {
-		if _, ok := next[id]; !ok {
-			if _, err := tx.ExecContext(ctx, "DELETE FROM item_state WHERE user_id = ? AND item_id = ?", userID, id); err != nil {
+		case ok && (!existed || old != item):
+			if upsert == nil {
+				var err error
+				if upsert, err = prepareUpsertItem(ctx, tx); err != nil {
+					return err
+				}
+				defer func() { _ = upsert.Close() }()
+			}
+			if err := upsertItem(ctx, upsert, userID, id, item); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func prepareUpsertItem(ctx context.Context, tx *sql.Tx) (*sql.Stmt, error) {
+	return tx.PrepareContext(ctx, `INSERT INTO item_state (user_id, item_id, position_ticks, play_count, played, is_favorite, last_played, last_searched, hidden_from_resume)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (user_id, item_id) DO UPDATE SET position_ticks = excluded.position_ticks, play_count = excluded.play_count,
+			played = excluded.played, is_favorite = excluded.is_favorite, last_played = excluded.last_played,
+			last_searched = excluded.last_searched, hidden_from_resume = excluded.hidden_from_resume`)
 }
 
 func upsertItem(ctx context.Context, upsert *sql.Stmt, userID, id string, item ItemState) error {

@@ -565,7 +565,7 @@ func (s *Server) setEpisodesPlayed(token, userID string, episodes []media.Item, 
 	}
 	s.itemMu.Lock()
 	defer s.itemMu.Unlock()
-	saved, err := s.store.SetItems(token, ids, func(st *state.ItemState) { setPlayed(st, value) })
+	saved, err := s.store.SetItems(token, ids, func(_ string, st *state.ItemState) { setPlayed(st, value) })
 	if err != nil {
 		return err
 	}
