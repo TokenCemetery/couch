@@ -644,3 +644,20 @@ The `internal/metadata` tests also run the providers against a local TLS server 
 - Restart with the keys still set, under `strace -f -e trace=connect`: no non-local connection; the stored metadata was served.
 - `-metadata-language ru` on an emptied metadata table: Russian titles and overviews ("Матрица", "Во все тяжкие", "Тьма", episode "Пилотная серия") and Russian certifications ("16+", "18+"). Spirited Away first matched a 2001 TV special: in Russian, TMDb ranks the special, whose Russian title is its Japanese one, above the film for the query "Spirited Away". Fixed in this change by preferring a result whose title or original title equals the query, else the most popular; it then matched TMDb 129, "Унесённые призраками", 12+.
 - Genres of series come from TheTVDB, which has no translations of them, so they stay in English under `ru`; movie genres come from TMDb in Russian.
+
+## Metadata lookup limits (2026-11-01, #109)
+
+- **Scale:** a generated library of 10,000 movies against a local stand-in for TMDb (20 actors, 3 genres and 2 keywords each, request spacing off).
+  - The first lookup took 5.9 s and published the library twice, instead of about 400 times before this change. One full publish costs 49 ms at this size.
+  - Couch allocated about 0.8 GB over the run, and the heap kept 44 MiB for the 10,000 items.
+  - A second lookup with nothing due took 0.47 s.
+- **Retry:** on the 18-file real set under real names, both providers on, the first lookup started while TMDb was unreachable from the host. It logged `Online metadata lookup stopped; it is tried again later reason="requests keep failing"`. 5 min 20 s later, with no rescan, it retried and fetched 28 items, 1 not found.
+- **Images**, same set:
+  - TMDb posters now 780 px wide, 108 KiB on average; backdrops 1280 px, 116 KiB.
+  - The originals before reached 3840×2160, and backdrops averaged 460 KiB.
+  - TheTVDB images are unchanged: posters 680 px wide at 160 KiB, backdrops 1920 px at 459 KiB.
+  - The folder went from 12 MB to 9.6 MB, since most of this set's images come from TheTVDB.
+  - With every download then scaled to at most 1280 px (landscape) or 780 px (portrait) and saved as JPEG quality 85: TheTVDB backdrops 1280 px at 155 KiB on average, posters 81 KiB, and all 42 images 4.5 MB. Scaling and encoding took about 26 ms per image. The binary grew by 0.2 MB for `golang.org/x/image`. The series page in Emby Web shows the poster, backdrop and stills without visible artifacts.
+- **Provider responses:** the largest seen was TheTVDB's extended record of a series with 30+ seasons, at 475 KB, against the 4 MiB cap. The longest season checked, 194 episodes, fits TheTVDB's 500 per page. TMDb sends no rate-limit headers.
+- **Tests:** two 429 answers waited out; a failed metadata save stops the run without storing the lookup; an image that cannot be written leaves its item to be fetched again; a stopped lookup is retried by the timer; a rescan with the same items does not restart a running lookup. A mutation that restarts it fails the last test.
+

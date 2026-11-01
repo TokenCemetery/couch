@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var (
@@ -33,7 +32,7 @@ type tvdb struct {
 }
 
 func newTVDb(key string, lang language) *tvdb {
-	return &tvdb{key: key, lang: lang, pace: &throttle{every: 100 * time.Millisecond}, episodes: map[string][]tvdbEpisode{}}
+	return &tvdb{key: key, lang: lang, pace: &throttle{every: spacing.tvdb}, episodes: map[string][]tvdbEpisode{}}
 }
 
 func (t *tvdb) login(ctx context.Context) error {

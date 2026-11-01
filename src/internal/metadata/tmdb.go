@@ -8,14 +8,13 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 )
 
 // Provider addresses; tests point them at a local server.
 var (
 	tmdbAPI    = "https://api.themoviedb.org/3"
-	tmdbImages = "https://image.tmdb.org/t/p/original"
+	tmdbImages = "https://image.tmdb.org/t/p/"
 )
 
 const (
@@ -34,7 +33,7 @@ type tmdb struct {
 }
 
 func newTMDb(key string, lang language) *tmdb {
-	return &tmdb{key: key, lang: lang, pace: &throttle{every: 50 * time.Millisecond}, seasons: map[string]tmdbSeason{}}
+	return &tmdb{key: key, lang: lang, pace: &throttle{every: spacing.tmdb}, seasons: map[string]tmdbSeason{}}
 }
 
 func (t *tmdb) get(ctx context.Context, path string, params url.Values, v any) error {
@@ -120,11 +119,18 @@ func unique(values []string) []string {
 	return result
 }
 
-func tmdbImage(path string) string {
+// TMDb image widths Couch downloads: originals reach 4K and several MiB,
+// more than any Emby Web screen shows.
+const (
+	tmdbPoster   = "w780"
+	tmdbBackdrop = "w1280"
+)
+
+func tmdbImage(size, path string) string {
 	if path == "" {
 		return ""
 	}
-	return tmdbImages + path
+	return tmdbImages + size + path
 }
 
 // find resolves an IMDb or TheTVDB ID to a TMDb ID of kind "movie" or "tv".
@@ -276,7 +282,7 @@ func (t *tmdb) movie(ctx context.Context, ids map[string]string, title string, y
 			}
 		}
 	}
-	return info, map[string]string{"Primary": tmdbImage(m.PosterPath), "Backdrop": tmdbImage(m.BackdropPath)}, nil
+	return info, map[string]string{"Primary": tmdbImage(tmdbPoster, m.PosterPath), "Backdrop": tmdbImage(tmdbBackdrop, m.BackdropPath)}, nil
 }
 
 func (t *tmdb) series(ctx context.Context, ids map[string]string, title string, year int) (Info, map[string]string, error) {
@@ -330,7 +336,7 @@ func (t *tmdb) series(ctx context.Context, ids map[string]string, title string, 
 			}
 		}
 	}
-	return info, map[string]string{"Primary": tmdbImage(s.PosterPath), "Backdrop": tmdbImage(s.BackdropPath)}, nil
+	return info, map[string]string{"Primary": tmdbImage(tmdbPoster, s.PosterPath), "Backdrop": tmdbImage(tmdbBackdrop, s.BackdropPath)}, nil
 }
 
 type tmdbSeason struct {
@@ -360,7 +366,7 @@ func (t *tmdb) episode(ctx context.Context, seriesID string, season, episode int
 		}
 		info := Info{Name: clean(e.Name), Overview: clean(e.Overview), Community: e.VoteAverage, People: e.people()}
 		setDate(&info, e.AirDate)
-		return info, map[string]string{"Primary": tmdbImage(e.StillPath)}, nil
+		return info, map[string]string{"Primary": tmdbImage(tmdbPoster, e.StillPath)}, nil
 	}
 	return Info{}, nil, errNotFound
 }

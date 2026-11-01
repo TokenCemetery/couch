@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,6 +38,27 @@ func (d dirFiles) ReadSidecar(name string, limit int64) ([]byte, fs.FileInfo, er
 type fakeProviders struct {
 	mu    sync.Mutex
 	paths []string
+	// down answers 500 to every request; limited answers that many 429s
+	// first; delay slows every answer.
+	down    bool
+	limited int
+	delay   time.Duration
+}
+
+func (f *fakeProviders) set(fn func(*fakeProviders)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn(f)
+}
+
+func (f *fakeProviders) count(path string) int {
+	n := 0
+	for _, p := range f.requests() {
+		if p == path {
+			n++
+		}
+	}
+	return n
 }
 
 func (f *fakeProviders) requests() []string {
@@ -48,8 +70,22 @@ func (f *fakeProviders) requests() []string {
 func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.paths = append(f.paths, r.URL.Path)
+	down, limited, delay := f.down, f.limited > 0, f.delay
+	if limited {
+		f.limited--
+	}
 	f.mu.Unlock()
-	if strings.HasPrefix(r.URL.Path, "/img/") {
+	time.Sleep(delay)
+	switch {
+	case down:
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	case limited:
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+		return
+	}
+	if strings.Contains(r.URL.Path, "/img/") {
 		img := image.NewRGBA(image.Rect(0, 0, 2, 3))
 		_ = png.Encode(w, img)
 		return
@@ -103,7 +139,7 @@ func newRefreshTest(t *testing.T) (*state.Store, *fakeProviders) {
 	server := httptest.NewTLSServer(fake)
 	t.Cleanup(server.Close)
 	saved := []any{tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, httpClient}
-	tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, httpClient = server.URL+"/tmdb", server.URL, server.URL+"/tvdb", server.URL, server.Client()
+	tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, httpClient = server.URL+"/tmdb", server.URL+"/t/p/", server.URL+"/tvdb", server.URL, server.Client()
 	t.Cleanup(func() {
 		tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork = saved[0].(string), saved[1].(string), saved[2].(string), saved[3].(string)
 		httpClient = saved[4].(*http.Client)
@@ -308,4 +344,181 @@ func TestLibraryJSONRoundTrip(t *testing.T) {
 	if got := decode(b); !got.Premiere.Equal(info.Premiere) || got.Images["Primary"].File != "f.jpg" || bytes.Contains(b, []byte("Overview")) {
 		t.Fatalf("%s", b)
 	}
+}
+
+// shorten makes retries and publishing quick for a test.
+func shorten(t *testing.T) {
+	saved := []time.Duration{maxRetryAfter, retryFirst, retryMax, publishEvery}
+	maxRetryAfter, retryFirst, retryMax, publishEvery = 10*time.Millisecond, 20*time.Millisecond, 40*time.Millisecond, 0
+	t.Cleanup(func() { maxRetryAfter, retryFirst, retryMax, publishEvery = saved[0], saved[1], saved[2], saved[3] })
+}
+
+func TestRefreshWaitsOutRateLimit(t *testing.T) {
+	store, fake := newRefreshTest(t)
+	shorten(t)
+	fake.set(func(f *fakeProviders) { f.limited = 2 })
+	var published Library
+	r, err := NewRefresher(store, Config{TMDbKey: "tmdb-key", Language: "en", ImageDir: t.TempDir()}, func(l Library) { published = l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.refresh(t.Context(), mediaItems()[:1], dirFiles(t.TempDir())) || published["movie"].Name != "Online Movie" {
+		t.Fatalf("movie: %+v", published["movie"])
+	}
+	if n := fake.count("/tmdb/search/movie"); n != 3 {
+		t.Fatalf("search sent %d times, want 3: two 429s, then the answer", n)
+	}
+}
+
+// failingStore fails every save after the first allowed ones.
+type failingStore struct {
+	metadataStore
+	allowed int
+}
+
+func (s *failingStore) SaveMetadata(ctx context.Context, records []state.MetadataRecord, remove []string) error {
+	if s.allowed == 0 {
+		return os.ErrPermission
+	}
+	s.allowed--
+	return s.metadataStore.SaveMetadata(ctx, records, remove)
+}
+
+func TestRefreshStopsWhenSaveFails(t *testing.T) {
+	store, _ := newRefreshTest(t)
+	failing := &failingStore{metadataStore: store, allowed: 1}
+	r, err := NewRefresher(failing, Config{TMDbKey: "tmdb-key", Language: "en", ImageDir: t.TempDir()}, func(Library) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.refresh(t.Context(), mediaItems()[:1], dirFiles(t.TempDir())) {
+		t.Fatal("a refresh whose lookup was not saved reported success")
+	}
+	records, err := store.Metadata(t.Context())
+	if err != nil || records["movie"].OnlineKey != "" {
+		t.Fatalf("%+v, %v", records["movie"], err)
+	}
+}
+
+func TestRefreshRetriesUnsavedImage(t *testing.T) {
+	store, _ := newRefreshTest(t)
+	// A file where the image directory should be makes every image
+	// write fail, as a full disk would.
+	images := filepath.Join(t.TempDir(), "metadata")
+	if err := os.WriteFile(images, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var published Library
+	r, err := NewRefresher(store, Config{TMDbKey: "tmdb-key", Language: "en", ImageDir: images}, func(l Library) { published = l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.refresh(t.Context(), mediaItems()[:1], dirFiles(t.TempDir())) {
+		t.Fatal("a lookup whose image was not saved reported success")
+	}
+	if records, _ := store.Metadata(t.Context()); records["movie"].OnlineKey != "" {
+		t.Fatal("movie stored without its poster")
+	}
+	if err := os.Remove(images); err != nil {
+		t.Fatal(err)
+	}
+	if !r.refresh(t.Context(), mediaItems()[:1], dirFiles(t.TempDir())) || published["movie"].Images["Primary"].File == "" {
+		t.Fatalf("movie: %+v", published["movie"])
+	}
+}
+
+func TestRunRetriesStoppedLookup(t *testing.T) {
+	store, fake := newRefreshTest(t)
+	shorten(t)
+	fake.set(func(f *fakeProviders) { f.down = true })
+	published := make(chan Library, 100)
+	r, err := NewRefresher(store, Config{TMDbKey: "tmdb-key", Language: "en", ImageDir: t.TempDir()}, func(l Library) { published <- l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	r.Update(&media.Catalog{Items: mediaItems()[:1]})
+	deadline := time.After(10 * time.Second)
+	for fake.count("/tmdb/search/movie") < 2 {
+		select {
+		case <-published:
+		case <-deadline:
+			t.Fatal("a failed lookup was not retried")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	fake.set(func(f *fakeProviders) { f.down = false })
+	for {
+		select {
+		case l := <-published:
+			if nameOf(l, "movie") == "Online Movie" {
+				return
+			}
+		case <-deadline:
+			t.Fatal("the retried lookup did not finish")
+		}
+	}
+}
+
+func TestRunKeepsLookupOnUnchangedRescan(t *testing.T) {
+	store, fake := newRefreshTest(t)
+	shorten(t)
+	fake.set(func(f *fakeProviders) { f.delay = 30 * time.Millisecond })
+	published := make(chan Library, 100)
+	r, err := NewRefresher(store, Config{TMDbKey: "tmdb-key", Language: "en", ImageDir: t.TempDir()}, func(l Library) { published <- l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+	items := mediaItems()[:1]
+	r.Update(&media.Catalog{Items: items})
+	// Rescans that find the same items while the movie's poster downloads.
+	for fake.count("/tmdb/movie/1") == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	for range 3 {
+		r.Update(&media.Catalog{Items: slices.Clone(items)})
+		time.Sleep(10 * time.Millisecond)
+	}
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case l := <-published:
+			if nameOf(l, "movie") != "Online Movie" {
+				continue
+			}
+			if n := fake.count("/tmdb/movie/1"); n != 1 {
+				t.Fatalf("movie fetched %d times: an unchanged rescan restarted the lookup", n)
+			}
+			return
+		case <-deadline:
+			t.Fatal("lookup did not finish")
+		}
+	}
+}
+
+// nameOf is the item's published name, or "" while it has no record.
+func nameOf(l Library, id string) string {
+	if info := l[id]; info != nil {
+		return info.Name
+	}
+	return ""
 }

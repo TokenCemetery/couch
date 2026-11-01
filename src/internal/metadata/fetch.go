@@ -7,15 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	_ "image/jpeg" // register JPEG for image.DecodeConfig
-	_ "image/png"  // register PNG for image.DecodeConfig
+	"image/jpeg"
+	_ "image/png" // register PNG for image.DecodeConfig
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/image/draw"
 )
 
 const (
@@ -29,7 +32,21 @@ var (
 	errNotFound = errors.New("not found")
 	errAuth     = errors.New("API key rejected")
 	errRequest  = errors.New("request failed")
+	errUnusable = errors.New("not a usable JPEG or PNG image")
 )
+
+// A provider answering 429 is asked again after its Retry-After, at most
+// maxRetryAfter later and rateRetries times; tests shorten the wait.
+var (
+	maxRetryAfter     = time.Minute
+	defaultRetryAfter = 5 * time.Second
+	rateRetries       = 3
+)
+
+// spacing is the least time between two requests to each provider: TMDb
+// allows about 50 a second, TheTVDB publishes no limit, and the image
+// servers serve a CDN. Tests shorten it.
+var spacing = struct{ tmdb, tvdb, images time.Duration }{50 * time.Millisecond, 100 * time.Millisecond, 20 * time.Millisecond}
 
 // throttle spaces a provider's requests.
 type throttle struct {
@@ -47,7 +64,51 @@ func (t *throttle) wait(ctx context.Context) error {
 	}
 	t.next = at.Add(t.every)
 	t.mu.Unlock()
-	timer := time.NewTimer(time.Until(at))
+	return sleep(ctx, time.Until(at))
+}
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+// fetch sends req and returns the body of a 200 response, at most limit
+// bytes. A 429 is retried after the provider's Retry-After.
+func fetch(req *http.Request, pace *throttle, limit int64) ([]byte, error) {
+	for attempt := 0; ; attempt++ {
+		if err := pace.wait(req.Context()); err != nil {
+			return nil, err
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			if req.Context().Err() != nil {
+				return nil, req.Context().Err()
+			}
+			return nil, errRequest
+		}
+		if resp.StatusCode != http.StatusTooManyRequests || attempt == rateRetries {
+			return readResponse(resp, limit)
+		}
+		_ = resp.Body.Close()
+		if err := sleep(req.Context(), retryAfter(resp.Header.Get("Retry-After"))); err != nil {
+			return nil, err
+		}
+		if req.GetBody != nil {
+			if req.Body, err = req.GetBody(); err != nil {
+				return nil, errRequest
+			}
+		}
+	}
+}
+
+// retryAfter reads a Retry-After in seconds, within (0, maxRetryAfter].
+func retryAfter(header string) time.Duration {
+	seconds, err := strconv.Atoi(strings.TrimSpace(header))
+	if err != nil || seconds <= 0 {
+		return defaultRetryAfter
+	}
+	return min(time.Duration(seconds)*time.Second, maxRetryAfter)
+}
+
+func sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
@@ -57,20 +118,7 @@ func (t *throttle) wait(ctx context.Context) error {
 	}
 }
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
-
-// fetch sends req and returns the body of a 200 response, at most limit bytes.
-func fetch(req *http.Request, pace *throttle, limit int64) ([]byte, error) {
-	if err := pace.wait(req.Context()); err != nil {
-		return nil, err
-	}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		if req.Context().Err() != nil {
-			return nil, req.Context().Err()
-		}
-		return nil, errRequest
-	}
+func readResponse(resp *http.Response, limit int64) ([]byte, error) {
 	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
@@ -127,6 +175,7 @@ func download(ctx context.Context, dir, url string, pace *throttle) (Image, erro
 	if err != nil {
 		return Image{}, err
 	}
+	body, config, format = shrink(body, config, format)
 	ext := map[string]string{"jpeg": ".jpg", "png": ".png"}[format]
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return Image{}, err
@@ -147,6 +196,42 @@ func download(ctx context.Context, dir, url string, pace *throttle) (Image, erro
 		return Image{}, err
 	}
 	return Image{URL: url, File: name + ext, Width: config.Width, Height: config.Height, MIME: "image/" + format}, nil
+}
+
+// Downloaded images are kept at most this wide, landscape and portrait, and
+// re-encoded at this JPEG quality: TheTVDB serves only originals, and
+// Emby Web shows nothing wider than this.
+const (
+	maxLandscapeWidth = 1280
+	maxPortraitWidth  = 780
+	shrinkQuality     = 85
+)
+
+// shrink scales an image down to the widths above and re-encodes it as
+// JPEG. It returns the image unchanged when that is not smaller, or when
+// it has transparency a JPEG would lose.
+func shrink(body []byte, config image.Config, format string) ([]byte, image.Config, string) {
+	limit := maxPortraitWidth
+	if config.Width > config.Height {
+		limit = maxLandscapeWidth
+	}
+	img, _, err := image.Decode(bytes.NewReader(body))
+	if err != nil {
+		return body, config, format
+	}
+	if o, ok := img.(interface{ Opaque() bool }); ok && !o.Opaque() {
+		return body, config, format
+	}
+	if config.Width > limit {
+		scaled := image.NewRGBA(image.Rect(0, 0, limit, max(1, config.Height*limit/config.Width)))
+		draw.CatmullRom.Scale(scaled, scaled.Bounds(), img, img.Bounds(), draw.Src, nil)
+		img = scaled
+	}
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: shrinkQuality}); err != nil || out.Len() >= len(body) {
+		return body, config, format
+	}
+	return out.Bytes(), image.Config{Width: img.Bounds().Dx(), Height: img.Bounds().Dy()}, "jpeg"
 }
 
 // readImage describes a saved image, checking it as download did.
@@ -171,7 +256,7 @@ func decodeConfig(b []byte) (image.Config, string, error) {
 	config, format, err := image.DecodeConfig(bytes.NewReader(b))
 	if err != nil || (format != "jpeg" && format != "png") || config.Width <= 0 || config.Height <= 0 ||
 		config.Width > 16384 || config.Height > 16384 || int64(config.Width)*int64(config.Height) > 32_000_000 {
-		return image.Config{}, "", errors.New("not a usable JPEG or PNG image")
+		return image.Config{}, "", errUnusable
 	}
 	return config, format, nil
 }

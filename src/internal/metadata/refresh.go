@@ -35,10 +35,25 @@ type Config struct {
 	ImageDir string
 }
 
+// Retry intervals after a refresh that did not finish, doubling from the
+// first to the last; and how often a running lookup publishes what it has.
+// Tests shorten them.
+var (
+	retryFirst   = 5 * time.Minute
+	retryMax     = time.Hour
+	publishEvery = 10 * time.Second
+)
+
+// metadataStore keeps the records; *state.Store is one.
+type metadataStore interface {
+	Metadata(ctx context.Context) (map[string]state.MetadataRecord, error)
+	SaveMetadata(ctx context.Context, records []state.MetadataRecord, remove []string) error
+}
+
 // Refresher keeps the metadata of the published catalogue up to date and
 // publishes it after each change.
 type Refresher struct {
-	store    *state.Store
+	store    metadataStore
 	cfg      Config
 	lang     language
 	publish  func(Library)
@@ -46,7 +61,7 @@ type Refresher struct {
 }
 
 // NewRefresher checks cfg. publish receives every new Library.
-func NewRefresher(store *state.Store, cfg Config, publish func(Library)) (*Refresher, error) {
+func NewRefresher(store metadataStore, cfg Config, publish func(Library)) (*Refresher, error) {
 	lang, ok := languages[cfg.Language]
 	if !ok {
 		return nil, fmt.Errorf("metadata language must be one of %s", strings.Join(SupportedLanguages(), ", "))
@@ -58,7 +73,8 @@ func NewRefresher(store *state.Store, cfg Config, publish func(Library)) (*Refre
 func (r *Refresher) Online() bool { return r.cfg.TMDbKey != "" || r.cfg.TVDbKey != "" }
 
 // Update hands Run a newly published catalogue. A run in progress stops and
-// starts again with it; what it already fetched is kept.
+// starts again with it when its items changed, keeping what it fetched;
+// otherwise the new catalogue is refreshed once that run ends.
 func (r *Refresher) Update(catalog *media.Catalog) {
 	for {
 		select {
@@ -74,8 +90,10 @@ func (r *Refresher) Update(catalog *media.Catalog) {
 }
 
 // Run refreshes metadata for each catalogue Update hands it and, with a
-// Refresh interval and an online provider, hourly for what has aged. It
-// returns when ctx is done.
+// Refresh interval and an online provider, hourly for what has aged. A
+// refresh that stopped early, as when a provider keeps failing or the
+// metadata cannot be saved, is retried with backoff. Run returns when ctx
+// is done.
 func (r *Refresher) Run(ctx context.Context) {
 	var tick <-chan time.Time
 	if r.cfg.Refresh > 0 && r.Online() {
@@ -84,6 +102,10 @@ func (r *Refresher) Run(ctx context.Context) {
 		tick = ticker.C
 	}
 	var current *media.Catalog
+	retry := time.NewTimer(0)
+	retry.Stop()
+	defer retry.Stop()
+	backoff := retryFirst
 	pending := false
 	for {
 		if !pending {
@@ -92,6 +114,7 @@ func (r *Refresher) Run(ctx context.Context) {
 				return
 			case current = <-r.catalogs:
 			case <-tick:
+			case <-retry.C:
 			}
 		}
 		pending = false
@@ -99,24 +122,49 @@ func (r *Refresher) Run(ctx context.Context) {
 			continue
 		}
 		run, cancel := context.WithCancel(ctx)
-		done := make(chan struct{})
+		done := make(chan bool, 1)
 		go func(catalog *media.Catalog) {
-			defer close(done)
-			r.refresh(run, slices.Concat(catalog.Folders, catalog.Items), catalog)
+			done <- r.refresh(run, slices.Concat(catalog.Folders, catalog.Items), catalog)
 		}(current)
-		select {
-		case <-done:
-		case current = <-r.catalogs:
-			pending = true
-			cancel()
-			<-done
-		case <-ctx.Done():
-			cancel()
-			<-done
-			return
+		complete := false
+	wait:
+		for {
+			select {
+			case complete = <-done:
+				break wait
+			case next := <-r.catalogs:
+				if !sameItems(current, next) {
+					cancel()
+				}
+				current, pending = next, true
+			case <-ctx.Done():
+				cancel()
+				<-done
+				return
+			}
 		}
 		cancel()
+		retry.Stop()
+		switch {
+		case complete:
+			backoff = retryFirst
+		case !pending:
+			retry.Reset(backoff)
+			backoff = min(2*backoff, retryMax)
+		}
 	}
+}
+
+// sameItems reports whether two catalogues hold the same items and folders.
+func sameItems(a, b *media.Catalog) bool {
+	ids := func(items []media.Item) []string {
+		list := make([]string, len(items))
+		for n, item := range items {
+			list[n] = item.ID
+		}
+		return list
+	}
+	return slices.Equal(ids(a.Items), ids(b.Items)) && slices.Equal(ids(a.Folders), ids(b.Folders))
 }
 
 // sidecars reads the files next to the media; *media.Catalog is one.
@@ -134,14 +182,15 @@ type run struct {
 	changed map[string]bool
 }
 
-// refresh brings the metadata of the catalogue's items up to date.
-func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidecars) {
+// refresh brings the metadata of the catalogue's items up to date and
+// reports whether it finished.
+func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidecars) bool {
 	records, err := r.store.Metadata(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Warn("Metadata not loaded", "error", err)
 		}
-		return
+		return false
 	}
 	x := &run{Refresher: r, files: files, records: records, nfo: map[string]Info{}, online: map[string]Info{}, changed: map[string]bool{}}
 	for id, record := range records {
@@ -153,7 +202,7 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 	for _, item := range items {
 		parsed, err := x.readNFO(item)
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if parsed {
 			read++
@@ -174,15 +223,16 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 		}
 	}
 	if !x.save(ctx, remove) {
-		return
+		return false
 	}
 	x.publishLibrary()
 	if read > 0 || bad > 0 || len(remove) > 0 {
 		slog.Info("Metadata files read", "nfo_read", read, "nfo_unreadable", bad, "removed", len(remove))
 	}
 	if r.Online() {
-		x.fetchAll(ctx, items)
+		return x.fetchAll(ctx, items)
 	}
+	return true
 }
 
 // sortItems puts series first, so episodes can use their series' provider
@@ -361,7 +411,10 @@ func (x *run) due(id, key string, now time.Time) bool {
 // provider or the network is then likely down.
 const maxFailures = 5
 
-func (x *run) fetchAll(ctx context.Context, items []media.Item) {
+// fetchAll looks up the items that are due and reports whether every one
+// was answered. A failed image download leaves its item to be fetched
+// again, unless the image is missing or unusable at the provider.
+func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 	var tm *tmdb
 	var tv *tvdb
 	if x.cfg.TMDbKey != "" {
@@ -370,9 +423,10 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) {
 	if x.cfg.TVDbKey != "" {
 		tv = newTVDb(x.cfg.TVDbKey, x.lang)
 	}
-	images := &throttle{every: 20 * time.Millisecond}
+	images := &throttle{every: spacing.images}
 	fetched, notFound, failed, failures := 0, 0, 0, 0
 	stopped := ""
+	published := time.Now()
 	for _, item := range items {
 		now := time.Now().UTC()
 		l := x.lookupOf(item)
@@ -380,9 +434,25 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) {
 			continue
 		}
 		info, urls, err := x.fetch(ctx, tm, tv, item, l)
+		for _, kind := range []string{"Primary", "Backdrop"} {
+			if err != nil || urls[kind] == "" {
+				continue
+			}
+			var image Image
+			image, err = download(ctx, x.cfg.ImageDir, urls[kind], images)
+			switch {
+			case err == nil:
+				if info.Images == nil {
+					info.Images = map[string]Image{}
+				}
+				info.Images[kind] = image
+			case errors.Is(err, errNotFound), errors.Is(err, errUnusable):
+				err = nil
+			}
+		}
 		if ctx.Err() != nil {
 			x.save(ctx, nil)
-			return
+			return false
 		}
 		switch {
 		case errors.Is(err, errAuth):
@@ -406,41 +476,34 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) {
 		} else {
 			fetched++
 		}
-		for _, kind := range []string{"Primary", "Backdrop"} {
-			if urls[kind] == "" {
-				continue
-			}
-			image, err := download(ctx, x.cfg.ImageDir, urls[kind], images)
-			if ctx.Err() != nil {
-				x.save(ctx, nil)
-				return
-			}
-			if err == nil {
-				if info.Images == nil {
-					info.Images = map[string]Image{}
-				}
-				info.Images[kind] = image
-			}
-		}
 		record := x.records[item.ID]
 		record.ItemID, record.OnlineKey, record.FetchedAt = item.ID, l.key, now
 		record.Online, _ = json.Marshal(info)
 		x.records[item.ID], x.online[item.ID], x.changed[item.ID] = record, info, true
-		if len(x.changed) >= 25 {
-			x.save(ctx, nil)
+		if len(x.changed) >= 25 && !x.save(ctx, nil) {
+			stopped = "metadata could not be saved"
+			break
+		}
+		// Rebuilding the library costs a pass over every item, so a long
+		// lookup publishes what it has at intervals, not per batch.
+		if time.Since(published) >= publishEvery {
 			x.publishLibrary()
+			published = time.Now()
 		}
 	}
-	x.save(ctx, nil)
+	if stopped == "" && !x.save(ctx, nil) {
+		stopped = "metadata could not be saved"
+	}
 	x.publishLibrary()
 	if stopped != "" {
-		slog.Warn("Online metadata lookup stopped; it is tried again with the next rescan", "reason", stopped)
+		slog.Warn("Online metadata lookup stopped; it is tried again later", "reason", stopped)
 	} else {
 		x.removeUnusedImages()
 	}
 	if fetched > 0 || notFound > 0 || failed > 0 {
 		slog.Info("Online metadata fetched", "items", fetched, "not_found", notFound, "failed", failed)
 	}
+	return stopped == "" && failed == 0
 }
 
 // fetch asks each provider with a key, TheTVDB before TMDb for series as
