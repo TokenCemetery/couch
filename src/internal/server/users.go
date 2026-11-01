@@ -145,18 +145,36 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 			fail(w, 400, "InvalidRequest")
 			return
 		}
-		// Per-user library access is not enforced yet (#116), so a policy
-		// that limits it is refused instead of being saved and ignored.
-		if !body.EnableAllFolders {
-			failText(w, 400, "Couch cannot limit a user to some libraries yet: keep \"Enable access to all libraries\" on.")
-			return
-		}
 		if field := fixedPolicyChange(raw, policy(s.hls != nil, target.Policy)); field != "" {
 			failText(w, 400, "Couch does not support changing the "+field+" setting.")
 			return
 		}
+		// A limited user sees only the enabled libraries (#116); an
+		// administrator sees every library whatever the list says.
+		folders := []string{}
+		if !body.EnableAllFolders {
+			if body.IsAdministrator {
+				failText(w, 400, "An administrator sees every library: keep \"Enable access to all libraries\" on, or remove the administrator role.")
+				return
+			}
+			// Emby Web's Access tab names a library by its Guid.
+			known := map[string]string{}
+			for _, id := range libraryIDs(s.catalog()) {
+				known[id], known[derive("guid", id)] = id, id
+			}
+			for _, posted := range body.EnabledFolders {
+				id, ok := known[posted]
+				if !ok {
+					failText(w, 400, "The library "+posted+" does not exist.")
+					return
+				}
+				if !slices.Contains(folders, id) {
+					folders = append(folders, id)
+				}
+			}
+		}
 		policy := state.Policy{IsAdministrator: body.IsAdministrator, IsDisabled: body.IsDisabled,
-			IsHidden: body.IsHidden, EnableAllFolders: true, EnabledFolders: []string{}}
+			IsHidden: body.IsHidden, EnableAllFolders: body.EnableAllFolders, EnabledFolders: folders}
 		revoked, err := s.store.SetPolicy(target.ID, policy)
 		if err != nil {
 			s.userFailure(w, err)
@@ -296,7 +314,7 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /library/selectablemediafolders", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		folders := []object{}
 		serverID := s.store.Snapshot().ServerID
-		for _, id := range s.libraryIDs() {
+		for _, id := range libraryIDs(s.catalog()) {
 			dto := s.collectionDTO(id, serverID, false)
 			folders = append(folders, object{"Name": dto["Name"], "Id": id, "Guid": dto["Guid"], "SubFolders": []any{}, "IsUserAccessConfigurable": true})
 		}
@@ -305,7 +323,7 @@ func (s *Server) userRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /library/mediafolders", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		items := []any{}
 		serverID := s.store.Snapshot().ServerID
-		for _, id := range s.libraryIDs() {
+		for _, id := range libraryIDs(s.catalog()) {
 			items = append(items, s.collectionDTO(id, serverID, false))
 		}
 		respond(w, 200, object{"Items": items, "TotalRecordCount": len(items)})

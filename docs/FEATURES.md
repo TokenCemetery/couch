@@ -16,7 +16,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 |---|---|---|
 | Connect by address; stable ServerId across restarts | Supported | M1 acceptance, [ROADMAP](ROADMAP.md) M1 |
 | Sign in, sign out, session restored after restart, revoked token refused | Supported | M1 acceptance; sign-in is rate limited |
-| User accounts and user management | Partial | `-init` creates the administrator; the Users pages create, edit, disable, hide and delete users, set passwords and copy data (#111); limiting a user to some libraries is refused (#116) |
+| User accounts and user management | Partial | `-init` creates the administrator; the Users pages create, edit, disable, hide and delete users, set passwords and copy data (#111), and limit a user to some libraries (#116) |
 | Emby Connect, Emby Premiere | Unsupported | The Premiere check to `mb3admin.com` is blocked by the UI's CSP; the client shows "Get Emby Premiere" (#89) |
 
 ## Browsing

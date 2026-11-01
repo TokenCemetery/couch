@@ -120,12 +120,12 @@ func resumable(st state.ItemState, runtime int64) bool {
 }
 
 // rootFolderDTO is the UserRootFolder returned by /Users/{id}/Items/Root.
-func (s *Server) rootFolderDTO(serverID string) object {
+func rootFolderDTO(serverID string, libraries int) object {
 	dto := baseFields(rootID, "Media Folders", "UserRootFolder", serverID)
 	dto["DateCreated"] = zeroDate
 	dto["IsFolder"] = true
 	dto["UserData"] = folderUserData()
-	dto["ChildCount"] = s.libraryCount()
+	dto["ChildCount"] = libraries
 	return dto
 }
 
@@ -156,12 +156,7 @@ func (s *Server) collectionDTO(id, serverID string, detail bool) object {
 	return dto
 }
 
-func (s *Server) libraryCount() int {
-	return len(s.libraryIDs())
-}
-
-func (s *Server) libraryIDs() []string {
-	catalog := s.catalog()
+func libraryIDs(catalog *media.Catalog) []string {
 	if catalog == nil {
 		return nil
 	}

@@ -57,6 +57,11 @@ type Server struct {
 	sessionMu sync.Mutex
 	seen      map[string]time.Time
 	playing   map[string]nowPlaying
+	// viewMu guards the catalogues of users limited to some libraries,
+	// built from viewsOf and keyed by their library IDs.
+	viewMu  sync.Mutex
+	viewsOf *media.Catalog
+	views   map[string]*media.Catalog
 }
 
 // New creates a Server. web and catalog may be nil.
@@ -191,7 +196,7 @@ func policy(hls bool, p state.Policy) object {
 		"EnableSubtitleDownloading": false, "EnableSubtitleManagement": false,
 		"EnableSyncTranscoding": false, "EnableMediaConversion": false,
 		"EnabledChannels": []string{}, "EnableAllChannels": false,
-		"EnabledFolders": p.EnabledFolders, "EnableAllFolders": p.EnableAllFolders,
+		"EnabledFolders": folderGUIDs(p.EnabledFolders), "EnableAllFolders": p.EnableAllFolders,
 		"InvalidLoginAttemptCount": 0, "EnablePublicSharing": false,
 		"RemoteClientBitrateLimit": 0, "ExcludedSubFolders": []string{},
 		"SimultaneousStreamLimit": 0, "EnabledDevices": []string{}, "EnableAllDevices": true,

@@ -134,7 +134,7 @@ func (s *Server) metadataValueList(kind string) authenticated {
 		}
 		favorites := member(query["filters"], "IsFavorite") || strings.EqualFold(query["isfavorite"], "true")
 		userItems := userOf(s.store.Snapshot(), session).Items
-		catalog := s.catalog()
+		catalog := s.catalogFor(session)
 		found, seen := []string{}, map[string]bool{}
 		if catalog != nil {
 			for _, items := range [][]media.Item{catalog.Items, catalog.Folders} {
@@ -211,7 +211,7 @@ func (s *Server) filterValueList(values func(media.Item) []string) authenticated
 			fail(w, 400, "InvalidPagination")
 			return
 		}
-		catalog := s.catalog()
+		catalog := s.catalogFor(session)
 		found := []string{}
 		if catalog != nil && values != nil {
 			parent, types := query.Get("ParentId"), query.Get("IncludeItemTypes")

@@ -73,11 +73,11 @@ func serveImage(w http.ResponseWriter, r *http.Request, file *os.File, mime, rev
 }
 
 func (s *Server) itemImage(w http.ResponseWriter, r *http.Request) {
-	_, revision, ok := s.imageAccess(w, r, r.PathValue("item"))
+	session, revision, ok := s.imageAccess(w, r, r.PathValue("item"))
 	if !ok {
 		return
 	}
-	item, found := s.findItem(r.PathValue("item"))
+	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 	if !found {
 		fail(w, 404, "NotFound")
 		return

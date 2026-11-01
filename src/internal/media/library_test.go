@@ -90,6 +90,21 @@ func TestLibraries(t *testing.T) {
 		t.Fatalf("probes %d, kids %d", probes, next.ChildCount(cartoons.ID))
 	}
 
+	// A user limited to the TV library sees its episodes only, though films
+	// also holds a movie, and not the library added since.
+	view := next.Only([]string{tv.ID})
+	if len(view.Libraries()) != 1 || len(view.Items) != 2 || view.LibraryOf(view.Items[0]) != tv.ID || view.ChildCount(movies.ID) != 0 || view.ChildCount(cartoons.ID) != 0 {
+		t.Fatalf("view %+v %+v", view.Libraries(), view.Items)
+	}
+	if f, err := view.Open(episode); err != nil {
+		t.Fatal(err)
+	} else {
+		_ = f.Close()
+	}
+	if none := next.Only(nil); len(none.Libraries()) != 0 || len(none.Items)+len(none.Folders) != 0 {
+		t.Fatal("a user without libraries sees items")
+	}
+
 	// One folder that cannot be read keeps its items and does not hold up
 	// the others.
 	write("kids/Second.mp4")

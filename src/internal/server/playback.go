@@ -43,8 +43,8 @@ func bitrate(item media.Item) int64 {
 }
 
 func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-	catalog := s.catalog()
-	item, found := s.findItem(r.PathValue("item"))
+	catalog := s.catalogFor(session)
+	item, found := findItem(catalog, r.PathValue("item"))
 	if !found || item.IsFolder() {
 		fail(w, 404, "NotFound")
 		return
@@ -247,7 +247,7 @@ func subtitleURL(item media.Item, index int, token string) string {
 // streamSubtitle serves a sidecar or embedded text subtitle as WebVTT. The start position
 // variant of the route returns the whole file: players seek within it.
 func (s *Server) streamSubtitle(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-	item, found := s.findItem(r.PathValue("item"))
+	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 	index, err := strconv.Atoi(r.PathValue("index"))
 	if !found || item.IsFolder() || err != nil || r.PathValue("source") != "mediasource_"+item.ID || r.PathValue("file") != "stream.vtt" {
 		fail(w, 404, "NotFound")
@@ -300,8 +300,8 @@ func directStreamURL(item media.Item, deviceID, playSession, token string) strin
 	return "/videos/" + item.ID + "/" + name + "?" + query.Encode()
 }
 
-func (s *Server) findItem(id string) (media.Item, bool) {
-	catalog := s.catalog()
+// findItem returns the item or series or season with this ID in catalog.
+func findItem(catalog *media.Catalog, id string) (media.Item, bool) {
 	if catalog == nil || id == "" {
 		return media.Item{}, false
 	}
@@ -324,7 +324,7 @@ func (s *Server) streamVideo(w http.ResponseWriter, r *http.Request, token strin
 		fail(w, 404, "NotFound")
 		return
 	}
-	item, found := s.findItem(r.PathValue("item"))
+	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 	if !found || item.IsFolder() {
 		fail(w, 404, "NotFound")
 		return
@@ -345,7 +345,7 @@ func (s *Server) streamVideo(w http.ResponseWriter, r *http.Request, token strin
 // command. Emby Web navigates to the URL, so the token arrives as api_key.
 // The file name is built from the item name: Path is never sent to clients.
 func (s *Server) downloadItem(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-	item, found := s.findItem(r.PathValue("item"))
+	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 	if !found || item.IsFolder() {
 		fail(w, 404, "NotFound")
 		return
@@ -394,7 +394,7 @@ func (s *Server) reportPlaystate(event string) authenticated {
 		if event == "stop" && body.PlaySessionId != "" && s.hls != nil {
 			s.hls.Stop(body.PlaySessionId, session.ID)
 		}
-		item, found := s.findItem(body.ItemId)
+		item, found := findItem(s.catalogFor(session), body.ItemId)
 		if !found || item.IsFolder() {
 			fail(w, 404, "NotFound")
 			return
@@ -528,7 +528,7 @@ func playReportProblem(session *state.Session, itemID, playID, event string) str
 // item's updated UserData rather than an empty body.
 func (s *Server) setItemFlag(favorite, value bool) authenticated {
 	return func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		item, found := s.findItem(r.PathValue("item"))
+		item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 		if !found {
 			fail(w, 404, "NotFound")
 			return
@@ -603,7 +603,7 @@ func (s *Server) hideFromResume(w http.ResponseWriter, r *http.Request, token st
 		fail(w, 400, "InvalidRequest")
 		return
 	}
-	item, found := s.findItem(r.PathValue("item"))
+	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 	if !found {
 		fail(w, 404, "NotFound")
 		return
@@ -626,12 +626,12 @@ func (s *Server) hideFromResume(w http.ResponseWriter, r *http.Request, token st
 // each started series' next episode dated by the series' last watch. Most
 // recent first.
 func (s *Server) resumeItems(limit int, token string, session state.Session) []object {
-	catalog := s.catalog()
+	catalog := s.catalogFor(session)
 	snapshot := s.store.Snapshot()
 	serverID := snapshot.ServerID
 	candidates := []*media.Item{}
 	played := map[string]time.Time{}
-	for _, c := range s.nextUpEpisodes(userOf(snapshot, session).Items, "", "") {
+	for _, c := range s.nextUpEpisodes(catalog, userOf(snapshot, session).Items, "", "") {
 		if userOf(snapshot, session).Items[c.next.ID].HiddenFromResume {
 			continue
 		}

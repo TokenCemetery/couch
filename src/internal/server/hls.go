@@ -323,7 +323,7 @@ func (s *Server) hlsSource(w http.ResponseWriter, r *http.Request, session state
 		fail(w, 404, "NotFound")
 		return "", source, false
 	}
-	item, found := s.findItem(r.PathValue("item"))
+	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 	if !found || item.IsFolder() {
 		fail(w, 404, "NotFound")
 		return "", source, false
@@ -449,7 +449,7 @@ func (s *Server) masterPlaylist(w http.ResponseWriter, r *http.Request, token st
 	if !ok {
 		return
 	}
-	item, _ := s.findItem(source.ItemID)
+	item, _ := findItem(s.catalogFor(session), source.ItemID)
 	bandwidth := bitrate(item)
 	if source.VideoEncode {
 		bandwidth = source.VideoBitrate + audioAllowance
@@ -507,7 +507,7 @@ func (s *Server) subtitlePlaylist(w http.ResponseWriter, r *http.Request, token 
 	if !ok {
 		return
 	}
-	item, _ := s.findItem(source.ItemID)
+	item, _ := findItem(s.catalogFor(session), source.ItemID)
 	index, err := strconv.Atoi(r.URL.Query().Get("CurrentSubtitleStreamIndex"))
 	if err != nil || !s.catalog().SubtitleDeliverable(item, index) {
 		fail(w, 404, "NotFound")
@@ -531,7 +531,7 @@ func (s *Server) subtitleSegment(w http.ResponseWriter, r *http.Request, session
 	if !ok {
 		return
 	}
-	item, _ := s.findItem(source.ItemID)
+	item, _ := findItem(s.catalogFor(session), source.ItemID)
 	index, err := strconv.Atoi(r.URL.Query().Get("CurrentSubtitleStreamIndex"))
 	if err != nil || !s.catalog().SubtitleDeliverable(item, index) {
 		fail(w, 404, "NotFound")

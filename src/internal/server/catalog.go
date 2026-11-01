@@ -54,31 +54,31 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{user}/views", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		items := []any{}
 		serverID := s.store.Snapshot().ServerID
-		for _, id := range s.libraryIDs() {
+		for _, id := range libraryIDs(s.catalogFor(session)) {
 			items = append(items, s.collectionDTO(id, serverID, false))
 		}
 		respond(w, 200, object{"Items": items, "TotalRecordCount": len(items)})
 	}))
 	for _, path := range []string{"/items/root", "/users/{user}/items/root"} {
 		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-			respond(w, 200, s.rootFolderDTO(s.store.Snapshot().ServerID))
+			respond(w, 200, rootFolderDTO(s.store.Snapshot().ServerID, len(libraryIDs(s.catalogFor(session)))))
 		}))
 	}
 	for _, path := range []string{"/items/{item}", "/users/{user}/items/{item}"} {
 		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 			id := r.PathValue("item")
 			// A rescan replaces the catalog, so each request reads it (#75).
-			if catalog := s.catalog(); catalog != nil {
+			if catalog := s.catalogFor(session); catalog != nil {
 				snapshot := s.store.Snapshot()
 				if _, ok := catalog.Library(id); ok {
 					respond(w, 200, s.collectionDTO(id, snapshot.ServerID, true))
 					return
 				}
-				if item, found := s.findItem(id); found {
+				if item, found := findItem(catalog, id); found {
 					respond(w, 200, s.movieDTO(item, snapshot.ServerID, userOf(snapshot, session).Items, token))
 					return
 				}
-				if e, found := s.entity(id); found {
+				if e, found := s.entityIn(catalog, id); found {
 					respond(w, 200, entityDTO(id, e, snapshot.ServerID))
 					return
 				}
@@ -117,21 +117,22 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 // Couch has none of this content, so each returns an empty result in the shape
 // the reference server uses; a 404 here leaves the page in an error state.
 func (s *Server) extrasRoutes(mux *http.ServeMux) {
-	known := func(r *http.Request) bool {
+	known := func(r *http.Request, session state.Session) bool {
 		id := r.PathValue("item")
-		_, found := s.findItem(id)
-		_, isEntity := s.entity(id)
-		return found || isEntity || slices.Contains(s.libraryIDs(), id)
+		catalog := s.catalogFor(session)
+		_, found := findItem(catalog, id)
+		_, isEntity := s.entityIn(catalog, id)
+		return found || isEntity || slices.Contains(libraryIDs(catalog), id)
 	}
 	emptyPage := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if !known(r) {
+		if !known(r, session) {
 			fail(w, 404, "NotFound")
 			return
 		}
 		respond(w, 200, object{"Items": []any{}, "TotalRecordCount": 0})
 	}
 	emptyArray := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if !known(r) {
+		if !known(r, session) {
 			fail(w, 404, "NotFound")
 			return
 		}
@@ -144,7 +145,7 @@ func (s *Server) extrasRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("GET "+path, s.protect(emptyArray))
 	}
 	mux.HandleFunc("GET /items/{item}/thememedia", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if !known(r) {
+		if !known(r, session) {
 			fail(w, 404, "NotFound")
 			return
 		}
@@ -154,7 +155,7 @@ func (s *Server) extrasRoutes(mux *http.ServeMux) {
 	// Couch generates no seek-bar previews. Emby Web's player re-requests the
 	// set after every failure, so an empty set is answered instead of 404.
 	mux.HandleFunc("GET /items/{item}/thumbnailset", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if !known(r) {
+		if !known(r, session) {
 			fail(w, 404, "NotFound")
 			return
 		}
@@ -174,7 +175,7 @@ func (s *Server) reportSearched(w http.ResponseWriter, r *http.Request, token st
 		return
 	}
 	for _, id := range report.Ids {
-		if _, found := s.findItem(id); !found {
+		if _, found := findItem(s.catalogFor(session), id); !found {
 			fail(w, 404, "NotFound")
 			return
 		}
@@ -197,7 +198,7 @@ func (s *Server) reportSearched(w http.ResponseWriter, r *http.Request, token st
 }
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state.Session, latest, resume bool) {
-	catalog := s.catalog()
+	catalog := s.catalogFor(session)
 	token, _ := requestToken(r) // Callers have already authenticated this request.
 	typesOnly := r.URL.Path == "/itemtypes"
 	query, err := catalogQuery(r)
@@ -306,7 +307,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	// without IncludeNextUp; only IncludeNextUp=false leaves them out.
 	nextUp := map[string]time.Time{}
 	if resume && query["includenextup"] != "false" {
-		for _, c := range s.nextUpEpisodes(userOf(snapshot, session).Items, "", "") {
+		for _, c := range s.nextUpEpisodes(catalog, userOf(snapshot, session).Items, "", "") {
 			if !userOf(snapshot, session).Items[c.next.ID].HiddenFromResume {
 				nextUp[c.next.ID] = c.lastPlayed
 			}

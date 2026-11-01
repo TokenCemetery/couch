@@ -118,7 +118,7 @@ func (s *Server) sessionInfo(d state.Data, session state.Session) object {
 	if playing.item == "" {
 		return dto
 	}
-	item, found := s.findItem(playing.item)
+	item, found := findItem(s.catalog(), playing.item)
 	if !found {
 		return dto
 	}

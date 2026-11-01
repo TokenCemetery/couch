@@ -106,9 +106,10 @@ func TestUserManagement(t *testing.T) {
 	if len(public) != 1 || public[0].Name != "viewer" {
 		t.Fatalf("public users %+v", public)
 	}
-	// Refused: limiting libraries (not enforced yet), demoting the last
-	// administrator, deleting oneself.
-	expectStatus(t, request(h, "POST", "/Users/"+guest.Id+"/Policy", "application/json", `{"EnableAllFolders":false,"EnabledFolders":["movies"]}`, admin), 400)
+	// Refused: a library that does not exist, limiting an administrator,
+	// demoting the last administrator, deleting oneself.
+	expectStatus(t, request(h, "POST", "/Users/"+guest.Id+"/Policy", "application/json", `{"EnableAllFolders":false,"EnabledFolders":["missing"]}`, admin), 400)
+	expectStatus(t, request(h, "POST", "/Users/"+adminID+"/Policy", "application/json", `{"IsAdministrator":true,"EnableAllFolders":false,"EnabledFolders":["movies"]}`, admin), 400)
 	expectStatus(t, request(h, "POST", "/Users/"+adminID+"/Policy", "application/json", `{"EnableAllFolders":true}`, admin), 400)
 	expectStatus(t, request(h, "POST", "/Users/"+adminID+"/Delete", "", "", admin), 400)
 	// Disabling signs the guest out and keeps them out.

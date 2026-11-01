@@ -36,14 +36,14 @@ func homeSection(id, name, sectionType string, monitor []string, cardSizeOffset 
 // library tiles, the resume row, and one latest row per library. Titles come
 // from locales/*.yaml by X-Emby-Language (#18). Sections for
 // media Couch does not serve yet (audio, Live TV) are not advertised.
-func (s *Server) homeSections(serverID, language string) []object {
+func (s *Server) homeSections(catalog *media.Catalog, serverID, language string) []object {
 	sections := []object{
 		homeSection("smalllibrarytiles", translate(language, "HeaderMyMedia"), "userviews", []string{}, -1),
 		homeSection("resume", translate(language, "HeaderContinueWatching"), "resume", []string{"videoplayback", "markplayed"}, 0),
 	}
-	for _, id := range s.libraryIDs() {
+	for _, id := range libraryIDs(catalog) {
 		name, collectionType := translate(language, "HeaderLatestMovies"), media.Movies
-		if library, _ := s.catalog().Library(id); library.Type == media.TVShows {
+		if library, _ := catalog.Library(id); library.Type == media.TVShows {
 			name, collectionType = translate(language, "HeaderLatestEpisodes"), media.TVShows
 		}
 		latest := homeSection("latestmedia_"+id, name, "latestmedia",
@@ -67,7 +67,7 @@ func (s *Server) homeSections(serverID, language string) []object {
 // build a query per home row itself: it asks the server to fill each section it
 // was given, so every section id advertised by homeSections must be answerable.
 func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-	catalog := s.catalog()
+	catalog := s.catalogFor(session)
 	section := strings.ToLower(r.PathValue("section"))
 	limit := 12
 	if text := r.URL.Query().Get("Limit"); text != "" {
@@ -85,14 +85,14 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 	items := []object{}
 	switch {
 	case section == "smalllibrarytiles":
-		for _, id := range s.libraryIDs() {
+		for _, id := range libraryIDs(catalog) {
 			items = append(items, s.collectionDTO(id, serverID, false))
 		}
 	case section == "resume":
 		items = s.resumeItems(limit, token, session)
 	case section == "resumeaudio":
 		// Couch serves no audio library, so this row is always empty.
-	case strings.HasPrefix(section, "latestmedia_") && slices.Contains(s.libraryIDs(), strings.TrimPrefix(section, "latestmedia_")):
+	case strings.HasPrefix(section, "latestmedia_") && slices.Contains(libraryIDs(catalog), strings.TrimPrefix(section, "latestmedia_")):
 		library := strings.TrimPrefix(section, "latestmedia_")
 		latest := make([]*media.Item, 0, len(catalog.Items))
 		for i := range catalog.Items {
@@ -121,7 +121,7 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 
 func (s *Server) homeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /users/{user}/homesections", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		respond(w, 200, s.homeSections(s.store.Snapshot().ServerID, value(r, "X-Emby-Language")))
+		respond(w, 200, s.homeSections(s.catalogFor(session), s.store.Snapshot().ServerID, value(r, "X-Emby-Language")))
 	}))
 	mux.HandleFunc("GET /users/{user}/sections/{section}/items", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		s.sectionItems(w, r, token, session)

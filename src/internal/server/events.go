@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,10 +78,33 @@ func (s *Server) publishUserData(userID string, data object) {
 }
 
 // publishLibraryChange tells every connection how a rescan changed the
-// catalog, so that Emby Web refreshes the screens showing it.
+// catalog, so that Emby Web refreshes the screens showing it. A user limited
+// to some libraries hears only of changes in them.
 func (s *Server) publishLibraryChange(old, next *media.Catalog) {
-	if data := libraryChange(old, next); data != nil {
-		s.publish(object{"MessageType": "LibraryChanged", "Data": data}, func(*socket) bool { return true })
+	users := s.store.Snapshot().Users
+	messages := map[string][]byte{}
+	s.socketMu.Lock()
+	defer s.socketMu.Unlock()
+	for sock := range s.connections {
+		ids, limited := libraryLimit(users[sock.userID])
+		key := ""
+		if limited {
+			key = "\x00" + strings.Join(ids, "\x00")
+		}
+		body, done := messages[key]
+		if !done {
+			before, after := old, next
+			if limited {
+				before, after = old.Only(ids), next.Only(ids)
+			}
+			if data := libraryChange(before, after); data != nil {
+				body, _ = json.Marshal(object{"MessageType": "LibraryChanged", "Data": data})
+			}
+			messages[key] = body
+		}
+		if body != nil {
+			s.enqueue(sock, body)
+		}
 	}
 }
 

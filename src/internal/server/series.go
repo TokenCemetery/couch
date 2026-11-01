@@ -16,7 +16,8 @@ func (s *Server) seriesRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /shows/nextup", s.protect(s.nextUp))
 	for _, kind := range []string{"Season", "Episode"} {
 		mux.HandleFunc("GET /shows/{item}/"+strings.ToLower(kind)+"s", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-			series, found := s.findItem(r.PathValue("item"))
+			catalog := s.catalogFor(session)
+			series, found := findItem(catalog, r.PathValue("item"))
 			if !found || series.Type() != "Series" {
 				fail(w, 404, "NotFound")
 				return
@@ -28,7 +29,7 @@ func (s *Server) seriesRoutes(mux *http.ServeMux) {
 			}
 			parent := series.ID
 			if id := query["seasonid"]; id != "" {
-				season, found := s.findItem(id)
+				season, found := findItem(catalog, id)
 				if kind != "Episode" || !found || season.Type() != "Season" || season.SeriesID != series.ID {
 					fail(w, 404, "NotFound")
 					return
@@ -44,7 +45,7 @@ func (s *Server) seriesRoutes(mux *http.ServeMux) {
 					return
 				}
 				// Season 00 holds specials; exclude seasons on the other side of the filter.
-				for _, folder := range s.catalog().Folders {
+				for _, folder := range catalog.Folders {
 					if folder.Type() == "Season" && folder.SeriesID == series.ID && (folder.SeasonNumber == 0) != (special == "true") {
 						excluded += "," + folder.ID
 					}
@@ -97,7 +98,7 @@ func (s *Server) nextUp(w http.ResponseWriter, r *http.Request, token string, se
 		}
 	}
 	snapshot := s.store.Snapshot()
-	candidates := s.nextUpEpisodes(userOf(snapshot, session).Items, query["seriesid"], query["parentid"])
+	candidates := s.nextUpEpisodes(s.catalogFor(session), userOf(snapshot, session).Items, query["seriesid"], query["parentid"])
 	total := len(candidates)
 	start = min(start, total)
 	result := make([]object, 0, min(limit, total-start))
@@ -117,8 +118,7 @@ type nextUpCandidate struct {
 // nextUpEpisodes finds, per started series, the first unplayed episode after
 // the furthest played one, most recently watched series first. seriesID and
 // parent narrow the series; empty values select all.
-func (s *Server) nextUpEpisodes(states map[string]state.ItemState, seriesID, parent string) []nextUpCandidate {
-	catalog := s.catalog()
+func (s *Server) nextUpEpisodes(catalog *media.Catalog, states map[string]state.ItemState, seriesID, parent string) []nextUpCandidate {
 	candidates := []nextUpCandidate{}
 	if catalog == nil {
 		return candidates

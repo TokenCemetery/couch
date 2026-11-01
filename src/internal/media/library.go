@@ -87,7 +87,7 @@ func (c *Catalog) Libraries() []Library {
 	if c == nil {
 		return nil
 	}
-	if c.sources != nil {
+	if c.sources != nil || c.libraries != nil {
 		return c.libraries
 	}
 	libraries := []Library{{ID: c.ID, Name: "Movies", Type: Movies}}
@@ -105,6 +105,37 @@ func (c *Catalog) Library(id string) (Library, bool) {
 		}
 	}
 	return Library{}, false
+}
+
+// Only returns the catalogue as a user limited to the libraries ids sees it:
+// those libraries with their items and nothing else. It shares c's open
+// folders, so it is never closed itself.
+func (c *Catalog) Only(ids []string) *Catalog {
+	if c == nil {
+		return nil
+	}
+	libraries := []Library{}
+	for _, library := range c.Libraries() {
+		if slices.Contains(ids, library.ID) {
+			libraries = append(libraries, library)
+		}
+	}
+	if c.sources != nil {
+		return c.Reassign(libraries)
+	}
+	// A catalogue built without libraries keeps its items in place.
+	view := &Catalog{ID: c.ID, libraries: libraries, extractor: c.extractor, Items: []Item{}, Folders: []Item{}}
+	for _, item := range c.Items {
+		if slices.Contains(ids, c.LibraryOf(item)) {
+			view.Items = append(view.Items, item)
+		}
+	}
+	for _, folder := range c.Folders {
+		if slices.Contains(ids, c.LibraryOf(folder)) {
+			view.Folders = append(view.Folders, folder)
+		}
+	}
+	return view
 }
 
 // LibraryOf returns the ID of the library that holds item.
