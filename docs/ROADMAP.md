@@ -29,8 +29,8 @@ Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: sam
 | API, seven endpoints | p95 per profile | Emby's p95, 0.8–4.8 ms | met since images are checked once per item (BASELINE, "List requests"); Movies on large (2.6 ms) and Latest on average (2.5 ms) equal Emby's at 0.1 ms resolution |
 | API, 100 PlaybackInfo calls | reads | 0 MiB | not met: 185–192 MiB, the keyframe listing of R03, which needs a remux (#98) |
 | Direct Stream | CPU / memory / seek to first byte | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms | met: 0.32–0.33 s / 7 MiB / 0.6–0.7 ms |
-| Remux, 120 s of video | CPU / memory / first segment / seek to 50 % | 1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.22 / 0.20 / 0.20 s | memory and first segment met (22 MiB, 0.24–0.34 s); CPU (2.1–2.2 s) and seek (0.31 / 0.21 / 0.21 s) not met, by up to 0.1 s |
-| Transcode HEVC 720p, 120 s of video | CPU / memory | 33.7–34.8 s / 368 MiB | memory met (303–304 MiB); CPU not met (36.1–36.9 s, 4–9 % more) |
+| Remux, 120 s of video | CPU / memory / first segment / seek to 50 % | 1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.22 / 0.20 / 0.20 s | memory and first segment met (22 MiB, 0.24–0.34 s); CPU (2.1–2.2 s, from the FFmpeg build: BASELINE, "Where the remaining FFmpeg CPU goes") and seek (0.31 / 0.21 / 0.21 s) not met, by up to 0.1 s |
+| Transcode HEVC 720p, 120 s of video | CPU / memory | 33.7–34.8 s / 368 MiB | memory met (303–304 MiB); CPU not met (36.1–36.9 s, 4–9 % more; mostly the FFmpeg build, see BASELINE) |
 | | first segment / seek to 50 % | 1.39 / 0.79 / 0.47 s; 1.75 / 0.88 / 0.40 s | not met: 1.59 / 0.94 / 0.56 s; 2.02 / 1.08 / 0.66 s (#99) |
 | | reads | 38.9–39.0 MiB | equal within 0.3 MiB: 39.0–39.2 MiB (#98) |
 | | temp folder peak | 94–100 MiB | met: 3.9–4.9 MiB |

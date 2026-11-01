@@ -260,6 +260,22 @@ The movie list and Latest were the only API requests where Couch's p95 was above
 - Handler time with the real files: Movies 1.41 → 1.17 ms, Latest 1.45 → 1.22 ms (Go benchmark, 2000 requests each).
 - `scripts/baseline.sh`, Couch only, all profiles, p95 small / average / large, with Emby's from the sixth run: Movies 2.7 / 2.5 / 2.6 ms against 3.7 / 2.6 / 2.6; Latest 2.6 / 2.5 / 2.6 ms against 4.8 / 2.5 / 3.2. The other five endpoints did not change. Two cells now equal Emby's at the 0.1 ms resolution, so the margin there is none.
 
+## Where the remaining FFmpeg CPU goes (2026-11-01)
+
+After the changes above, Couch's remux and transcode still cost more CPU than Emby's: remux 2.1–2.2 s against 1.9–2.0 s, transcode 36–37 s against 34–35 s. The server/FFmpeg split puts the difference in FFmpeg. Measured with each server's own FFmpeg binary, 4 CPUs, 120 s of the same file, `-benchmark`:
+
+| Work | Couch's FFmpeg 8.1.3 (Alpine) | Emby's FFmpeg 5.1 (`5.1-emby_2023_06_25_p6`) |
+|---|---|---|
+| R03 audio, AC3 5.1 → AAC stereo 128 kbit/s | 1.52 s user + 0.12 s system | 1.51 s + 0.016 s |
+| R03 audio, AC3 5.1 → MP3 stereo 192 kbit/s | 1.62 s + 0.12 s | 1.29 s + 0.007 s |
+| R06 video, x264 `veryfast` CRF 23 with Emby's options | 31.4 s + 0.85 s | 30.2 s + 0.81 s |
+
+- **Remux:** Emby encodes the audio of an HLS remux to stereo MP3 at 192 kbit/s, as Emby Web's profile lists `mp3` before `aac`; Couch encodes AAC. Emby's MP3 encoder is about 20 % faster than Alpine's, and Alpine's build spends 7–17 times more system time on the same audio. With its own build, MP3 would not make Couch cheaper (1.73 against 1.64 s), so Couch keeps AAC.
+- **Remux job length:** not a cause. In the remux phase Couch's job finished 15 segments (about 120 s, as the harness fetched) for 2.14 s of CPU; Emby's encoded 116.5 s. Neither ran far ahead.
+- **Transcode:** the same x264 settings cost 4 % more CPU with Couch's build, most of the 4–9 % gap; the rest is the audio, as above.
+
+So the remaining CPU difference comes from the FFmpeg build, not from what Couch asks it to do. Closing it means another FFmpeg build in the image, for example a glibc-based one, which is a packaging choice (#33) and was not tried.
+
 ## Not measured yet
 
 - Picture quality of the two encoders.
