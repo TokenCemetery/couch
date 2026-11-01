@@ -24,7 +24,7 @@ import (
 // dirFiles reads sidecars from a directory, as media.Catalog does.
 type dirFiles string
 
-func (d dirFiles) ReadSidecar(name string, limit int64) ([]byte, fs.FileInfo, error) {
+func (d dirFiles) ReadSidecar(_ media.Item, name string, limit int64) ([]byte, fs.FileInfo, error) {
 	info, err := os.Stat(filepath.Join(string(d), name))
 	if err != nil {
 		return nil, nil, err

@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -49,7 +50,7 @@ func TestSavedCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = loaded.Close() }()
-	if loaded.ID != scanned.ID || !reflect.DeepEqual(loaded.Items, scanned.Items) || !reflect.DeepEqual(loaded.Folders, scanned.Folders) {
+	if loaded.ID != scanned.ID || !reflect.DeepEqual(plain(loaded.Items), plain(scanned.Items)) || !reflect.DeepEqual(plain(loaded.Folders), plain(scanned.Folders)) {
 		t.Fatalf("loaded catalog differs:\n%+v\n%+v", loaded.Items, scanned.Items)
 	}
 	if f, err := loaded.Open(loaded.Items[0]); err != nil {
@@ -61,17 +62,17 @@ func TestSavedCatalog(t *testing.T) {
 	// A rescan after loading probes nothing unchanged and keeps dates added.
 	probes = 0
 	start := time.Now().UTC()
-	rescanned, err := loaded.Rescan(context.Background())
+	rescanned, err := loaded.Rescan(context.Background(), loaded.Libraries())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if probes != 0 || !reflect.DeepEqual(rescanned.Items, scanned.Items) {
+	if probes != 0 || !reflect.DeepEqual(plain(rescanned.Items), plain(scanned.Items)) {
 		t.Fatalf("rescan of the loaded catalog probed %d files or changed items", probes)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "New.mp4"), []byte("new"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	rescanned, err = loaded.Rescan(context.Background())
+	rescanned, err = loaded.Rescan(context.Background(), loaded.Libraries())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,13 +98,14 @@ func TestSavedCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"corrupted":       string(saved[:len(saved)/2]),
-		"other version":   strings.Replace(string(saved), `"Version":1`, `"Version":99`, 1),
-		"path outside":    strings.Replace(string(saved), `"Path":"Movie.mkv"`, `"Path":"../Movie.mkv"`, 1),
-		"duplicate path":  strings.Replace(string(saved), `"Path":"New.mp4"`, `"Path":"Movie.mkv"`, 1),
-		"no videos":       `{"Version":1,"ID":"` + scanned.ID + `","Items":[]}`,
-		"empty file":      "",
-		"other directory": strings.Replace(string(saved), scanned.ID, stableID("movies\x00/elsewhere"), 1),
+		"corrupted":                      string(saved[:len(saved)/2]),
+		"other version":                  strings.Replace(string(saved), `"Version":2`, `"Version":99`, 1),
+		"path outside":                   strings.Replace(string(saved), `"Path":"Movie.mkv"`, `"Path":"../Movie.mkv"`, 1),
+		"duplicate path":                 strings.Replace(string(saved), `"Path":"New.mp4"`, `"Path":"Movie.mkv"`, 1),
+		"no folders":                     `{"Version":2,"Folders":[]}`,
+		"empty file":                     "",
+		"other directory":                strings.Replace(string(saved), `"Path":"`+dir+`"`, `"Path":"/elsewhere"`, 1),
+		"version 1 of another directory": `{"Version":1,"ID":"` + stableID("movies\x00/elsewhere") + `","Items":[]}`,
 	} {
 		bad := filepath.Join(data, "bad.json")
 		if err := os.WriteFile(bad, []byte(content), 0600); err != nil {
@@ -113,6 +115,27 @@ func TestSavedCatalog(t *testing.T) {
 			_ = catalog.Close()
 			t.Errorf("%s: loaded, err %v", name, err)
 		}
+	}
+	// A version 1 index, of the one directory, is still read.
+	var current savedCatalog
+	if err := json.Unmarshal(saved, &current); err != nil || len(current.Folders) != 1 {
+		t.Fatalf("index %v, %v", current, err)
+	}
+	v1, _ := json.Marshal(savedCatalog{Version: 1, ID: stableID("movies\x00" + dir), Items: current.Folders[0].Items})
+	old := filepath.Join(data, "v1.json")
+	if err := os.WriteFile(old, v1, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fromV1, err := load(dir, old, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plain(fromV1.Items), plain(again.Items)) {
+		t.Fatal("a version 1 index loads differently")
+	}
+	_ = fromV1.Close()
+	if err := os.Remove(old); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := load(filepath.Join(dir, "missing"), file, probe); err == nil {
 		t.Fatal("index loaded for another directory")

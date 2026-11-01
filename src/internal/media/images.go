@@ -42,10 +42,10 @@ func (c *Catalog) OpenImage(item Item, kind string) (*os.File, Image, error) {
 	if !found {
 		return nil, Image{}, os.ErrNotExist
 	}
-	if c == nil || c.root == nil {
+	if c == nil || c.rootOf(item) == nil {
 		return nil, Image{}, os.ErrNotExist
 	}
-	return c.openImage(item, names.own, names.shared, c.imageFiles(imageDirOf(item)))
+	return c.openImage(item, names.own, names.shared, c.imageFiles(item))
 }
 
 // imageDirOf is the folder searched for an item's images.
@@ -76,7 +76,7 @@ func (c *Catalog) openImage(item Item, suffixes, shared []string, present map[st
 			if !present[path.Base(base+ext)] {
 				continue
 			}
-			file, err := c.Open(Item{Path: base + ext})
+			file, err := c.Open(Item{Path: base + ext, src: c.sourceOf(item)})
 			if err != nil {
 				continue
 			}
@@ -110,10 +110,10 @@ func (c *Catalog) ImageInfo(item Item, kind string) (Image, bool) {
 // each of ImageTypes, but checks its folder once.
 func (c *Catalog) ImageInfos(item Item) map[string]Image {
 	infos := map[string]Image{}
-	if c == nil || c.root == nil {
+	if c == nil || c.rootOf(item) == nil {
 		return infos
 	}
-	present := c.imageFiles(imageDirOf(item))
+	present := c.imageFiles(item)
 	if len(present) == 0 {
 		return infos
 	}
@@ -147,22 +147,25 @@ type imageDir struct {
 	names            map[string]bool
 }
 
-// imageFiles lists the JPEG/PNG names in dir. A listing is reused while the
-// directory's mtime is unchanged, unless it was taken within two seconds of
-// that mtime: a file added in the same coarse mtime tick would go unseen.
-func (c *Catalog) imageFiles(dir string) map[string]bool {
-	info, err := c.root.Stat(dir)
+// imageFiles lists the JPEG/PNG names in item's image folder. A listing is
+// reused while the directory's mtime is unchanged, unless it was taken within
+// two seconds of that mtime: a file added in the same coarse mtime tick would
+// go unseen.
+func (c *Catalog) imageFiles(item Item) map[string]bool {
+	src, dir := c.sourceOf(item), imageDirOf(item)
+	root, key := src.root, src.key+"\x00"+dir
+	info, err := root.Stat(dir)
 	if err != nil || !info.IsDir() {
 		return nil
 	}
 	c.imageDirs.Lock()
-	cached, found := c.imageDirs.dirs[dir]
+	cached, found := c.imageDirs.dirs[key]
 	c.imageDirs.Unlock()
 	if found && cached.modified.Equal(info.ModTime()) && cached.listed.Sub(cached.modified) > 2*time.Second {
 		return cached.names
 	}
 	listed := time.Now()
-	file, err := c.root.Open(dir)
+	file, err := root.Open(dir)
 	if err != nil {
 		return nil
 	}
@@ -182,7 +185,7 @@ func (c *Catalog) imageFiles(dir string) map[string]bool {
 	if c.imageDirs.dirs == nil {
 		c.imageDirs.dirs = map[string]imageDir{}
 	}
-	c.imageDirs.dirs[dir] = imageDir{modified: info.ModTime(), listed: listed, names: names}
+	c.imageDirs.dirs[key] = imageDir{modified: info.ModTime(), listed: listed, names: names}
 	c.imageDirs.Unlock()
 	return names
 }

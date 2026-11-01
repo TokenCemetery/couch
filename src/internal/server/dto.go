@@ -129,18 +129,19 @@ func (s *Server) rootFolderDTO(serverID string) object {
 	return dto
 }
 
-// collectionDTO is the CollectionFolder for the Movies or TV Shows library.
+// collectionDTO is the CollectionFolder of a movies or TV shows library.
 //
 // detail selects the richer body Emby returns from /Users/{id}/Items/{id}. Only
 // that response carries Subviews, and Emby Web's library screen dereferences it
 // without a guard (videos.js: this.item.Subviews.includes(...)), so a library
 // served without Subviews breaks the screen outright.
 func (s *Server) collectionDTO(id, serverID string, detail bool) object {
-	name, collectionType, subview := "Movies", "movies", "movies"
-	if id == s.catalog().SeriesLibraryID() {
-		name, collectionType, subview = "TV Shows", "tvshows", "series"
+	library, _ := s.catalog().Library(id)
+	collectionType, subview := library.Type, "movies"
+	if library.Type == media.TVShows {
+		subview = "series"
 	}
-	dto := baseFields(id, name, "CollectionFolder", serverID)
+	dto := baseFields(id, library.Name, "CollectionFolder", serverID)
 	dto["DateCreated"] = zeroDate
 	dto["IsFolder"] = true
 	dto["ParentId"] = rootID
@@ -164,10 +165,11 @@ func (s *Server) libraryIDs() []string {
 	if catalog == nil {
 		return nil
 	}
-	if len(catalog.Folders) > 0 {
-		return []string{catalog.ID, catalog.SeriesLibraryID()}
+	ids := []string{}
+	for _, library := range catalog.Libraries() {
+		ids = append(ids, library.ID)
 	}
-	return []string{catalog.ID}
+	return ids
 }
 
 func (s *Server) childCount(id string) int {

@@ -140,10 +140,7 @@ func catalogEntries(c *media.Catalog) map[string]catalogEntry {
 	}
 	for _, items := range [][]media.Item{c.Items, c.Folders} {
 		for _, item := range items {
-			e := catalogEntry{item: item, parent: item.ParentID, library: c.ID}
-			if item.Kind == "Series" || item.Kind == "Season" || item.Kind == "Episode" {
-				e.library = c.SeriesLibraryID()
-			}
+			e := catalogEntry{item: item, parent: item.ParentID, library: c.LibraryOf(item)}
 			if e.parent == "" {
 				e.parent = e.library
 			}

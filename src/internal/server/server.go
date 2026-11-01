@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/TokenCemetery/couch/internal/hls"
+	"github.com/TokenCemetery/couch/internal/library"
 	"github.com/TokenCemetery/couch/internal/media"
 	"github.com/TokenCemetery/couch/internal/state"
 )
@@ -35,6 +37,7 @@ type Server struct {
 	// metadataImages is the directory of downloaded provider images.
 	metadataImages string
 	hls            *hls.Manager
+	libraries      *library.Manager
 	sockets        atomic.Int64
 	socketMu       sync.Mutex
 	connections    map[*socket]struct{}
@@ -71,7 +74,7 @@ func respond(w http.ResponseWriter, status int, data any) {
 func failText(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(message))
+	_, _ = w.Write([]byte(message)) //nolint:gosec // text/plain, and every response is sent with nosniff
 }
 
 // errorMessages holds the text for each fail code. Like the reference Emby,
@@ -233,6 +236,8 @@ func (s *Server) Handler() http.Handler {
 		info := s.publicInfo()
 		info["ProductName"], info["CouchVersion"] = "Couch", Version
 		info["SupportsLibraryMonitor"], info["SupportsLocalPortConfiguration"], info["SupportsHttps"] = false, false, false
+		// The library folder browser reads these; the names are Emby's.
+		info["OperatingSystem"], info["OperatingSystemDisplayName"] = operatingSystem()
 		respond(w, 200, info)
 	}))
 	mux.HandleFunc("GET /system/endpoint", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
@@ -328,14 +333,15 @@ func (s *Server) Handler() http.Handler {
 		respond(w, 200, []any{})
 	})
 	// Couch has no plugins and no notification services: the user menu's plugin
-	// pages and the Notifications settings page list nothing.
-	for _, path := range []string{"/features", "/movies/recommendations", "/web/configurationpages", "/notifications/services/configured", "/notifications/types"} {
+	// pages and the Notifications settings page list nothing. It stores no
+	// metadata country either, which the library options editor lists.
+	for _, path := range []string{"/localization/countries", "/features", "/movies/recommendations", "/web/configurationpages", "/notifications/services/configured", "/notifications/types"} {
 		mux.HandleFunc("GET "+path, emptyList)
 	}
-	// The dashboard home lists scheduled tasks and recent activity. Couch
-	// records neither yet (#113), so an administrator gets empty lists.
+	// The dashboard home lists scheduled tasks and recent activity. The
+	// library scan is the only task, and Couch records no activity yet (#113).
 	mux.HandleFunc("GET /scheduledtasks", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		respond(w, 200, []any{})
+		respond(w, 200, s.scheduledTasks())
 	}))
 	mux.HandleFunc("GET /system/activitylog/entries", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		respond(w, 200, object{"Items": []any{}, "TotalRecordCount": 0})
@@ -344,6 +350,7 @@ func (s *Server) Handler() http.Handler {
 	// this route is registered at the root and not under the API prefix.
 	mux.HandleFunc("GET /embywebsocket", s.protect(s.websocket))
 	s.catalogRoutes(mux)
+	s.libraryRoutes(mux)
 	s.filterRoutes(mux)
 	s.homeRoutes(mux)
 	s.playbackRoutes(mux)
@@ -438,4 +445,17 @@ func (s *Server) changed(w http.ResponseWriter, err error) {
 // userOf returns the user of session in snapshot.
 func userOf(snapshot state.Data, session state.Session) state.User {
 	return snapshot.Users[session.UserID]
+}
+
+// operatingSystem names the host's system as Emby does.
+func operatingSystem() (name, display string) {
+	switch runtime.GOOS {
+	case "linux":
+		return "Linux", "Unix"
+	case "darwin":
+		return "OSX", "Unix"
+	case "freebsd", "openbsd", "netbsd":
+		return "BSD", "Unix"
+	}
+	return runtime.GOOS, runtime.GOOS
 }

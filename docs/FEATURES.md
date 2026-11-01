@@ -24,7 +24,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Feature | Status | Notes |
 |---|---|---|
 | Home screen: My Media, Continue Watching (with Next Up), Latest | Supported | Row titles localized for ru, de, fr, es, it; English otherwise (#18) |
-| Movie and TV Shows libraries, item pages, seasons, episodes | Supported | Series need `Show/Season NN/Show.SNNENN.ext` naming; other files are movies |
+| Movie and TV Shows libraries, item pages, seasons, episodes | Supported | Series need `Show/Season NN/Show.SNNENN.ext` naming; a movies library holds the other files |
 | Search, recent searches | Supported | By title, original title or file name |
 | Customizing home sections in Settings → Home Screen | Unsupported | Adding, removing or reordering a section shows "Couch's home screen sections are fixed for now" in Emby Web's error dialog (#100) |
 | Sorting, paging, filters on technical data (container, codecs, audio layout, languages) | Supported | #78, #79 |
@@ -70,9 +70,10 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 
 | Feature | Status | Notes |
 |---|---|---|
-| Rescan on `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; an emptied volume is not published (#39) |
+| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies and TV shows only; library options are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
+| Rescan from the library page, the "Scan media library" task, `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; a folder that cannot be read or comes back empty keeps its videos, and the others are updated (#39, #112) |
 | Catalog kept across restarts | Supported | Saved to `catalog.json`; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
-| Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; a first start, or a `-media-dir` that does not exist, fails (#31, #39) |
+| Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; on a first start without one, an unreadable folder stays empty and is reported until a rescan reaches it (#31, #39, #112) |
 | Backup and restore of user state | Partial | By copying the data directory; the Emby backup API is not implemented (#32) |
-| Server administration in the UI (libraries, users, tasks, logs) | Partial | Users are managed (#111); the dashboard home opens with empty scheduled tasks and activity, and the library, task, log and settings pages fail (#112, #113); identify and refresh are offered but not served (#115) |
+| Server administration in the UI (libraries, users, tasks, logs) | Partial | Users (#111) and libraries (#112) are managed; the scheduled tasks list holds the library scan; activity is empty, and the log, device and settings pages fail (#113); identify and refresh are offered but not served (#115) |
 | Container image (Linux amd64, FFmpeg 8.1) | Supported | `Dockerfile`, checked in CI; install, upgrade and recovery on the target host not verified (#114) |

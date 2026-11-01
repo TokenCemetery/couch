@@ -42,9 +42,9 @@ func (s *Server) homeSections(serverID, language string) []object {
 		homeSection("resume", translate(language, "HeaderContinueWatching"), "resume", []string{"videoplayback", "markplayed"}, 0),
 	}
 	for _, id := range s.libraryIDs() {
-		name, collectionType := translate(language, "HeaderLatestMovies"), "movies"
-		if id == s.catalog().SeriesLibraryID() {
-			name, collectionType = translate(language, "HeaderLatestEpisodes"), "tvshows"
+		name, collectionType := translate(language, "HeaderLatestMovies"), media.Movies
+		if library, _ := s.catalog().Library(id); library.Type == media.TVShows {
+			name, collectionType = translate(language, "HeaderLatestEpisodes"), media.TVShows
 		}
 		latest := homeSection("latestmedia_"+id, name, "latestmedia",
 			[]string{"markplayed", "videoplayback"}, 0)
@@ -93,10 +93,10 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 	case section == "resumeaudio":
 		// Couch serves no audio library, so this row is always empty.
 	case strings.HasPrefix(section, "latestmedia_") && slices.Contains(s.libraryIDs(), strings.TrimPrefix(section, "latestmedia_")):
-		series := strings.TrimPrefix(section, "latestmedia_") == catalog.SeriesLibraryID()
+		library := strings.TrimPrefix(section, "latestmedia_")
 		latest := make([]*media.Item, 0, len(catalog.Items))
 		for i := range catalog.Items {
-			if !userOf(snapshot, session).Items[catalog.Items[i].ID].Played && (catalog.Items[i].Type() == "Episode") == series {
+			if !userOf(snapshot, session).Items[catalog.Items[i].ID].Played && catalog.LibraryOf(catalog.Items[i]) == library {
 				latest = append(latest, &catalog.Items[i])
 			}
 		}

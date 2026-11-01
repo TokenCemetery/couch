@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,18 +15,26 @@ import (
 )
 
 // savedVersion changes whenever the saved form or what a probe records does;
-// an index of another version is rejected and the library scanned again.
-const savedVersion = 1
+// an index of another version is rejected and the libraries scanned again.
+// Version 1 held one directory and is still read.
+const savedVersion = 2
 
 const maxSavedBytes = 256 << 20
 
-// savedCatalog is the index Save writes: what probing found and when each
-// path was first seen. Everything derived from a path (ID, name, series and
-// season) is computed again on load.
+// savedCatalog is the index Save writes: what probing found in each library
+// folder and when each path was first seen. Everything derived from a path
+// (ID, name, series and season) is computed again on load.
 type savedCatalog struct {
 	Version int
-	ID      string
-	Items   []savedItem
+	Folders []savedFolder `json:",omitempty"`
+	// ID and Items are the one directory of a version 1 index.
+	ID    string      `json:",omitempty"`
+	Items []savedItem `json:",omitempty"`
+}
+
+type savedFolder struct {
+	Path  string
+	Items []savedItem
 }
 
 type savedItem struct {
@@ -40,10 +49,15 @@ type savedItem struct {
 // Save writes the catalog to file atomically, so a crash leaves either the
 // previous index or this one.
 func (c *Catalog) Save(file string) error {
-	saved := savedCatalog{Version: savedVersion, ID: c.ID, Items: make([]savedItem, len(c.Items))}
-	for n, item := range c.Items {
-		saved.Items[n] = savedItem{Path: item.Path, Size: item.Size, Modified: item.Modified, Added: item.Added,
-			RunTimeTicks: item.RunTimeTicks, Streams: item.Streams}
+	saved := savedCatalog{Version: savedVersion, Folders: []savedFolder{}}
+	for _, folder := range slices.Sorted(maps.Keys(c.sources)) {
+		src := c.sources[folder]
+		f := savedFolder{Path: folder, Items: make([]savedItem, len(src.items))}
+		for n, item := range src.items {
+			f.Items[n] = savedItem{Path: item.Path, Size: item.Size, Modified: item.Modified, Added: item.Added,
+				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams}
+		}
+		saved.Folders = append(saved.Folders, f)
 	}
 	b, err := json.Marshal(saved)
 	if err != nil {
@@ -77,15 +91,17 @@ func (c *Catalog) Save(file string) error {
 	return dir.Sync()
 }
 
-// Load returns the catalog Save wrote to file for directory, without probing
-// any media. Rescan it to pick up changes made since. A missing file returns
-// an error matching fs.ErrNotExist.
-func Load(ctx context.Context, directory, file string) (*Catalog, error) {
+// Load returns the catalog Save wrote to file for the libraries, without
+// probing any media. A folder the index lacks, or whose root cannot be opened,
+// stays empty; Rescan to pick it up and the changes made since. A missing
+// file returns an error matching fs.ErrNotExist, and an index with none of
+// the libraries' folders an error.
+func Load(ctx context.Context, libraries []Library, file string) (*Catalog, error) {
 	probe, stats, err := newProbe(ctx)
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := load(directory, file, probe)
+	catalog, err := loadLibraries(libraries, file, probe)
 	if err != nil {
 		return nil, err
 	}
@@ -94,11 +110,16 @@ func Load(ctx context.Context, directory, file string) (*Catalog, error) {
 	return catalog, nil
 }
 
+// load reads the index of one directory's default libraries, for tests.
 func load(directory, file string, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {
-	absolute, err := filepath.Abs(directory)
+	libraries, err := DefaultLibraries(directory)
 	if err != nil {
-		return nil, errors.New("invalid media directory")
+		return nil, err
 	}
+	return loadLibraries(libraries, file, probe)
+}
+
+func loadLibraries(libraries []Library, file string, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {
 	f, err := os.Open(file) //nolint:gosec // file is in the operator-selected data directory
 	if err != nil {
 		return nil, err
@@ -108,33 +129,73 @@ func load(directory, file string, probe func(context.Context, *os.File) (Item, e
 	if err := json.NewDecoder(io.LimitReader(f, maxSavedBytes)).Decode(&saved); err != nil {
 		return nil, errors.New("media index is not readable")
 	}
-	id := stableID("movies\x00" + absolute)
-	if saved.Version != savedVersion || saved.ID != id {
-		return nil, errors.New("media index is for another version or directory")
+	folders := map[string][]savedItem{}
+	switch saved.Version {
+	case 1:
+		for _, folder := range folderPaths(libraries) {
+			if stableID("movies\x00"+folder) == saved.ID {
+				folders[folder] = saved.Items
+			}
+		}
+	case savedVersion:
+		for _, folder := range saved.Folders {
+			if _, duplicate := folders[folder.Path]; duplicate {
+				return nil, errors.New("media index has a folder twice")
+			}
+			folders[folder.Path] = folder.Items
+		}
+	default:
+		return nil, errors.New("media index is for another version")
 	}
-	if len(saved.Items) == 0 || len(saved.Items) > maxMovies {
-		return nil, errors.New("media index has no videos or too many")
+	catalog := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: probe}
+	total := 0
+	for _, folder := range folderPaths(libraries) {
+		items, found := folders[folder]
+		if !found {
+			continue
+		}
+		total += len(items)
+		if total > maxMovies {
+			_ = catalog.Close()
+			return nil, errors.New("media index has too many videos")
+		}
+		src, err := loadSource(folder, items)
+		if err != nil {
+			_ = catalog.Close()
+			return nil, err
+		}
+		root, err := os.OpenRoot(folder)
+		if err != nil {
+			continue
+		}
+		src.root = root
+		catalog.sources[folder] = src
 	}
-	catalog := &Catalog{ID: id, Items: make([]Item, 0, len(saved.Items)), probe: probe}
-	seen := make(map[string]bool, len(saved.Items))
-	for _, s := range saved.Items {
+	if len(catalog.sources) == 0 {
+		return nil, errors.New("media index has none of the libraries' folders")
+	}
+	catalog.assemble()
+	return catalog, nil
+}
+
+// loadSource rebuilds a folder's items from the index, rejecting paths that
+// could leave the folder.
+func loadSource(folder string, saved []savedItem) (*source, error) {
+	src := &source{path: folder, key: stableID("movies\x00" + folder), items: make([]Item, 0, len(saved))}
+	seen := make(map[string]bool, len(saved))
+	for _, s := range saved {
 		if !filepath.IsLocal(s.Path) || path.Clean(s.Path) != s.Path || seen[s.Path] {
 			return nil, errors.New("media index has an invalid path")
 		}
 		seen[s.Path] = true
 		name := path.Base(s.Path)
-		catalog.Items = append(catalog.Items, Item{
-			ID: stableID(id + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
+		src.items = append(src.items, Item{
+			ID: stableID(src.key + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
 			Container: strings.ToLower(strings.TrimPrefix(path.Ext(name), ".")),
 			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams,
 		})
 	}
-	slices.SortFunc(catalog.Items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
-	catalog.groupEpisodes()
-	root, err := os.OpenRoot(absolute)
-	if err != nil {
-		return nil, errors.New("cannot open media directory")
-	}
-	catalog.root = root
-	return catalog, nil
+	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
+	src.classify()
+	return src, nil
 }

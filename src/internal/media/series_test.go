@@ -51,7 +51,7 @@ func TestScanSeriesHierarchy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = again.Close() }()
-	if !reflect.DeepEqual(catalog.Items, again.Items) || !reflect.DeepEqual(catalog.Folders, again.Folders) {
+	if !reflect.DeepEqual(plain(catalog.Items), plain(again.Items)) || !reflect.DeepEqual(plain(catalog.Folders), plain(again.Folders)) {
 		t.Fatal("hierarchy changed on rescan")
 	}
 }

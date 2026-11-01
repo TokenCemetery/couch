@@ -74,6 +74,9 @@ type socket struct {
 	mu                       sync.Mutex
 	out                      chan []byte
 	token, userID, sessionID string
+	// tasks is set while the client asked for ScheduledTasksInfo; it is
+	// guarded by Server.socketMu.
+	tasks bool
 }
 
 // writeFrame sends one unfragmented frame. Server frames are never masked.
@@ -281,8 +284,23 @@ func (s *Server) socketMessage(sock *socket, raw []byte) error {
 	if json.Unmarshal(raw, &message) != nil {
 		return nil //nolint:nilerr // malformed JSON keeps the socket open
 	}
-	if strings.EqualFold(message.MessageType, "KeepAlive") {
+	switch {
+	case strings.EqualFold(message.MessageType, "KeepAlive"):
 		return sock.send(object{"MessageType": "KeepAlive"})
+	// The scheduled tasks pages subscribe to task changes; only an
+	// administrator is told about them.
+	case strings.EqualFold(message.MessageType, "ScheduledTasksInfoStart"):
+		if !userOf(s.store.Snapshot(), state.Session{UserID: sock.userID}).Policy.IsAdministrator {
+			return nil
+		}
+		s.socketMu.Lock()
+		sock.tasks = true
+		s.socketMu.Unlock()
+		return sock.send(object{"MessageType": "ScheduledTasksInfo", "Data": s.scheduledTasks()})
+	case strings.EqualFold(message.MessageType, "ScheduledTasksInfoStop"):
+		s.socketMu.Lock()
+		sock.tasks = false
+		s.socketMu.Unlock()
 	}
 	return nil
 }

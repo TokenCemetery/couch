@@ -52,7 +52,7 @@ func TestScanReadOnlyStableAndIsolated(t *testing.T) {
 	defer func() { _ = second.Close() }()
 	// The open scan root differs between runs by construction; the catalogue
 	// content it produces must not.
-	if first.ID != second.ID || first.Skipped != second.Skipped || !reflect.DeepEqual(first.Items, second.Items) {
+	if first.ID != second.ID || first.Skipped != second.Skipped || !reflect.DeepEqual(plain(first.Items), plain(second.Items)) {
 		t.Fatal("scan is not deterministic")
 	}
 	if first.Items[0].ID == first.Items[1].ID {
@@ -132,7 +132,7 @@ func TestRescan(t *testing.T) {
 	}
 	clear(probed)
 	start := time.Now().UTC()
-	second, err := first.Rescan(context.Background())
+	second, err := first.Rescan(context.Background(), first.Libraries())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestRescan(t *testing.T) {
 	if err := os.Chmod(filepath.Join(dir, "Show"), 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := second.Rescan(context.Background()); err == nil {
+	if _, err := second.Rescan(context.Background(), second.Libraries()); err == nil {
 		t.Fatal("unreadable directory published")
 	}
 	if err := os.Chmod(filepath.Join(dir, "Show"), 0700); err != nil { //nolint:gosec // a directory needs its search bit
@@ -185,14 +185,24 @@ func TestRescan(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := second.Rescan(context.Background()); err == nil {
+	if _, err := second.Rescan(context.Background(), second.Libraries()); err == nil {
 		t.Fatal("empty volume published")
 	}
 	// The shared root still serves files after the failed rescans.
 	write("Kept.mp4", "kept")
-	if f, err := second.Open(Item{Path: "Kept.mp4"}); err != nil {
+	if f, err := second.Open(Item{Path: "Kept.mp4", src: second.Items[0].src}); err != nil {
 		t.Fatal(err)
 	} else {
 		_ = f.Close()
 	}
+}
+
+// plain returns items without their folder, which differs between scans.
+func plain(items []Item) []Item {
+	out := make([]Item, len(items))
+	for n, item := range items {
+		item.src = nil
+		out[n] = item
+	}
+	return out
 }

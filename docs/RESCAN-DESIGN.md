@@ -2,6 +2,8 @@
 
 Status: stages 1–3 implemented 2026-10-06, stage 5 (`LibraryChanged`) on 2026-10-07, stage 4 (saved index) on 2026-11-01 after the owner ranked it first (#34). Decisions on the "Questions" section (2026-10-06): periodic scanning is off by default; publishing an empty volume is cancelled; the date added is the time the path was first seen, kept in the index.
 
+Since #112 (2026-11-01) the catalog is built from stored libraries, each with a type and folders, instead of the one `-media-dir`. What follows still holds per folder: each folder is walked once even when a movies and a TV shows library share it, keeps its root and its previous videos when it cannot be read or comes back empty, and is saved in the index (version 2, keyed by folder; a version 1 index is read). Item and series IDs derive from the folder as they did from `-media-dir`, so they did not change. Scans also run from the library page and the "Scan media library" task, and a library change publishes at once, before the scan that fills its new folders.
+
 ## Current state
 
 - `src/cmd/couch/main.go` scans `-media-dir` before starting HTTP: sequentially, FFprobe up to 15 s per file, up to 10 minutes in total; on error the server does not start.

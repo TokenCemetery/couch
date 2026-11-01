@@ -128,7 +128,7 @@ func (s *Server) nextUpEpisodes(states map[string]state.ItemState, seriesID, par
 		item := &catalog.Items[i]
 		if item.Type() != "Episode" || item.SeasonNumber == 0 ||
 			(seriesID != "" && item.SeriesID != seriesID) ||
-			(parent != "" && parent != rootID && parent != catalog.SeriesLibraryID() && parent != item.SeriesID) {
+			(parent != "" && parent != rootID && parent != catalog.LibraryOf(*item) && parent != item.SeriesID) {
 			continue
 		}
 		episodes[item.SeriesID] = append(episodes[item.SeriesID], item)

@@ -144,7 +144,8 @@ func SubtitleBurnable(item Item, index int) bool {
 
 // OpenSubtitle returns a subtitle stream of item as WebVTT.
 func (c *Catalog) OpenSubtitle(ctx context.Context, item Item, index int) ([]byte, error) {
-	if c == nil || c.root == nil || !c.SubtitleDeliverable(item, index) {
+	root := c.rootOf(item)
+	if c == nil || root == nil || !c.SubtitleDeliverable(item, index) {
 		return nil, os.ErrNotExist
 	}
 	stream := item.Streams[slices.IndexFunc(item.Streams, func(s Stream) bool { return s.Index == index && s.Type == "Subtitle" })]
@@ -156,7 +157,7 @@ func (c *Catalog) OpenSubtitle(ctx context.Context, item Item, index int) ([]byt
 		defer func() { _ = file.Close() }()
 		return c.extractor.extract(ctx, file, index)
 	}
-	file, err := c.root.OpenFile(filepath.FromSlash(stream.Path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	file, err := root.OpenFile(filepath.FromSlash(stream.Path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, errors.New("subtitle file is unavailable")
 	}

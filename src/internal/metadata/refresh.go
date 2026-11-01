@@ -169,7 +169,7 @@ func sameItems(a, b *media.Catalog) bool {
 
 // sidecars reads the files next to the media; *media.Catalog is one.
 type sidecars interface {
-	ReadSidecar(name string, limit int64) ([]byte, fs.FileInfo, error)
+	ReadSidecar(item media.Item, name string, limit int64) ([]byte, fs.FileInfo, error)
 }
 
 // run is one refresh: the stored records and their decoded metadata.
@@ -265,7 +265,7 @@ func (x *run) readNFO(item media.Item) (bool, error) {
 	revision := ""
 	var content []byte
 	for _, name := range nfoNames(item) {
-		b, info, err := x.files.ReadSidecar(name, maxNFOBytes)
+		b, info, err := x.files.ReadSidecar(item, name, maxNFOBytes)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}

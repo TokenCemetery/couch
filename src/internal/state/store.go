@@ -136,6 +136,18 @@ type Data struct {
 	// Users holds every local account keyed by user ID.
 	Users    map[string]User
 	Sessions map[string]Session
+	// Libraries are the media libraries in display order. Until
+	// LibrariesConfigured, none has been stored, and -media-dir creates them.
+	Libraries           []Library
+	LibrariesConfigured bool
+}
+
+// Library is a media library: a name, a content type and absolute folders.
+type Library struct {
+	ID    string
+	Name  string
+	Type  string
+	Paths []string
 }
 
 // UserByName finds a user by name, ignoring case.
@@ -374,7 +386,7 @@ func (s *Store) Initialize(name, password string) error {
 		u := User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: passwordIterations,
 			Configuration: map[string]json.RawMessage{}, Settings: map[string]json.RawMessage{},
 			Policy: Policy{IsAdministrator: true, EnableAllFolders: true, EnabledFolders: []string{}}}
-		*d = Data{SchemaVersion: 1, ServerID: randomID(), Users: map[string]User{u.ID: u}, Sessions: map[string]Session{}}
+		*d = Data{SchemaVersion: 1, ServerID: randomID(), Users: map[string]User{u.ID: u}, Sessions: map[string]Session{}, Libraries: []Library{}}
 		return nil
 	})
 }
@@ -766,6 +778,23 @@ func (s *Store) CopyUserData(from string, to []string, policy, configuration boo
 		return nil
 	})
 	return revoked, err
+}
+
+// SetLibraries stores the libraries in display order and marks them
+// configured, so -media-dir no longer creates any.
+func (s *Store) SetLibraries(libraries []Library) error {
+	stored := make([]Library, len(libraries))
+	for n, library := range libraries {
+		library.Paths = slices.Clone(library.Paths)
+		if library.Paths == nil {
+			library.Paths = []string{}
+		}
+		stored[n] = library
+	}
+	return s.update("", nil, func(d *Data) error {
+		d.Libraries, d.LibrariesConfigured = stored, true
+		return nil
+	})
 }
 
 // DeleteUser removes the user with their playback state, avatar and

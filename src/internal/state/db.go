@@ -16,12 +16,13 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 4
+const dbSchemaVersion = 5
 
 const dbSchema = `
 CREATE TABLE server (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
-	server_id TEXT NOT NULL
+	server_id TEXT NOT NULL,
+	libraries_configured INTEGER NOT NULL
 ) STRICT;
 CREATE TABLE users (
 	id TEXT PRIMARY KEY,
@@ -55,8 +56,19 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + `
-PRAGMA user_version = 4;
+` + metadataSchema + librariesSchema + `
+PRAGMA user_version = 5;
+`
+
+// librariesSchema was added in version 5.
+const librariesSchema = `
+CREATE TABLE libraries (
+	id TEXT PRIMARY KEY,
+	position INTEGER NOT NULL,
+	name TEXT NOT NULL,
+	type TEXT NOT NULL,
+	paths TEXT NOT NULL
+) STRICT;
 `
 
 // metadataSchema was added in version 2; migrate adds it to a version 1 file.
@@ -85,6 +97,9 @@ var migrations = map[int]string{
 		ALTER TABLE users ADD COLUMN enable_all_folders INTEGER NOT NULL DEFAULT 1;
 		ALTER TABLE users ADD COLUMN enabled_folders TEXT NOT NULL DEFAULT '[]';
 		PRAGMA user_version = 4;`,
+	// Version 5 stores the libraries; until one is configured, -media-dir
+	// creates them.
+	4: "ALTER TABLE server ADD COLUMN libraries_configured INTEGER NOT NULL DEFAULT 0;" + librariesSchema + "PRAGMA user_version = 5;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -127,9 +142,14 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 		return Data{}, fmt.Errorf("unsupported database schema version %d", version)
 	}
 	d := Data{SchemaVersion: 1, Sessions: map[string]Session{}}
-	if err := db.QueryRowContext(ctx, "SELECT server_id FROM server").Scan(&d.ServerID); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT server_id, libraries_configured FROM server").Scan(&d.ServerID, &d.LibrariesConfigured); err != nil {
 		return Data{}, err
 	}
+	libraries, err := loadLibraries(ctx, db)
+	if err != nil {
+		return Data{}, err
+	}
+	d.Libraries = libraries
 	users, err := loadUsers(ctx, db)
 	if err != nil {
 		return Data{}, err
@@ -245,7 +265,7 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 		if _, err := tx.ExecContext(ctx, dbSchema); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO server (id, server_id) VALUES (1, ?)", next.ServerID); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO server (id, server_id, libraries_configured) VALUES (1, ?, 0)", next.ServerID); err != nil {
 			return err
 		}
 		for _, u := range next.Users {
@@ -253,7 +273,13 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 				return err
 			}
 		}
+		if err := writeLibraries(ctx, tx, Data{}, next); err != nil {
+			return err
+		}
 		return writeSessions(ctx, tx, prev.Sessions, next.Sessions)
+	}
+	if err := writeLibraries(ctx, tx, prev, next); err != nil {
+		return err
 	}
 	for id := range prev.Users {
 		if _, ok := next.Users[id]; ok {
@@ -428,14 +454,65 @@ var errInvalidSchema = errors.New("invalid or unsupported state schema")
 // validate rejects state that does not satisfy the schema's invariants: at
 // least one user, and each user either with a password or without one.
 func validate(d Data) error {
-	if d.SchemaVersion != 1 || d.ServerID == "" || len(d.Users) == 0 || d.Sessions == nil {
+	if d.SchemaVersion != 1 || d.ServerID == "" || len(d.Users) == 0 || d.Sessions == nil || d.Libraries == nil {
 		return errInvalidSchema
+	}
+	for _, library := range d.Libraries {
+		if library.ID == "" || library.Name == "" || library.Type == "" || library.Paths == nil {
+			return errInvalidSchema
+		}
 	}
 	for id, u := range d.Users {
 		password := len(u.Salt) == 16 && len(u.PasswordHash) == 32 && u.Iterations == passwordIterations
 		none := len(u.Salt) == 0 && len(u.PasswordHash) == 0 && u.Iterations == 0
 		if u.ID != id || u.Name == "" || (!password && !none) || u.Settings == nil || u.Configuration == nil || u.Policy.EnabledFolders == nil {
 			return errInvalidSchema
+		}
+	}
+	return nil
+}
+
+func loadLibraries(ctx context.Context, db *sql.DB) ([]Library, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, name, type, paths FROM libraries ORDER BY position")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	libraries := []Library{}
+	for rows.Next() {
+		var library Library
+		var paths string
+		if err := rows.Scan(&library.ID, &library.Name, &library.Type, &paths); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(paths), &library.Paths); err != nil {
+			return nil, err
+		}
+		libraries = append(libraries, library)
+	}
+	return libraries, rows.Err()
+}
+
+// writeLibraries rewrites the libraries when they or the configured flag
+// changed; there are few, and their order is part of them.
+func writeLibraries(ctx context.Context, tx *sql.Tx, prev, next Data) error {
+	if prev.LibrariesConfigured == next.LibrariesConfigured && reflect.DeepEqual(prev.Libraries, next.Libraries) {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE server SET libraries_configured = ?", next.LibrariesConfigured); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM libraries"); err != nil {
+		return err
+	}
+	for n, library := range next.Libraries {
+		paths, err := json.Marshal(library.Paths)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO libraries (id, position, name, type, paths) VALUES (?, ?, ?, ?, ?)",
+			library.ID, n, library.Name, library.Type, string(paths)); err != nil {
+			return err
 		}
 	}
 	return nil

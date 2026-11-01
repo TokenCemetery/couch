@@ -18,7 +18,7 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := &Catalog{root: root}
+	catalog, src := rooted(root)
 	defer func() { _ = catalog.Close() }()
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
@@ -28,7 +28,7 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 	if err := os.WriteFile(poster, encoded.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	item := Item{ID: "movie", Path: "Movie.mp4"}
+	item := Item{ID: "movie", Path: "Movie.mp4", src: src}
 	file, info, err := catalog.OpenImage(item, "Primary")
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestPrimaryImagesBoundedAndConfined(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "Show", "poster.png"), encoded.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, found := catalog.ImageInfo(Item{Kind: "Series", Path: "Show"}, "Primary"); !found {
+	if _, found := catalog.ImageInfo(Item{Kind: "Series", Path: "Show", src: src}, "Primary"); !found {
 		t.Fatal("series poster missing")
 	}
 }
@@ -109,7 +109,7 @@ func TestBackdropImageLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := &Catalog{root: root}
+	catalog, src := rooted(root)
 	defer func() { _ = catalog.Close() }()
 	write := func(name string, width int) {
 		t.Helper()
@@ -132,7 +132,7 @@ func TestBackdropImageLookup(t *testing.T) {
 		}
 		return info.Width
 	}
-	movie := Item{ID: "movie", Path: "Movie.mp4"}
+	movie := Item{ID: "movie", Path: "Movie.mp4", src: src}
 	// A cover named after the video is not a backdrop.
 	write("Movie.png", 1)
 	if width(movie) != 0 {
@@ -154,7 +154,7 @@ func TestBackdropImageLookup(t *testing.T) {
 	if width(movie) != 5 {
 		t.Fatal("video fanart does not come first")
 	}
-	series := Item{ID: "series", Kind: "Series", Path: "Show"}
+	series := Item{ID: "series", Kind: "Series", Path: "Show", src: src}
 	if width(series) != 0 {
 		t.Fatal("parent folder backdrop used for a series")
 	}
@@ -195,13 +195,13 @@ func TestImageDirectoryListingIsRevalidated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := &Catalog{root: root}
+	catalog, src := rooted(root)
 	defer func() { _ = catalog.Close() }()
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
 		t.Fatal(err)
 	}
-	item := Item{ID: "movie", Path: "Movie.mp4"}
+	item := Item{ID: "movie", Path: "Movie.mp4", src: src}
 	// add writes an image and sets the directory mtime, as a coarse clock
 	// or an unchanged directory would leave it.
 	add := func(name string, mtime time.Time) {
@@ -237,4 +237,11 @@ func TestImageDirectoryListingIsRevalidated(t *testing.T) {
 	if _, found := catalog.ImageInfo(item, "Logo"); !found {
 		t.Fatal("listing taken in the directory's mtime tick was reused")
 	}
+}
+
+// rooted returns a catalog of one folder opened at root, and the folder its
+// items need.
+func rooted(root *os.Root) (*Catalog, *source) {
+	src := &source{path: "test", key: "test", root: root}
+	return &Catalog{sources: map[string]*source{"test": src}}, src
 }

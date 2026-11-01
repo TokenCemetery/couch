@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"github.com/TokenCemetery/couch/internal/hls"
+	"github.com/TokenCemetery/couch/internal/library"
 	"github.com/TokenCemetery/couch/internal/media"
 	"github.com/TokenCemetery/couch/internal/metadata"
 	"github.com/TokenCemetery/couch/internal/procusage"
@@ -40,8 +40,13 @@ func run() error {
 	name := flag.String("name", "Couch", "server display name")
 	upstream := flag.String("web-upstream", "", "optional Emby origin supplying only /web static assets")
 	webDir := flag.String("web-dir", "", "optional local Emby Web directory containing index.html")
-	mediaDir := flag.String("media-dir", "", "optional read-only movie/series directory; scanned with ffprobe at startup and on SIGHUP, indexed in -data")
-	rescanInterval := flag.Duration("rescan-interval", 0, "rescan -media-dir this often, for example 30m; 0 disables")
+	mediaDir := flag.String("media-dir", "", "read-only directory whose Movies and TV Shows libraries are created on the first start; libraries are then managed in Emby Web")
+	var mediaRoots []string
+	flag.Func("media-root", "folder below which an administrator may add library folders in Emby Web; repeatable; defaults to -media-dir", func(v string) error {
+		mediaRoots = append(mediaRoots, v)
+		return nil
+	})
+	rescanInterval := flag.Duration("rescan-interval", 0, "rescan the libraries this often, for example 30m; 0 disables")
 	init := flag.Bool("init", false, "initialize a local user; read password from stdin and exit")
 	username := flag.String("username", "", "username for -init")
 	backup := flag.String("backup", "", "copy the state in -data to this new or empty directory and exit; works while the server runs")
@@ -118,102 +123,81 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	var catalog *media.Catalog
-	catalogFile := filepath.Join(*data, "catalog.json")
-	loaded := false
-	if *mediaDir != "" {
-		// A saved index serves at once; the rescan below catches up with
-		// changes made while Couch was stopped.
-		catalog, err = media.Load(ctx, *mediaDir, catalogFile)
-		switch {
-		case err == nil:
-			loaded = true
-			slog.Info("Media index loaded; rescanning in the background", "videos", len(catalog.Items), "folders", len(catalog.Folders))
-		case errors.Is(err, fs.ErrNotExist):
-		default:
-			slog.Warn("Media index not used; scanning", "error", err)
-		}
-		if !loaded {
-			slog.Info("Scanning media directory")
-			scanCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-			catalog, err = media.Scan(scanCtx, *mediaDir)
-			cancel()
-			if err != nil {
-				return fmt.Errorf("scan media: %w", err)
-			}
-			slog.Info("Media scan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped,
-				"probes", catalog.Probes.Runs, "probe_cpu", catalog.Probes.CPU.Round(time.Millisecond), "probe_peak_rss_kib", catalog.Probes.PeakKiB)
-			saveCatalog(catalog, catalogFile)
-		}
-		defer func() { _ = catalog.Close() }()
+	if len(mediaRoots) == 0 && *mediaDir != "" {
+		mediaRoots = []string{*mediaDir}
 	}
-	api := server.New(s, *name, web, catalog)
+	api := server.New(s, *name, web, nil)
 	defer api.Close()
-	if catalog != nil {
-		ffmpeg, ffmpegErr := exec.LookPath("ffmpeg")
-		ffprobe, ffprobeErr := exec.LookPath("ffprobe")
-		if ffmpegErr == nil && ffprobeErr == nil {
-			// Deferred after api.Close, so it runs before it: after the HTTP
-			// server has shut down, jobs are killed and segments removed.
-			remux, err := hls.NewManager(ffmpeg, ffprobe, filepath.Join(*data, "transcode"))
-			if err != nil {
-				return fmt.Errorf("prepare HLS directory: %w", err)
-			}
-			defer remux.Close()
-			remux.Threads = *ffmpegThreads
-			// Go sizes GOMAXPROCS from a cgroup CPU quota; FFmpeg sizes its
-			// threads from the host's CPUs, which under a quota delays the
-			// first segment and doubles memory (#92, #99).
-			if remux.Threads == 0 && runtime.GOMAXPROCS(0) < runtime.NumCPU() {
-				remux.Threads = runtime.GOMAXPROCS(0)
-				slog.Info("FFmpeg transcode threads follow the CPU quota", "threads", remux.Threads)
-			}
-			if *hwaccel != "" {
-				remux.Accel = hls.Accel{Kind: *hwaccel, Device: *hwaccelDevice}
-				if err := remux.CheckAccel(context.Background()); err != nil {
-					return fmt.Errorf("-hwaccel %s: %w", *hwaccel, err)
-				}
-			}
-			api.SetHLS(remux)
-		} else if *hwaccel != "" {
-			return errors.New("-hwaccel requires ffmpeg and ffprobe")
-		} else {
-			slog.Info("FFmpeg not found; HLS remux is disabled")
-		}
-	}
-	if catalog != nil {
-		// An online provider is used only when its key is set (#101).
-		config := metadata.Config{TMDbKey: os.Getenv("COUCH_TMDB_API_KEY"), TVDbKey: os.Getenv("COUCH_TVDB_API_KEY"),
-			Language: *metadataLanguage, Refresh: *metadataRefresh, ImageDir: filepath.Join(*data, "metadata")}
-		refresher, err := metadata.NewRefresher(s, config, api.SetMetadata)
+	ffmpeg, ffmpegErr := exec.LookPath("ffmpeg")
+	ffprobe, ffprobeErr := exec.LookPath("ffprobe")
+	if ffmpegErr == nil && ffprobeErr == nil {
+		// Deferred after api.Close, so it runs before it: after the HTTP
+		// server has shut down, jobs are killed and segments removed.
+		remux, err := hls.NewManager(ffmpeg, ffprobe, filepath.Join(*data, "transcode"))
 		if err != nil {
-			return err
+			return fmt.Errorf("prepare HLS directory: %w", err)
 		}
-		api.SetMetadataImages(config.ImageDir)
-		slog.Info("Metadata sources", "nfo", true, "tmdb", config.TMDbKey != "", "tvdb", config.TVDbKey != "", "language", config.Language)
-		refreshCtx, stopRefresh := context.WithCancel(ctx)
-		refreshed := make(chan struct{})
-		go func() {
-			defer close(refreshed)
-			refresher.Run(refreshCtx)
-		}()
-		// Stops the refresher before the deferred catalog.Close.
-		defer func() {
-			stopRefresh()
-			<-refreshed
-		}()
-		refresher.Update(catalog)
-		// Registered before serving: an unhandled SIGHUP would stop Couch.
-		hangup := make(chan os.Signal, 1)
-		signal.Notify(hangup, syscall.SIGHUP)
-		defer signal.Stop(hangup)
-		publish := func(next *media.Catalog) {
-			api.SetCatalog(next)
-			saveCatalog(next, catalogFile)
-			refresher.Update(next)
+		defer remux.Close()
+		remux.Threads = *ffmpegThreads
+		// Go sizes GOMAXPROCS from a cgroup CPU quota; FFmpeg sizes its
+		// threads from the host's CPUs, which under a quota delays the
+		// first segment and doubles memory (#92, #99).
+		if remux.Threads == 0 && runtime.GOMAXPROCS(0) < runtime.NumCPU() {
+			remux.Threads = runtime.GOMAXPROCS(0)
+			slog.Info("FFmpeg transcode threads follow the CPU quota", "threads", remux.Threads)
 		}
-		go rescanLoop(ctx, catalog, hangup, *rescanInterval, loaded, publish)
+		if *hwaccel != "" {
+			remux.Accel = hls.Accel{Kind: *hwaccel, Device: *hwaccelDevice}
+			if err := remux.CheckAccel(context.Background()); err != nil {
+				return fmt.Errorf("-hwaccel %s: %w", *hwaccel, err)
+			}
+		}
+		api.SetHLS(remux)
+	} else if *hwaccel != "" {
+		return errors.New("-hwaccel requires ffmpeg and ffprobe")
+	} else {
+		slog.Info("FFmpeg not found; HLS remux is disabled")
 	}
+	// An online provider is used only when its key is set (#101).
+	config := metadata.Config{TMDbKey: os.Getenv("COUCH_TMDB_API_KEY"), TVDbKey: os.Getenv("COUCH_TVDB_API_KEY"),
+		Language: *metadataLanguage, Refresh: *metadataRefresh, ImageDir: filepath.Join(*data, "metadata")}
+	refresher, err := metadata.NewRefresher(s, config, api.SetMetadata)
+	if err != nil {
+		return err
+	}
+	api.SetMetadataImages(config.ImageDir)
+	slog.Info("Metadata sources", "nfo", true, "tmdb", config.TMDbKey != "", "tvdb", config.TVDbKey != "", "language", config.Language)
+	libraries, err := library.New(s, mediaRoots, filepath.Join(*data, "catalog.json"), func(next *media.Catalog) {
+		api.SetCatalog(next)
+		refresher.Update(next)
+	})
+	if err != nil {
+		return err
+	}
+	// Deferred first, so it runs last: after the refresher stopped reading
+	// sidecars and the HTTP server closed its streams.
+	defer libraries.Close()
+	api.SetLibraries(libraries)
+	loaded, err := libraries.Open(ctx, *mediaDir)
+	if err != nil {
+		return fmt.Errorf("scan media: %w", err)
+	}
+	refreshCtx, stopRefresh := context.WithCancel(ctx)
+	refreshed := make(chan struct{})
+	go func() {
+		defer close(refreshed)
+		refresher.Run(refreshCtx)
+	}()
+	// Stops the refresher before the deferred libraries.Close.
+	defer func() {
+		stopRefresh()
+		<-refreshed
+	}()
+	// Registered before serving: an unhandled SIGHUP would stop Couch.
+	hangup := make(chan os.Signal, 1)
+	signal.Notify(hangup, syscall.SIGHUP)
+	defer signal.Stop(hangup)
+	go libraries.Run(ctx, hangup, *rescanInterval, loaded)
 	httpServer := &http.Server{Addr: *listen, Handler: api.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
@@ -247,48 +231,4 @@ func logUsage() {
 	}
 	slog.Info("Couch stopped", "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak,
 		"children_cpu", childCPU.Round(time.Millisecond), "children_peak_rss_kib", childPeak)
-}
-
-// saveCatalog writes the media index; a failure costs only a full scan at
-// the next start.
-func saveCatalog(catalog *media.Catalog, file string) {
-	if err := catalog.Save(file); err != nil {
-		slog.Warn("Media index not saved", "error", err)
-	}
-}
-
-// rescanLoop rescans on SIGHUP and every interval (0 disables), one scan at a
-// time: a signal during a scan starts one more scan after it, and ticks during
-// a scan are dropped. With now set it rescans once right away. A failed scan
-// keeps the published catalog.
-func rescanLoop(ctx context.Context, catalog *media.Catalog, hangup <-chan os.Signal, interval time.Duration, now bool, publish func(*media.Catalog)) {
-	var tick <-chan time.Time
-	if interval > 0 {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		tick = ticker.C
-	}
-	for {
-		if !now {
-			select {
-			case <-ctx.Done():
-				return
-			case <-hangup:
-			case <-tick:
-			}
-		}
-		now = false
-		slog.Info("Rescanning media directory")
-		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		next, err := catalog.Rescan(scanCtx)
-		cancel()
-		if err != nil {
-			slog.Warn("Media rescan failed; keeping the previous catalog", "error", err)
-			continue
-		}
-		catalog = next
-		publish(catalog)
-		slog.Info("Media rescan complete", "videos", len(catalog.Items), "folders", len(catalog.Folders), "skipped", catalog.Skipped,
-			"probes", catalog.Probes.Runs, "probe_cpu", catalog.Probes.CPU.Round(time.Millisecond), "probe_peak_rss_kib", catalog.Probes.PeakKiB)
-	}
 }

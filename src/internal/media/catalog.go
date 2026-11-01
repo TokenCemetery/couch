@@ -1,4 +1,5 @@
-// Package media builds a read-only video catalogue from an explicitly selected directory.
+// Package media builds a read-only video catalogue from the folders of the
+// configured libraries.
 package media
 
 import (
@@ -6,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -21,15 +23,19 @@ import (
 const maxEntries = 100000
 const maxMovies = 10000
 
-// Catalog and its items are immutable after Scan returns. The scan root stays
-// open so playback can reopen a file later without re-resolving its path
-// outside the directory the operator selected.
+// Catalog and its items are immutable after a scan returns. Each folder's
+// root stays open so playback can reopen a file later without re-resolving
+// its path outside the folders the administrator selected.
 type Catalog struct {
-	ID      string
-	Items   []Item
-	Folders []Item
-	Skipped int
-	root    *os.Root
+	// ID is the Movies library of a catalogue built without libraries, as
+	// tests do; a scanned catalogue's libraries are in Libraries.
+	ID        string
+	Items     []Item
+	Folders   []Item
+	Skipped   int
+	libraries []Library
+	// sources holds each scanned folder by its path.
+	sources map[string]*source
 	// extractor delivers embedded text subtitles; nil without FFmpeg.
 	extractor *subtitleExtractor
 	probe     func(context.Context, *os.File) (Item, error)
@@ -62,14 +68,50 @@ type Item struct {
 	Added        time.Time
 	RunTimeTicks int64
 	Streams      []Stream
+	// src is the folder the item was found in.
+	src *source
 }
 
-// Open reopens an item's file read-only, confined to the catalogue root.
+// source is one library folder, walked once however many libraries share it.
+type source struct {
+	path string
+	// key prefixes the IDs of the folder's items.
+	key     string
+	root    *os.Root
+	items   []Item
+	folders []Item
+	skipped int
+}
+
+// sourceOf returns item's folder. An item built without one, as tests do,
+// belongs to the catalogue's only folder.
+func (c *Catalog) sourceOf(item Item) *source {
+	if item.src != nil {
+		return item.src
+	}
+	if c != nil && len(c.sources) == 1 {
+		for _, src := range c.sources {
+			return src
+		}
+	}
+	return nil
+}
+
+// rootOf returns the root of item's folder, or nil.
+func (c *Catalog) rootOf(item Item) *os.Root {
+	if src := c.sourceOf(item); src != nil {
+		return src.root
+	}
+	return nil
+}
+
+// Open reopens an item's file read-only, confined to its library folder.
 func (c *Catalog) Open(item Item) (*os.File, error) {
-	if c == nil || c.root == nil {
+	root := c.rootOf(item)
+	if c == nil || root == nil {
 		return nil, errors.New("catalogue has no open root")
 	}
-	file, err := c.root.OpenFile(filepath.FromSlash(item.Path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	file, err := root.OpenFile(filepath.FromSlash(item.Path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, errors.New("media file is unavailable")
 	}
@@ -81,12 +123,29 @@ func (c *Catalog) Open(item Item) (*os.File, error) {
 	return file, nil
 }
 
-// Close releases the catalogue root. Items can no longer be opened afterwards.
+// Close releases the folders' roots. Items can no longer be opened afterwards.
 func (c *Catalog) Close() error {
-	if c == nil || c.root == nil {
+	if c == nil {
 		return nil
 	}
-	return c.root.Close()
+	var errs []error
+	for _, src := range c.sources {
+		errs = append(errs, src.root.Close())
+	}
+	return errors.Join(errs...)
+}
+
+// CloseRemoved releases the roots of c's folders that next no longer has,
+// once next is published in its place.
+func (c *Catalog) CloseRemoved(next *Catalog) {
+	if c == nil {
+		return
+	}
+	for path, src := range c.sources {
+		if next == nil || next.sources[path] == nil || next.sources[path].root != src.root {
+			_ = src.root.Close()
+		}
+	}
 }
 
 // Stream is an audio, video, or subtitle track reported by FFprobe.
@@ -127,19 +186,35 @@ func stableID(s string) string {
 	return hex.EncodeToString(h[:16])
 }
 
-// Scan probes files sequentially. No metadata is written to the media directory.
+// Scan catalogs one directory as the Movies and TV Shows libraries
+// DefaultLibraries returns, failing if the directory cannot be scanned.
 func Scan(ctx context.Context, directory string) (*Catalog, error) {
+	libraries, err := DefaultLibraries(directory)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := ScanLibraries(ctx, libraries)
+	if err != nil {
+		if catalog != nil {
+			_ = catalog.Close()
+		}
+		return nil, err
+	}
+	return catalog, nil
+}
+
+// ScanLibraries probes the libraries' folders sequentially. No metadata is
+// written to them. A folder that cannot be scanned is left out and named in
+// the returned error together with a catalogue of the others; a global limit
+// or a cancelled ctx returns no catalogue.
+func ScanLibraries(ctx context.Context, libraries []Library) (*Catalog, error) {
 	probe, stats, err := newProbe(ctx)
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := scan(ctx, directory, probe)
-	if err != nil {
-		return nil, err
-	}
-	catalog.Probes, catalog.probeStats = *stats, stats
-	attachExtractor(catalog)
-	return catalog, nil
+	base := &Catalog{probe: probe, probeStats: stats, sources: map[string]*source{}}
+	attachExtractor(base)
+	return base.Rescan(ctx, libraries)
 }
 
 // attachExtractor sets up embedded subtitle delivery. FFmpeg is optional:
@@ -151,55 +226,127 @@ func attachExtractor(catalog *Catalog) {
 	}
 }
 
+// scan catalogs directory with a given probe, for tests.
 func scan(ctx context.Context, directory string, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {
-	absolute, err := filepath.Abs(directory)
+	libraries, err := DefaultLibraries(directory)
 	if err != nil {
-		return nil, errors.New("invalid media directory")
+		return nil, err
 	}
-	root, err := os.OpenRoot(absolute)
+	catalog, err := (&Catalog{probe: probe, sources: map[string]*source{}}).Rescan(ctx, libraries)
 	if err != nil {
-		return nil, errors.New("cannot open media directory")
-	}
-	catalog, err := walk(ctx, &Catalog{ID: stableID("movies\x00" + absolute), root: root, probe: probe}, nil, time.Time{})
-	if err != nil {
-		_ = root.Close()
+		if catalog != nil {
+			_ = catalog.Close()
+		}
 		return nil, err
 	}
 	return catalog, nil
 }
 
-// Rescan walks the media directory again and returns a new catalog; c is not
-// changed. Files with the same path, size and mtime reuse c's probe results,
-// and every known path keeps its ID and date added. On error, including a
-// walk that finds no videos where c had some (an unmounted volume looks like
-// that), the caller keeps c. The catalogs share one directory root: close
-// only the last one.
-func (c *Catalog) Rescan(ctx context.Context) (*Catalog, error) {
-	previous := make(map[string]Item, len(c.Items))
-	for _, item := range c.Items {
-		previous[item.Path] = item
-	}
+// errLimit marks a global scan limit: the whole scan fails, not one folder.
+var errLimit = errors.New("scan limit exceeded")
+
+// budget counts what a scan has used across all folders.
+type budget struct {
+	entries, videos int
+}
+
+// Rescan walks the libraries' folders again and returns a new catalog; c is
+// not changed. Files with the same path, size and mtime reuse c's probe
+// results, and every known path keeps its ID and date added; files found in
+// a folder c already had are dated now, those of a new folder by their mtime.
+// A folder that cannot be walked, or that has no videos where c had some (an
+// unmounted volume looks like that), keeps c's items and is named in the
+// returned error alongside the new catalog. A global limit or a cancelled ctx
+// returns no catalog. Catalogs share the roots of the folders they have in
+// common: close removed ones with CloseRemoved, and only the last catalog.
+func (c *Catalog) Rescan(ctx context.Context, libraries []Library) (*Catalog, error) {
 	if c.probeStats != nil {
 		*c.probeStats = ProbeStats{}
 	}
-	next, err := walk(ctx, c, previous, time.Now().UTC())
-	if err != nil {
-		return nil, err
+	next := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: c.probe, probeStats: c.probeStats, extractor: c.extractor}
+	used := &budget{}
+	var failures []error
+	opened := []*os.Root{}
+	for _, path := range folderPaths(libraries) {
+		previous := c.sources[path]
+		src, err := c.walkSource(ctx, path, previous, used)
+		if err != nil {
+			if errors.Is(err, errLimit) || ctx.Err() != nil {
+				for _, root := range opened {
+					_ = root.Close()
+				}
+				return nil, err
+			}
+			failures = append(failures, fmt.Errorf("%s: %w", path, err))
+			if previous == nil {
+				continue
+			}
+			src = previous
+		}
+		if previous == nil || previous.root != src.root {
+			opened = append(opened, src.root)
+		}
+		next.sources[path] = src
+		next.Skipped += src.skipped
 	}
+	next.assemble()
 	if c.probeStats != nil {
 		next.Probes = *c.probeStats
 	}
-	if len(next.Items) == 0 && len(c.Items) > 0 {
-		return nil, errors.New("media directory has no videos")
-	}
-	return next, nil
+	return next, errors.Join(failures...)
 }
 
-// walk scans base's root into a new catalog. previous is nil for the first
-// scan; otherwise new paths are dated now.
-func walk(ctx context.Context, base *Catalog, previous map[string]Item, now time.Time) (*Catalog, error) {
-	root, probe := base.root, base.probe
-	catalog := &Catalog{ID: base.ID, Items: []Item{}, root: root, probe: probe, probeStats: base.probeStats, extractor: base.extractor}
+// Reassign returns a catalog of libraries that reuses c's scanned folders
+// without walking them; a folder c has not scanned stays empty until the next
+// Rescan. It publishes a library change at once.
+func (c *Catalog) Reassign(libraries []Library) *Catalog {
+	next := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: c.probe, probeStats: c.probeStats, extractor: c.extractor, Probes: c.Probes}
+	for _, path := range folderPaths(libraries) {
+		if src := c.sources[path]; src != nil {
+			next.sources[path] = src
+			next.Skipped += src.skipped
+		}
+	}
+	next.assemble()
+	return next
+}
+
+// walkSource scans the folder at path into a new source. previous is the
+// folder's last scan, or nil.
+func (c *Catalog) walkSource(ctx context.Context, folder string, previous *source, used *budget) (*source, error) {
+	src := &source{path: folder, key: stableID("movies\x00" + folder), items: []Item{}}
+	known := map[string]Item{}
+	var now time.Time
+	if previous != nil {
+		src.root = previous.root
+		for _, item := range previous.items {
+			known[item.Path] = item
+		}
+		now = time.Now().UTC()
+	} else {
+		root, err := os.OpenRoot(folder)
+		if err != nil {
+			return nil, errors.New("cannot open media folder")
+		}
+		src.root = root
+	}
+	if err := c.walk(ctx, src, known, now, used); err != nil {
+		if previous == nil {
+			_ = src.root.Close()
+		}
+		return nil, err
+	}
+	if previous != nil && len(src.items) == 0 && len(previous.items) > 0 {
+		return nil, errors.New("media folder has no videos")
+	}
+	return src, nil
+}
+
+// walk scans src's root into src. known holds the folder's previous items by
+// path; files new to a folder scanned before are dated now, otherwise by
+// their mtime.
+func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, now time.Time, used *budget) error {
+	root, probe := src.root, c.probe
 	subtitles := []string{}
 	visit := func(path string, entry fs.DirEntry) error {
 		ext := strings.ToLower(filepath.Ext(path))
@@ -212,61 +359,61 @@ func walk(ctx context.Context, base *Catalog, previous map[string]Item, now time
 		default:
 			return nil
 		}
-		if len(catalog.Items) >= maxMovies {
-			return errors.New("media directory exceeds movie limit")
+		if used.videos >= maxMovies {
+			return fmt.Errorf("libraries exceed the video limit: %w", errLimit)
 		}
 		// Root confines symlink races; NONBLOCK prevents a swapped-in FIFO from hanging.
 		file, err := root.OpenFile(filepath.FromSlash(path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 		if err != nil {
-			catalog.Skipped++
+			src.skipped++
 			return nil
 		}
 		defer func() { _ = file.Close() }()
 		info, err := file.Stat()
 		if err != nil || !info.Mode().IsRegular() {
-			catalog.Skipped++
+			src.skipped++
 			return nil
 		}
 		modified := info.ModTime().UTC()
 		var item Item
-		if known, ok := previous[path]; ok && known.Size == info.Size() && known.Modified.Equal(modified) {
+		if previous, ok := known[path]; ok && previous.Size == info.Size() && previous.Modified.Equal(modified) {
 			// Sidecars and episode fields are derived again below.
-			item = Item{RunTimeTicks: known.RunTimeTicks, Streams: embeddedStreams(known.Streams)}
+			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams)}
 		} else {
 			item, err = probe(ctx, file)
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			if err != nil {
-				catalog.Skipped++
+				src.skipped++
 				return nil
 			}
 		}
-		item.ID = stableID(catalog.ID + "\x00" + path)
+		item.ID = stableID(src.key + "\x00" + path)
 		item.Path = path
 		item.Name = strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
 		item.Size, item.Modified = info.Size(), modified
-		switch known, ok := previous[path]; {
+		switch previous, ok := known[path]; {
 		case ok:
-			item.Added = known.Added
-		case previous == nil:
+			item.Added = previous.Added
+		case now.IsZero():
 			item.Added = modified
 		default:
 			item.Added = now
 		}
 		item.Container = strings.TrimPrefix(ext, ".")
-		catalog.Items = append(catalog.Items, item)
+		src.items = append(src.items, item)
+		used.videos++
 		return nil
 	}
-	entries := 0
 	var walkDir func(string, int) error
 	walkDir = func(relative string, depth int) error {
 		if depth > 64 {
-			return errors.New("media directory exceeds scan depth")
+			return errors.New("media folder exceeds scan depth")
 		}
 		directory, err := root.OpenFile(filepath.FromSlash(relative), os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_DIRECTORY, 0)
 		if err != nil {
-			return errors.New("cannot read media directory")
+			return errors.New("cannot read media folder")
 		}
 		defer func() { _ = directory.Close() }()
 		for {
@@ -276,15 +423,15 @@ func walk(ctx context.Context, base *Catalog, previous map[string]Item, now time
 			// Avoid reading and sorting an arbitrarily large directory into memory.
 			batch, readErr := directory.ReadDir(128)
 			if readErr != nil && readErr != io.EOF {
-				return errors.New("cannot read media directory entries")
+				return errors.New("cannot read media folder entries")
 			}
 			for _, entry := range batch {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				entries++
-				if entries > maxEntries {
-					return errors.New("media directory exceeds entry limit")
+				used.entries++
+				if used.entries > maxEntries {
+					return fmt.Errorf("libraries exceed the entry limit: %w", errLimit)
 				}
 				relativePath := path.Join(relative, entry.Name())
 				if entry.IsDir() {
@@ -303,22 +450,24 @@ func walk(ctx context.Context, base *Catalog, previous map[string]Item, now time
 		}
 	}
 	if err := walkDir(".", 0); err != nil {
-		return nil, err
+		return err
 	}
-	slices.SortFunc(catalog.Items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
-	attachSidecars(catalog.Items, subtitles)
-	catalog.groupEpisodes()
-	return catalog, nil
+	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
+	attachSidecars(src.items, subtitles)
+	src.classify()
+	return nil
 }
 
-// ReadSidecar reads a small file next to the media, such as a .nfo, confined
-// to the catalogue root. A missing file returns an error matching
-// fs.ErrNotExist; a file larger than limit is not read.
-func (c *Catalog) ReadSidecar(name string, limit int64) ([]byte, fs.FileInfo, error) {
-	if c == nil || c.root == nil {
+// ReadSidecar reads a small file next to item's media, such as a .nfo,
+// confined to item's library folder; name is relative to that folder. A
+// missing file returns an error matching fs.ErrNotExist; a file larger than
+// limit is not read.
+func (c *Catalog) ReadSidecar(item Item, name string, limit int64) ([]byte, fs.FileInfo, error) {
+	root := c.rootOf(item)
+	if c == nil || root == nil {
 		return nil, nil, errors.New("catalogue has no open root")
 	}
-	file, err := c.root.OpenFile(filepath.FromSlash(name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	file, err := root.OpenFile(filepath.FromSlash(name), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, nil, err
 	}

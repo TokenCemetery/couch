@@ -183,14 +183,11 @@ func (s *Server) metadataValueList(kind string) authenticated {
 // season parent and is of one of the requested types.
 func inMetadataScope(catalog *media.Catalog, item *media.Item, parent, types string) bool {
 	kind := item.Type()
-	switch parent {
-	case "", "root":
-	case catalog.ID:
-		if kind != "Movie" {
-			return false
-		}
-	case catalog.SeriesLibraryID():
-		if kind == "Movie" {
+	_, library := catalog.Library(parent)
+	switch {
+	case parent == "", parent == "root":
+	case library:
+		if catalog.LibraryOf(*item) != parent {
 			return false
 		}
 	default:
@@ -246,14 +243,11 @@ func (s *Server) filterValueList(values func(media.Item) []string) authenticated
 // or season type stands for its episodes.
 func inFilterScope(catalog *media.Catalog, item *media.Item, parent, types string) bool {
 	kind := item.Type()
-	switch parent {
-	case "", "root":
-	case catalog.ID:
-		if kind != "Movie" {
-			return false
-		}
-	case catalog.SeriesLibraryID():
-		if kind == "Movie" {
+	_, library := catalog.Library(parent)
+	switch {
+	case parent == "", parent == "root":
+	case library:
+		if catalog.LibraryOf(*item) != parent {
 			return false
 		}
 	default:

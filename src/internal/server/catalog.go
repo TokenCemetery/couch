@@ -70,7 +70,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 			// A rescan replaces the catalog, so each request reads it (#75).
 			if catalog := s.catalog(); catalog != nil {
 				snapshot := s.store.Snapshot()
-				if id == catalog.ID || (len(catalog.Folders) > 0 && id == catalog.SeriesLibraryID()) {
+				if _, ok := catalog.Library(id); ok {
 					respond(w, 200, s.collectionDTO(id, snapshot.ServerID, true))
 					return
 				}
@@ -322,24 +322,32 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	// Select and paginate metadata before allocating response DTOs.
 	items := []*media.Item{}
 	isCollection := func(item *media.Item) bool {
-		return catalog != nil && (item.ID == catalog.ID || item.ID == catalog.SeriesLibraryID())
+		_, ok := catalog.Library(item.ID)
+		return catalog != nil && ok
 	}
 	// collectionType names the library an item belongs to, for CollectionTypes;
 	// Couch has only movie and TV libraries (#76).
 	collectionType := func(item *media.Item) string {
-		if (catalog != nil && item.ID == catalog.ID) || (!isCollection(item) && item.Type() == "Movie") {
-			return "movies"
+		if library, ok := catalog.Library(item.ID); ok {
+			return library.Type
 		}
-		return "tvshows"
+		if item.Type() == "Movie" {
+			return media.Movies
+		}
+		return media.TVShows
+	}
+	libraries := func() []*media.Item {
+		folders := []*media.Item{}
+		for _, library := range catalog.Libraries() {
+			folders = append(folders, &media.Item{ID: library.ID, Name: library.Name})
+		}
+		return folders
 	}
 	if catalog != nil {
 		parent := query["parentid"]
 		root := parent == "" || parent == "root"
 		if root && query["recursive"] != "true" && !latest && query["ids"] == "" {
-			items = append(items, &media.Item{ID: catalog.ID, Name: "Movies"})
-			if len(catalog.Folders) > 0 {
-				items = append(items, &media.Item{ID: catalog.SeriesLibraryID(), Name: "TV Shows"})
-			}
+			items = append(items, libraries()...)
 		} else {
 			items = make([]*media.Item, 0, len(catalog.Items)+1)
 			for _, candidates := range [][]media.Item{catalog.Items, catalog.Folders} {
@@ -348,16 +356,13 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 					if (latest || resume) && item.IsFolder() {
 						continue
 					}
-					if root || catalog.Parent(*item) == parent || ((query["recursive"] == "true" || latest || resume) && (item.SeriesID == parent || (parent == catalog.SeriesLibraryID() && item.Type() != "Movie"))) {
+					if root || catalog.Parent(*item) == parent || ((query["recursive"] == "true" || latest || resume) && (item.SeriesID == parent || catalog.LibraryOf(*item) == parent)) {
 						items = append(items, item)
 					}
 				}
 			}
 			if query["ids"] != "" && root {
-				items = append(items, &media.Item{ID: catalog.ID, Name: "Movies"})
-				if len(catalog.Folders) > 0 {
-					items = append(items, &media.Item{ID: catalog.SeriesLibraryID(), Name: "TV Shows"})
-				}
+				items = append(items, libraries()...)
 			}
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -414,7 +415,39 @@ func TestOwnerBecomesAdministrator(t *testing.T) {
 	}
 }
 
-// dropPolicyColumns turns the users table back into its version 2 shape.
+// dropPolicyColumns turns the users and server tables back into their
+// version 2 shape.
 const dropPolicyColumns = `ALTER TABLE users DROP COLUMN is_administrator; ALTER TABLE users DROP COLUMN is_disabled;
 	ALTER TABLE users DROP COLUMN is_hidden; ALTER TABLE users DROP COLUMN enable_all_folders;
-	ALTER TABLE users DROP COLUMN enabled_folders;`
+	ALTER TABLE users DROP COLUMN enabled_folders; ALTER TABLE server DROP COLUMN libraries_configured; DROP TABLE libraries;`
+
+// TestLibrariesPersist stores libraries in order and reads them back, and
+// checks that an upgraded database has none configured yet.
+func TestLibrariesPersist(t *testing.T) {
+	s, dir := testStore(t)
+	if d := s.Snapshot(); d.LibrariesConfigured || len(d.Libraries) != 0 {
+		t.Fatalf("new state has libraries: %+v", d.Libraries)
+	}
+	want := []Library{{ID: "b", Name: "Shows", Type: "tvshows", Paths: []string{"/media/shows", "/media/more"}}, {ID: "a", Name: "Films", Type: "movies", Paths: []string{"/media/films"}}}
+	if err := s.SetLibraries(want); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if d := s.Snapshot(); !d.LibrariesConfigured || !reflect.DeepEqual(d.Libraries, want) {
+		t.Fatalf("reopened libraries %+v", d.Libraries)
+	}
+	// Removing every library keeps them configured.
+	if err := s.SetLibraries(nil); err != nil {
+		t.Fatal(err)
+	}
+	if d := s.Snapshot(); !d.LibrariesConfigured || len(d.Libraries) != 0 || d.Libraries == nil {
+		t.Fatalf("libraries after removing all: %+v", d)
+	}
+}
