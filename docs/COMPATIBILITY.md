@@ -53,13 +53,13 @@ The row scenario is scripted in the page: "Play" on the item page, frames after 
 | R02 | AVI, MPEG-4 ASP 400p / MP3 2.0 | transcode to H.264, MP3 copied | yes | 227.9 s of 216 | 227.9 s | 237.2 s | verified 2026-10-31 |
 | R03 | MKV, H.264 High 1080p / AC3 5.1 ×2, E-AC3 5.1 ×2, SubRip ×2 | remux, AC3 → AAC; SubRip inside HLS | yes | 665.6 s of 654 | 665.6 s | 674.8 s | verified 2026-10-31 |
 | R04 | MP4, H.264 High 576p / AAC 2.0, AC3 2.0, `mov_text` ×3 | Direct Stream; `mov_text` as external WebVTT | yes | 831.8 s of 820 | 831.6 s | 840.9 s | verified 2026-10-31 |
-| R05 | MKV, MPEG-2 576i (interlaced) / AC3 2.0, DVD subtitles ×12 | transcode to H.264 without deinterlacing; DVD subtitles not delivered | yes | 43.9 s of 32 | 43.9 s | 53.2 s | verified 2026-10-31 |
+| R05 | MKV, MPEG-2 576i (interlaced) / AC3 2.0, DVD subtitles ×12 | transcode to H.264 without deinterlacing; DVD subtitles were not delivered then (burned in since 2026-11-01) | yes | 43.9 s of 32 | 43.9 s | 53.2 s | verified 2026-10-31 |
 | R06 | MP4, HEVC Main 720p / AC3 5.1, E-AC3 5.1, `mov_text` | transcode to H.264; `mov_text` inside HLS | yes | 575.7 s of 565 | 575.5 s | 584.0 s | verified 2026-10-31 |
-| R07 | MP4, H.264 High 576p / AC3 1.0, AC3 2.0, DVD subtitles | remux; DVD subtitles not delivered | yes | 177.8 s of 166 | 177.6 s | 186.9 s | verified 2026-10-31 |
+| R07 | MP4, H.264 High 576p / AC3 1.0, AC3 2.0, DVD subtitles | remux; the DVD subtitle Emby Web preselects was dropped then. Since 2026-11-01 it is burned in, so "Play" gives an H.264 transcode | yes | 177.8 s of 166 | 177.6 s | 186.9 s | verified 2026-10-31 |
 | R08 | MP4, AV1 Main 10-bit 720p / AAC 2.0 | Direct Stream | yes | 1189.9 s of 1178 | 1189.9 s | 1198.4 s | verified 2026-10-31 |
 | R09 | MKV, HEVC Main 10 HDR10 3840×2076 / AC3 5.1 ×2, SubRip ×3 | transcode to H.264 at source size, 3 s segments; reported as SDR, no tone mapping | yes, at 3840×2076; the encode runs at about 0.75× real time, so the player stalls briefly every few seconds | 2645.9 s of 2644: resumed, but only 1.9 s played in 12 s | 2664.9 s | 2664.9 s: no frames 10 s after "Resume"; playing from 2665.5 s at 12 s | partial 2026-11-01 at a9eb3a9, in a 4 CPU / 4 GiB container (the large profile of [BASELINE](BASELINE.md)), not the bench above; failed before at c138f56: the first segment took over 10 s and Emby Web restarted every 10 s (#97, #22) |
 | R10 | MKV, MPEG-2 576p / AC3 5.1, DTS 5.1 | transcode to H.264, AC3 → AAC | yes | 195.5 s of 184 | 195.3 s | 204.5 s | verified 2026-10-31 |
-| R11 | MKV, HEVC Main 10 1920×816 / AC3 5.1 ×2, PGS | transcode to H.264; PGS not delivered | yes | 2660.7 s of 2652 | 2660.7 s | 2666.0 s | verified 2026-10-31 |
+| R11 | MKV, HEVC Main 10 1920×816 / AC3 5.1 ×2, PGS | transcode to H.264; PGS was not delivered then (burned in since 2026-11-01) | yes | 2660.7 s of 2652 | 2660.7 s | 2666.0 s | verified 2026-10-31 |
 | R12 | MKV, H.264 High 576p / AC3 5.1, AC3 2.0, AC3 5.1, ASS, SubRip | remux; ASS and SubRip inside HLS | yes | 1506.5 s of 1495 | 1506.3 s | 1515.7 s | verified 2026-10-31 |
 | R13 | MKV, H.264 High 10 720p / AC3 5.1, AC3 2.0 | remux, 10-bit H.264 copied (Emby Web's profile accepts `high 10`); decoded by Chromium, no dropped frames | yes | 690.3 s of 679 | 690.3 s | 699.3 s | verified 2026-10-31 |
 | R14 | MKV, H.264 High 720p / AC3 2.0 ×2, FLAC 2.0, SubRip | remux of the default AC3 track; SubRip inside HLS | yes | 1511.5 s of 1500 | 1511.3 s | 1520.7 s | verified 2026-10-31 |
@@ -68,7 +68,7 @@ The row scenario is scripted in the page: "Play" on the item page, frames after 
 | S01E01 | MKV, H.264 High 576p / AC3 5.1, AC3 2.0, AC3 5.1, ASS, SubRip | remux; subtitles inside HLS | yes | 1531.5 s of 1520 | 1531.3 s | 1540.6 s | verified 2026-10-31 |
 | S01E02 | MKV, H.264 High 576p / AC3 5.1, AC3 2.0, AC3 5.1, SubRip | remux; subtitles inside HLS | yes | 1543.5 s of 1532 | 1543.3 s | 1552.7 s | verified 2026-10-31 |
 
-The seek column shows the position 12 s after seeking, so a value about 10 s past the target means playback continued from it. Not checked here: the picture after a seek frame by frame (the synthetic set covers that), switching tracks, and auto-advance between the episodes. Image subtitles (DVD, PGS) are not delivered; burn-in is not implemented. Interlaced MPEG-2 is transcoded without deinterlacing.
+The seek column shows the position 12 s after seeking, so a value about 10 s past the target means playback continued from it. Not checked here: the picture after a seek frame by frame (the synthetic set covers that), switching tracks, and auto-advance between the episodes. The rows above ran with subtitles off; image subtitles (DVD, PGS) are now burned in, see "Tracks and subtitles". Interlaced MPEG-2 is transcoded without deinterlacing.
 
 ## Tracks and subtitles (Emby Web, Chromium)
 
@@ -82,7 +82,7 @@ Quality switching was verified 2026-10-07 on the set above, the other rows earli
 | Embedded SubRip in MKV | extraction to WebVTT | verified 2026-10-04 and 2026-10-06 |
 | Automatic subtitle selection by user mode | `DefaultSubtitleStreamIndex` | verified 2026-10-04 |
 | A track Couch cannot serve (`mov_text` without FFmpeg) | playback without it, no error | verified 2026-10-06 ("Undeliverable subtitles in the browser") |
-| Image-based subtitles (PGS, VobSub) | burn-in not implemented | not investigated |
+| Image-based subtitles (PGS, DVD) selected in the player or on the item page | new PlaybackInfo, H.264 transcode with the track burned in (`SubtitleMethod=Encode`) | verified 2026-11-01 on R11 (PGS selected in the player at 48 s: cue shown at 54 s; turned off: new stream without it, playing on) and R07 (DVD preselected on the item page: cue shown at 20.2 s) (#24) |
 
 ## Not investigated
 

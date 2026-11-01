@@ -316,7 +316,8 @@ func remuxSource(catalog *media.Catalog, item media.Item, video *media.Stream) h
 // session is keyed by its token and stream, the video is copied and the audio
 // is copied when it is AAC or MP3. The video is encoded to H.264 when the
 // query sets VideoBitrate or its codecs exclude the source's but include
-// H.264. On failure the response has been written.
+// H.264, or burns in the image subtitle SubtitleStreamIndex with
+// SubtitleMethod=Encode. On failure the response has been written.
 func (s *Server) hlsSource(w http.ResponseWriter, r *http.Request, session state.Session) (playSession string, source hls.Source, ok bool) {
 	if s.hls == nil {
 		fail(w, 404, "NotFound")
@@ -376,6 +377,14 @@ func (s *Server) hlsSource(w http.ResponseWriter, r *http.Request, session state
 			return "", source, false
 		}
 		source.VideoEncode = true
+	}
+	if strings.EqualFold(query.Get("SubtitleMethod"), "Encode") {
+		index, err := strconv.ParseInt(query.Get("SubtitleStreamIndex"), 10, 32)
+		if err != nil || !media.SubtitleBurnable(item, int(index)) {
+			fail(w, 400, "InvalidRequest")
+			return "", source, false
+		}
+		source.VideoEncode, source.BurnSubtitle, source.SubtitleStream = true, true, int(index)
 	}
 	if source.VideoEncode && source.VideoBitrate == 0 {
 		source.VideoBitrate = playbackRequest{}.transcodeBitrate(item)

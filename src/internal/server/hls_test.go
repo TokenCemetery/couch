@@ -441,3 +441,48 @@ func TestHLSSubtitles(t *testing.T) {
 	}
 	expectStatus(t, request(h, "GET", "/Videos/movie/subtitles.m3u8?PlaySessionId=a&CurrentSubtitleStreamIndex=4", "", "", ""), 401)
 }
+
+// An image subtitle is burned into a transcode: Emby Web asks for a new
+// stream when an Encode track is selected or turned off (#24).
+func TestBurnedSubtitle(t *testing.T) {
+	store, _, dir := newTestServer(t)
+	movie := playbackMovie()
+	movie.Streams[3] = media.Stream{Index: 3, Type: "Subtitle", Codec: "hdmv_pgs_subtitle", Language: "ru", IsForced: true}
+	server := New(store, "test", nil, &media.Catalog{ID: "movies", Items: []media.Item{movie}})
+	m, err := hls.NewManager("ffmpeg", "ffprobe", filepath.Join(dir, "transcode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	server.SetHLS(m)
+	h := server.Handler()
+	token := login(t, h)
+	info := func(subtitle string) map[string]any {
+		t.Helper()
+		body := `{"DeviceProfile":` + hlsProfile + subtitle + `}`
+		w := request(h, "POST", "/Items/movie/PlaybackInfo", "application/json", body, token)
+		expectStatus(t, w, 200)
+		var response struct{ MediaSources []map[string]any }
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		return response.MediaSources[0]
+	}
+	for _, subtitle := range []string{`,"SubtitleStreamIndex":3`, ""} {
+		source := info(subtitle)
+		transcoding, _ := source["TranscodingUrl"].(string)
+		stream := source["MediaStreams"].([]any)[3].(map[string]any)
+		if source["SupportsDirectStream"] != false || !strings.Contains(transcoding, "VideoBitrate=") || !strings.HasSuffix(transcoding, "&SubtitleStreamIndex=3&SubtitleMethod=Encode") ||
+			source["DefaultSubtitleStreamIndex"] != float64(3) || stream["DeliveryMethod"] != "Encode" {
+			t.Fatalf("subtitle %q: %v", subtitle, source)
+		}
+	}
+	// Turned off, the video streams directly again.
+	if source := info(`,"SubtitleStreamIndex":-1`); source["SupportsDirectStream"] != true || source["DefaultSubtitleStreamIndex"] != float64(-1) {
+		t.Fatalf("subtitle off: %v", source)
+	}
+	// Only an image subtitle is burned in.
+	expectStatus(t, request(h, "GET", "/Videos/movie/master.m3u8?PlaySessionId=a&SubtitleStreamIndex=1&SubtitleMethod=Encode", "", "", token), 400)
+	expectStatus(t, request(h, "GET", "/Videos/movie/master.m3u8?PlaySessionId=a&SubtitleMethod=Encode", "", "", token), 400)
+	expectStatus(t, request(h, "GET", "/Videos/movie/master.m3u8?PlaySessionId=a&SubtitleStreamIndex=3&SubtitleMethod=Encode", "", "", token), 200)
+}

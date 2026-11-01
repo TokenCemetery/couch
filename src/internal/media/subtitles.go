@@ -128,6 +128,20 @@ func textSubtitleCodec(codec string) bool {
 	return false
 }
 
+// SubtitleBurnable reports whether the stream is an embedded image subtitle
+// (PGS, DVD, DVB), which a client sees only burned into an encoded video.
+func SubtitleBurnable(item Item, index int) bool {
+	i := slices.IndexFunc(item.Streams, func(s Stream) bool { return s.Index == index && s.Type == "Subtitle" })
+	if i < 0 || item.Streams[i].Path != "" {
+		return false
+	}
+	switch strings.ToLower(item.Streams[i].Codec) {
+	case "hdmv_pgs_subtitle", "pgssub", "dvd_subtitle", "dvdsub", "dvb_subtitle", "dvbsub":
+		return true
+	}
+	return false
+}
+
 // OpenSubtitle returns a subtitle stream of item as WebVTT.
 func (c *Catalog) OpenSubtitle(ctx context.Context, item Item, index int) ([]byte, error) {
 	if c == nil || c.root == nil || !c.SubtitleDeliverable(item, index) {

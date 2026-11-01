@@ -744,3 +744,17 @@ func TestThreadsCapTranscodeOnly(t *testing.T) {
 		t.Fatalf("transcode arguments: %s", lines[1])
 	}
 }
+
+// A burned-in subtitle is overlaid before trimming and scaling, and the
+// overlay's output replaces the video stream (#24).
+func TestEncodeBurnsSubtitle(t *testing.T) {
+	source := Source{VideoStream: 0, VideoEncode: true, MaxHeight: 720, BurnSubtitle: true, SubtitleStream: 3}
+	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "trim=start=2.999000,", 0, source), " ")
+	want := "-filter_complex [0:0][0:3]overlay=eof_action=pass,trim=start=2.999000,scale=w=iw:h='min(ih,720)':force_original_aspect_ratio=decrease:force_divisible_by=2[v] "
+	if !strings.Contains(args, want) || strings.Contains(args, "-vf") {
+		t.Fatalf("arguments: %s", args)
+	}
+	if burned, plain := source.Key(), (Source{VideoStream: 0, VideoEncode: true, MaxHeight: 720, SubtitleStream: 3}).Key(); burned == plain {
+		t.Fatalf("burned and plain sources share key %s", plain)
+	}
+}

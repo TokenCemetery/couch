@@ -82,12 +82,20 @@ type Source struct {
 	AudioStream   int
 	AudioEncode   bool
 	AudioChannels int
+	// BurnSubtitle overlays the image subtitle SubtitleStream on an encoded
+	// video.
+	BurnSubtitle   bool
+	SubtitleStream int
 }
 
 // Key identifies what the session produces; a session ID cannot be reused
 // for another key.
 func (s Source) Key() string {
-	return fmt.Sprintf("%s/%d/%t/%d/%dx%d/%d/%t/%d", s.ItemID, s.VideoStream, s.VideoEncode, s.VideoBitrate, s.MaxWidth, s.MaxHeight, s.AudioStream, s.AudioEncode, s.AudioChannels)
+	subtitle := -1
+	if s.BurnSubtitle {
+		subtitle = s.SubtitleStream
+	}
+	return fmt.Sprintf("%s/%d/%t/%d/%dx%d/%d/%t/%d/%d", s.ItemID, s.VideoStream, s.VideoEncode, s.VideoBitrate, s.MaxWidth, s.MaxHeight, s.AudioStream, s.AudioEncode, s.AudioChannels, subtitle)
 }
 
 // Manager owns HLS sessions and their FFmpeg jobs. Segments live in
@@ -636,7 +644,12 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 	if s.source.VideoEncode && threads > 0 {
 		args = append(args, "-threads", strconv.Itoa(threads))
 	}
-	args = append(args, "-fd", "3", "-i", "fd:", "-map", "0:"+strconv.Itoa(s.source.VideoStream))
+	// A burned-in subtitle is mapped as the overlay's output.
+	video := "0:" + strconv.Itoa(s.source.VideoStream)
+	if s.source.VideoEncode && s.source.BurnSubtitle {
+		video = "[v]"
+	}
+	args = append(args, "-fd", "3", "-i", "fd:", "-map", video)
 	if s.source.AudioStream >= 0 {
 		args = append(args, "-map", "0:"+strconv.Itoa(s.source.AudioStream))
 	}
@@ -734,7 +747,9 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 
 // encodeVideo returns the FFmpeg options that encode the video to 8-bit
 // H.264 for the segments starting at bounds, relative to the file's start
-// time; trim, when set, is a filter that runs before scaling. Keyframes are
+// time; trim, when set, is a filter that runs before scaling. A burned-in
+// subtitle is overlaid before both, on a canvas of the video's size, and the
+// result is the [v] output. Keyframes are
 // forced on the plan's grid, so every segment starts with one. The encoder keeps the source's time base (demux):
 // with the frame rate's, timestamps are rounded and a forced keyframe can
 // land one frame late. The picture keeps its aspect ratio, shrinks to fit
@@ -754,9 +769,14 @@ func encodeVideo(bounds []float64, start float64, trim string, threads int, sour
 		return "'min(" + size + "," + strconv.Itoa(limit) + ")'"
 	}
 	scale := trim + "scale=w=" + bound(source.MaxWidth, "iw") + ":h=" + bound(source.MaxHeight, "ih") + ":force_original_aspect_ratio=decrease:force_divisible_by=2"
-	args := []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-x264-params", "subme=0:me_range=4:rc_lookahead=10:partitions=none", "-pix_fmt", "yuv420p",
-		"-vf", scale, "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
-		"-force_key_frames", strings.Join(keyframes, ",")}
+	filter := []string{"-vf", scale}
+	if source.BurnSubtitle {
+		filter = []string{"-filter_complex", fmt.Sprintf("[0:%d][0:%d]overlay=eof_action=pass,%s[v]", source.VideoStream, source.SubtitleStream, scale)}
+	}
+	args := []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-x264-params", "subme=0:me_range=4:rc_lookahead=10:partitions=none", "-pix_fmt", "yuv420p"}
+	args = append(args, filter...)
+	args = append(args, "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
+		"-force_key_frames", strings.Join(keyframes, ","))
 	if source.VideoBitrate > 0 {
 		rate := strconv.FormatInt(source.VideoBitrate, 10)
 		args = append(args, "-maxrate", rate, "-bufsize", strconv.FormatInt(2*source.VideoBitrate, 10))

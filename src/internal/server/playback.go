@@ -90,34 +90,48 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 		}
 	}
 	streams := mediaStreams(item)
+	// Image subtitles are burned into a transcode, which the client must be
+	// able to take.
+	_, _, _, canEncode := body.transcodeCodecs(item, video, audio)
+	burnable := func(index int) bool { return s.hls != nil && canEncode && media.SubtitleBurnable(item, index) }
 	// Deliverable subtitles are fetched by the player beside the direct
 	// stream. Like the stream URL, theirs carries the token for a <track>.
+	// Emby Web asks for a new stream when an Encode subtitle is selected or
+	// turned off.
 	for i, stream := range item.Streams {
-		if catalog.SubtitleDeliverable(item, stream.Index) {
+		switch {
+		case catalog.SubtitleDeliverable(item, stream.Index):
 			streams[i]["DeliveryMethod"] = "External"
 			streams[i]["DeliveryFormat"] = "vtt"
 			streams[i]["IsExternalUrl"] = false
 			streams[i]["DeliveryUrl"] = subtitleURL(item, stream.Index, token)
+		case burnable(stream.Index):
+			streams[i]["DeliveryMethod"] = "Encode"
 		}
 	}
 	source := mediaSource(item, streams)
-	// Subtitles are delivered as WebVTT; burn-in is not implemented. A
-	// selected subtitle Couch cannot deliver is dropped and the video plays
-	// without it, rather than refusing playback.
+	// Text subtitles are delivered as WebVTT and image subtitles burned in. A
+	// selected subtitle Couch can do neither with is dropped and the video
+	// plays without it, rather than refusing playback.
 	subtitle := -1
 	deliverable := func(index int) bool { return catalog.SubtitleDeliverable(item, index) }
 	switch {
 	case body.SubtitleStreamIndex != nil && *body.SubtitleStreamIndex >= 0:
 		subtitle = int(*body.SubtitleStreamIndex)
 	case body.SubtitleStreamIndex == nil:
-		// The client left the choice to the server's subtitle mode.
+		// The client left the choice to the server's subtitle mode. A text
+		// track is preferred to one that needs a transcode.
 		subtitle = defaultSubtitle(item, s.subtitleSelection(), audio, deliverable)
+		if subtitle < 0 {
+			subtitle = defaultSubtitle(item, s.subtitleSelection(), audio, burnable)
+		}
 	}
-	if subtitle >= 0 && !deliverable(subtitle) {
+	if subtitle >= 0 && !deliverable(subtitle) && !burnable(subtitle) {
 		slog.Warn("Subtitle not deliverable, playing without it", "item", item.ID, "index", subtitle)
 		subtitle = -1
 	}
-	direct := body.supportsDirectStream(item, video, audio)
+	burn := subtitle >= 0 && !deliverable(subtitle)
+	direct := !burn && body.supportsDirectStream(item, video, audio)
 	// Remux to HLS when the client cannot take the file as it is, and encode
 	// the video to H.264 when it cannot take the video either. A direct stream
 	// still reports SupportsTranscoding when HLS could serve it: Emby Web offers
@@ -126,7 +140,12 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 	var transcoding string
 	remuxBusy, canTranscode := false, false
 	if s.hls != nil {
-		videoCodec, audioCodec, channels, ok := body.remuxCodecs(item, video, audio)
+		var videoCodec, audioCodec string
+		var channels int
+		var ok bool
+		if !burn {
+			videoCodec, audioCodec, channels, ok = body.remuxCodecs(item, video, audio)
+		}
 		var encoding videoEncoding
 		if !ok {
 			audioCodec, channels, encoding, ok = body.transcodeCodecs(item, video, audio)
@@ -137,6 +156,9 @@ func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request, token stri
 		case !ok || direct:
 		case s.hls.Available(playSession, encoding.Bitrate > 0):
 			transcoding = transcodingURL(item, session.DeviceID, playSession, token, videoCodec, audioCodec, audio, channels, encoding)
+			if burn {
+				transcoding += "&SubtitleStreamIndex=" + strconv.Itoa(subtitle) + "&SubtitleMethod=Encode"
+			}
 			// A transcode's plan needs no keyframe listing (#98).
 			prepared := remuxSource(catalog, item, video)
 			prepared.VideoEncode = encoding.Bitrate > 0

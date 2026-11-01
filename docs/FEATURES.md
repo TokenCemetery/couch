@@ -59,7 +59,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Audio track selection | Supported | A non-first track goes through HLS remux |
 | External SRT, WebVTT, ASS/SSA; embedded SubRip, `mov_text`, WebVTT, ASS/SSA | Supported | WebVTT external or inside HLS; subtitle files must be UTF-8 |
 | Default subtitle by the user's subtitle mode and language | Supported | Rules follow Emby Web's mode descriptions |
-| Image subtitles (PGS, DVD, DVB) | Unsupported | Not delivered; no burn-in |
+| Image subtitles (PGS, DVD, DVB) | Supported | Burned into an H.264 transcode; turning them off returns to Direct Stream or remux |
 | Subtitle files in legacy encodings | Unsupported | By decision: UTF-8 only (#24) |
 | Subtitle search and download, subtitle editing and deletion | Unsupported | Hidden: Emby Web offers them only when the user policy enables subtitle downloading or management, and Couch's does not (#34) |
 
