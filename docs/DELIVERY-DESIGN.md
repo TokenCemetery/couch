@@ -46,7 +46,7 @@ The order is:
 
 1. **Direct Stream**, as now.
 2. **Remux.** The video codec and its profile/level are allowed by the HLS profile. Video is copied; audio is copied if it is `aac` or `mp3`, otherwise encoded to AAC respecting `MaxAudioChannels`. Rotated video is not copied: MPEG-TS does not store rotation, while FFmpeg rotates the frames when encoding (2026-10-11, #22).
-3. **Video transcoding to H.264** (`libx264`, preset `veryfast`) with bitrate and resolution limited by the profile and `MaxStreamingBitrate`.
+3. **Video transcoding to H.264** (`libx264`, preset `veryfast`, or the `-hwaccel` GPU encoder) with bitrate and resolution limited by the profile and `MaxStreamingBitrate`.
 4. Otherwise, `NoCompatibleStream`, as now.
 
 Response for options 2 and 3: `SupportsTranscoding=true`, `TranscodingSubProtocol=hls`, `TranscodingContainer=ts` and `TranscodingUrl=/videos/{id}/master.m3u8?...` with `MediaSourceId`, `PlaySessionId`, `api_key` and the selected codecs. As with `DirectStreamUrl`, the link is relative, the token is inside, and Couch does not write the URL to the log.

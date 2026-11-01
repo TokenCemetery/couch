@@ -180,12 +180,12 @@ func TestRemuxSegmentsMatchThePlan(t *testing.T) {
 // hevcFixture builds a 40-second 10-bit HEVC video with odd dimensions,
 // GOPs of 2.6 seconds, closed unless openGOP, and AC3 audio that starts half
 // a second before the video.
-func hevcFixture(t *testing.T, name string, openGOP bool) string {
+func hevcFixture(t *testing.T, name, size string, openGOP bool) string {
 	t.Helper()
 	path := fixture(t, "avc.mkv") // skips without FFmpeg
 	path = filepath.Join(filepath.Dir(path), name)
 	build := exec.CommandContext(context.Background(), "ffmpeg", "-v", "error", "-nostdin", //nolint:gosec // fixed arguments and temp paths
-		"-itsoffset", "0.5", "-f", "lavfi", "-i", "testsrc2=s=161x121:d=40:r=25", "-f", "lavfi", "-i", "sine=d=41",
+		"-itsoffset", "0.5", "-f", "lavfi", "-i", "testsrc2=s="+size+":d=40:r=25", "-f", "lavfi", "-i", "sine=d=41",
 		"-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error:keyint=65:min-keyint=65:scenecut=0:open-gop="+map[bool]string{false: "0", true: "1"}[openGOP], "-c:a", "ac3", path)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Skipf("cannot build HEVC fixture: %v %s", err, out)
@@ -197,63 +197,119 @@ func TestTranscodeSegmentsMatchThePlan(t *testing.T) {
 	// Open GOPs in MPEG-TS used to restart at the next keyframe.
 	for _, name := range []string{"in.mkv", "in.ts", "open.mkv", "open.ts", "in.avi"} {
 		t.Run(name, func(t *testing.T) {
-			path := hevcFixture(t, name, strings.HasPrefix(name, "open"))
+			path := hevcFixture(t, name, "161x121", strings.HasPrefix(name, "open"))
 			if strings.HasSuffix(name, ".avi") {
 				path = fixture(t, name)
 			}
-			m, err := NewManager("ffmpeg", "ffprobe", filepath.Join(t.TempDir(), "transcode"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer m.Close()
-			source := Source{ItemID: "movie", Version: "1", Duration: 40, VideoStream: 0, VideoEncode: true, VideoBitrate: 1_000_000, MaxWidth: 100,
-				AudioStream: 1, AudioEncode: true, AudioChannels: 2, Open: func() (*os.File, error) { return os.Open(path) }}
-			ctx := context.Background()
-			bounds, _, err := m.bounds(ctx, source)
-			if err != nil || len(bounds) < 5 {
-				t.Fatalf("bounds %v: %v", bounds, err)
-			}
-			sequential := make([]float64, len(bounds))
-			for n := range bounds {
-				file, err := m.Segment(ctx, "a", "owner", source, n)
-				if err != nil {
-					t.Fatalf("segment %d: %v", n, err)
-				}
-				if n == 1 {
-					out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0", //nolint:gosec // test segment path
-						"-show_entries", "stream=codec_name,pix_fmt,width", "-of", "csv=p=0", file.Name()).Output()
-					// MPEG-TS lists the stream again under its program.
-					if got, _, _ := strings.Cut(string(out), "\n"); err != nil || got != "h264,100,yuv420p" {
-						t.Fatalf("segment video %q: %v", got, err)
-					}
-				}
-				sequential[n] = firstVideoPTS(t, file)
-			}
-			// Keyframes are forced on the plan, so every segment but the
-			// first (see TestRemuxSegmentsMatchThePlan) starts on it exactly.
-			for n := 2; n < len(bounds); n++ {
-				if got, want := sequential[n]-sequential[1], bounds[n]-bounds[1]; math.Abs(got-want) > 0.002 {
-					t.Fatalf("segment %d starts at %+.3f from segment 1, plan %+.3f", n, got, want)
-				}
-			}
-			// One transcoding session at a time; remux sessions are counted
-			// apart.
-			if _, err := m.Playlist(ctx, "b", "owner", source, strconv.Itoa); !errors.Is(err, ErrBusy) || m.Available("b", true) || !m.Available("b", false) {
-				t.Fatalf("second transcoding session: %v", err)
-			}
-			m.Stop("a", "owner")
-			// After a seek, a restarted job writes the same segments.
-			for _, n := range []int{3, 1} {
-				file, err := m.Segment(ctx, "b", "owner", source, n)
-				if err != nil {
-					t.Fatalf("restart at %d: %v", n, err)
-				}
-				if got := firstVideoPTS(t, file); math.Abs(got-sequential[n]) > 0.002 {
-					t.Fatalf("restarted segment %d starts at %.3f, sequential %.3f", n, got, sequential[n])
-				}
-			}
+			transcodeMatchesPlan(t, Accel{}, path, 100)
 		})
 	}
+}
+
+// COUCH_TEST_HWACCEL names an Accel kind to check on this machine's
+// hardware, with COUCH_TEST_HWACCEL_DEVICE as its render node.
+func TestHardwareTranscodeMatchesThePlan(t *testing.T) {
+	kind := os.Getenv("COUCH_TEST_HWACCEL")
+	if kind == "" {
+		t.Skip("COUCH_TEST_HWACCEL not set")
+	}
+	device := os.Getenv("COUCH_TEST_HWACCEL_DEVICE")
+	if device == "" {
+		device = "/dev/dri/renderD128"
+	}
+	// Encoders have a minimum frame size: 128x128 on AMD VCN.
+	for _, name := range []string{"in.mkv", "open.ts"} {
+		t.Run(name, func(t *testing.T) {
+			transcodeMatchesPlan(t, Accel{Kind: kind, Device: device}, hevcFixture(t, name, "641x361", strings.HasPrefix(name, "open")), 320)
+		})
+	}
+}
+
+// transcodeMatchesPlan transcodes path with accel to width segment by
+// segment, then again after seeks, and checks that every segment starts on
+// its planned keyframe, an IDR frame.
+func transcodeMatchesPlan(t *testing.T, accel Accel, path string, width int) {
+	t.Helper()
+	m, err := NewManager("ffmpeg", "ffprobe", filepath.Join(t.TempDir(), "transcode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	m.Accel = accel
+	ctx := context.Background()
+	if err := m.CheckAccel(ctx); err != nil {
+		t.Fatal(err)
+	}
+	source := Source{ItemID: "movie", Version: "1", Duration: 40, VideoStream: 0, VideoEncode: true, VideoBitrate: 1_000_000, MaxWidth: width,
+		AudioStream: 1, AudioEncode: true, AudioChannels: 2, Open: func() (*os.File, error) { return os.Open(path) }}
+	bounds, _, err := m.bounds(ctx, source)
+	if err != nil || len(bounds) < 5 {
+		t.Fatalf("bounds %v: %v", bounds, err)
+	}
+	sequential := make([]float64, len(bounds))
+	for n := range bounds {
+		file, err := m.Segment(ctx, "a", "owner", source, n)
+		if err != nil {
+			t.Fatalf("segment %d: %v", n, err)
+		}
+		if n == 1 {
+			out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0", //nolint:gosec // test segment path
+				"-show_entries", "stream=codec_name,pix_fmt,width", "-of", "csv=p=0", file.Name()).Output()
+			// MPEG-TS lists the stream again under its program.
+			if got, _, _ := strings.Cut(string(out), "\n"); err != nil || got != "h264,"+strconv.Itoa(width)+",yuv420p" {
+				t.Fatalf("segment video %q: %v", got, err)
+			}
+		}
+		if !startsWithIDR(t, file.Name()) {
+			t.Fatalf("segment %d does not start with an IDR frame", n)
+		}
+		sequential[n] = firstVideoPTS(t, file)
+	}
+	// Keyframes are forced on the plan, so every segment but the
+	// first (see TestRemuxSegmentsMatchThePlan) starts on it exactly.
+	for n := 2; n < len(bounds); n++ {
+		if got, want := sequential[n]-sequential[1], bounds[n]-bounds[1]; math.Abs(got-want) > 0.002 {
+			t.Fatalf("segment %d starts at %+.3f from segment 1, plan %+.3f", n, got, want)
+		}
+	}
+	// One transcoding session at a time; remux sessions are counted
+	// apart.
+	if _, err := m.Playlist(ctx, "b", "owner", source, strconv.Itoa); !errors.Is(err, ErrBusy) || m.Available("b", true) || !m.Available("b", false) {
+		t.Fatalf("second transcoding session: %v", err)
+	}
+	m.Stop("a", "owner")
+	// After a seek, a restarted job writes the same segments.
+	for _, n := range []int{3, 1} {
+		file, err := m.Segment(ctx, "b", "owner", source, n)
+		if err != nil {
+			t.Fatalf("restart at %d: %v", n, err)
+		}
+		if got := firstVideoPTS(t, file); math.Abs(got-sequential[n]) > 0.002 {
+			t.Fatalf("restarted segment %d starts at %.3f, sequential %.3f", n, got, sequential[n])
+		}
+	}
+}
+
+// startsWithIDR reports whether the first H.264 slice in path is an IDR
+// slice (NAL unit type 5).
+func startsWithIDR(t *testing.T, path string) bool {
+	t.Helper()
+	out, err := exec.CommandContext(context.Background(), "ffmpeg", "-i", path, "-map", "0:v", "-c", "copy", //nolint:gosec // test segment path
+		"-bsf:v", "trace_headers", "-frames:v", "1", "-f", "null", "-").CombinedOutput()
+	if err != nil {
+		t.Fatalf("trace %s: %v %s", path, err, out)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if _, value, ok := strings.Cut(line, "nal_unit_type"); ok {
+			switch strings.TrimSpace(value[strings.LastIndex(value, "=")+1:]) {
+			case "5":
+				return true
+			case "1":
+				return false
+			}
+		}
+	}
+	return false
 }
 
 // A job far ahead of the player pauses instead of writing the whole video.
@@ -749,12 +805,39 @@ func TestThreadsCapTranscodeOnly(t *testing.T) {
 // overlay's output replaces the video stream (#24).
 func TestEncodeBurnsSubtitle(t *testing.T) {
 	source := Source{VideoStream: 0, VideoEncode: true, MaxHeight: 720, BurnSubtitle: true, SubtitleStream: 3}
-	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "trim=start=2.999000,", 0, source), " ")
+	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "trim=start=2.999000,", 0, Accel{}, source), " ")
 	want := "-filter_complex [0:0][0:3]overlay=eof_action=pass,trim=start=2.999000,scale=w=iw:h='min(ih,720)':force_original_aspect_ratio=decrease:force_divisible_by=2[v] "
 	if !strings.Contains(args, want) || strings.Contains(args, "-vf") {
 		t.Fatalf("arguments: %s", args)
 	}
 	if burned, plain := source.Key(), (Source{VideoStream: 0, VideoEncode: true, MaxHeight: 720, SubtitleStream: 3}).Key(); burned == plain {
 		t.Fatalf("burned and plain sources share key %s", plain)
+	}
+}
+
+// A hardware encoder gets the frames uploaded at the end of the filter
+// graph, after a burned-in subtitle, and keeps the bitrate cap.
+func TestEncodeUploadsForHardware(t *testing.T) {
+	source := Source{VideoStream: 0, VideoEncode: true, VideoBitrate: 4_000_000, MaxHeight: 720, BurnSubtitle: true, SubtitleStream: 3}
+	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "", 0, Accel{Kind: "vaapi", Device: "/dev/dri/renderD128"}, source), " ")
+	if !strings.Contains(args, "force_divisible_by=2,format=nv12,hwupload[v] ") || !strings.Contains(args, "-c:v h264_vaapi ") ||
+		!strings.Contains(args, "-maxrate 4000000 ") || strings.Contains(args, "yuv420p") {
+		t.Fatalf("arguments: %s", args)
+	}
+}
+
+// A missing device fails the check with FFmpeg's reason.
+func TestCheckAccelReportsMissingDevice(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg required")
+	}
+	m, err := NewManager("ffmpeg", "ffprobe", filepath.Join(t.TempDir(), "transcode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	m.Accel = Accel{Kind: "vaapi", Device: filepath.Join(t.TempDir(), "renderD128")}
+	if err := m.CheckAccel(context.Background()); err == nil || !strings.HasPrefix(err.Error(), "h264_vaapi: exit status") {
+		t.Fatalf("check: %v", err)
 	}
 }

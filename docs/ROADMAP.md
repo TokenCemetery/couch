@@ -88,7 +88,7 @@ Depends on M2. Outcome: an agreed matrix of formats and clients.
 - Remux/Direct Stream, HLS, transcoding, audio and subtitle selection.
 - FFmpeg lifecycle management, job limits, releasing resources on stop/seek/disconnect.
 - Required WebSocket events, reconnections and advancing to the next episode.
-- Verification of the remaining target clients; hardware acceleration after the hardware is confirmed.
+- Verification of the remaining target clients; hardware acceleration on the target hardware once it is confirmed (`-hwaccel` exists; VA-API verified on AMD, #28).
 
 Done when every mandatory combination "client × container/codecs × tracks × delivery method" passes start/seek/resume/stop, and errors and limit overruns are predictable.
 
@@ -98,7 +98,7 @@ Status as of 2026-11-01:
 - FFmpeg: limits of 2 remux + 1 transcode, cleanup on stop/logout/idle; an 8-hour sustained load with HLS and rescanning on the large profile, with no failures and no process, file or memory leaks (RSS 14.6–15.4 MiB throughout), [VALIDATION](VALIDATION.md); acceptance waits for #15 (#30).
 - Events: UserDataChanged, LibraryChanged, UserConfigurationUpdated, ServerShuttingDown (#25).
 - A walk through Emby Web screens (home, libraries with filters and sorting, item pages, search, player, menus, settings) with no API errors.
-- The [matrix](COMPATIBILITY.md) contains Emby Web in Chromium on the synthetic set and on 18 real files from the agreed set (#16): 17 verified; the 4K HEVC source starts since 2026-11-01 on 4 CPUs but stalls, below real time (#97). Not started: Android/Android TV, iOS/Apple TV (#26, #27), hardware acceleration (#28).
+- The [matrix](COMPATIBILITY.md) contains Emby Web in Chromium on the synthetic set and on 18 real files from the agreed set (#16): 17 verified; the 4K HEVC source starts since 2026-11-01 on 4 CPUs but stalls, below real time (#97). Not started: Android/Android TV, iOS/Apple TV (#26, #27); hardware acceleration only on a development AMD GPU (#28).
 
 ## M4. Resources, recovery and operations
 

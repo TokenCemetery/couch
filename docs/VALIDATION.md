@@ -597,3 +597,23 @@ So the 4K source now starts in Emby Web on 4 CPUs, but does not play smoothly, a
 - RSS, sampled every 24 minutes: 9.7 MiB at the start, then 14.6–15.4 MiB for the whole run, peak 15.4 MiB (15,724 KiB) at hour 4.8, 14.9 MiB at the end. The peak of the last 4 hours is 280 KiB above that of the first 4 (15,444 KiB); the samples after it return to the same band, with no trend.
 
 Against the stability criteria proposed in [ROADMAP](ROADMAP.md) M0 (#15): the duration, profile, concurrency, errors, child processes and segments match. The rescan was hourly, not every 75 s, and "no growth above the peak of the first 4 hours" is missed by 280 KiB. Rerun with a 75 s rescan (`COUCH_SOAK_RESCAN=75s`, added after this run) and the current code, once the criteria are approved.
+
+## Hardware encoding with `-hwaccel` (2026-11-01, #28)
+
+`-hwaccel vaapi|qsv|nvenc|amf` replaces `libx264` with the GPU's H.264 encoder; decoding, scaling and subtitle burn-in stay on the CPU. Host FFmpeg 8.0.1 (not the image), AMD Ryzen 7 255 with Radeon 780M (radeonsi, VA-API render node `/dev/dri/renderD128`), 16 CPUs, no container limit.
+
+- `TestHardwareTranscodeMatchesThePlan` with `COUCH_TEST_HWACCEL=vaapi`: Couch's HLS job transcodes an HEVC 10-bit source in MKV and an open-GOP one in MPEG-TS to 320 px. Every segment starts with an IDR frame on its planned keyframe, and segments rebuilt after a seek start where the continuous pass did. The same test with `libx264` (`TestTranscodeSegmentsMatchThePlan`) now also checks for the IDR frame.
+- Startup on this machine: `vaapi` starts; `nvenc` stops with `Cannot load libcuda.so.1`, `qsv` with a VA-API initialisation error (no Intel GPU), `amf` with `Unrecognized option` (this FFmpeg has no `h264_amf`).
+- VCN encodes frames from 128×128 to 4096×4096; smaller output fails the job.
+- Emby Web in Chromium, R11 (HEVC Main 10 1920×816, AC3 5.1) from `-media-dir` with `-hwaccel vaapi`: "Play" transcodes to H.264 at 1920×816 and plays (14.3 s after 15 s); a seek to 10:00 plays on (611 s 12 s later); stopping ends the jobs. Log: `HLS job ended ... video=h264 audio=aac encoder=h264_vaapi segments=28 cpu=38.455s peak_rss_kib=336248`. Chromium dropped 43 of 812 frames, at the start and the seek; not compared with `libx264`.
+
+FFmpeg alone, 60 s of video from 5:00, at the source size with the default 8 Mbit/s cap; the HLS segmenter and audio are left out:
+
+| Source | Encoder | Wall time | CPU | Peak RSS |
+|---|---|---|---|---|
+| R11, HEVC Main 10 1920×816 | `libx264` | 5.5 s | 54.9 s | 693 MiB |
+| R11 | `h264_vaapi` | 4.6 s | 29.4 s | 318 MiB |
+| R09, HEVC Main 10 HDR10 3840×2076 | `libx264` | 26.4 s | 288.8 s | 2751 MiB |
+| R09 | `h264_vaapi` | 16.1 s | 198.0 s | 1093 MiB |
+
+The GPU halves CPU and memory on R11 and takes a third of the CPU off R09. Most of what remains is software HEVC 10-bit decoding, which hardware decoding would remove. Quality, R11 20 s: `libx264` SSIM 0.9716 at 5.4 MiB, `h264_vaapi` SSIM 0.9748 at 10.4 MiB. At `-global_quality 23` VA-API on radeonsi (QVBR) spends about twice the bits for similar quality, still within the cap. Not checked: `qsv`, `nvenc`, `amf` on their hardware; Intel VA-API; the release image, which has no VA drivers.

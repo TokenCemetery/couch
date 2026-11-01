@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -41,6 +43,8 @@ func run() error {
 	init := flag.Bool("init", false, "initialize a local user; read password from stdin and exit")
 	username := flag.String("username", "", "username for -init")
 	ffmpegThreads := flag.Int("ffmpeg-threads", 0, "cap FFmpeg decoder and encoder threads per transcode; 0 leaves them to FFmpeg")
+	hwaccel := flag.String("hwaccel", "", "encode transcodes on hardware: "+strings.Join(hls.Accels, ", ")+"; empty uses libx264")
+	hwaccelDevice := flag.String("hwaccel-device", "/dev/dri/renderD128", "DRM render node for -hwaccel vaapi and qsv")
 	flag.Parse()
 	if *webDir != "" && *upstream != "" {
 		return errors.New("choose either -web-dir or -web-upstream")
@@ -50,6 +54,9 @@ func run() error {
 	}
 	if *ffmpegThreads < 0 {
 		return errors.New("-ffmpeg-threads must be 0 or a positive integer")
+	}
+	if *hwaccel != "" && !slices.Contains(hls.Accels, *hwaccel) {
+		return fmt.Errorf("-hwaccel must be one of %s", strings.Join(hls.Accels, ", "))
 	}
 	s, err := state.Open(*data)
 	if err != nil {
@@ -136,7 +143,15 @@ func run() error {
 			}
 			defer remux.Close()
 			remux.Threads = *ffmpegThreads
+			if *hwaccel != "" {
+				remux.Accel = hls.Accel{Kind: *hwaccel, Device: *hwaccelDevice}
+				if err := remux.CheckAccel(context.Background()); err != nil {
+					return fmt.Errorf("-hwaccel %s: %w", *hwaccel, err)
+				}
+			}
 			api.SetHLS(remux)
+		} else if *hwaccel != "" {
+			return errors.New("-hwaccel requires ffmpeg and ffprobe")
 		} else {
 			slog.Info("FFmpeg not found; HLS remux is disabled")
 		}

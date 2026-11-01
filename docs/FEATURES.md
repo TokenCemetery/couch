@@ -48,7 +48,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Quality switch in the player | Supported | Keeps the position |
 | Saved position, resume, played and favorite marks, remove from Continue Watching | Supported | Survive restart and forced stop |
 | Auto-advance to the next episode, play a whole series | Supported | |
-| Hardware-accelerated transcoding | Unsupported | #28 |
+| Hardware-accelerated transcoding | Partial | `-hwaccel vaapi` verified on AMD (radeonsi); `qsv`, `nvenc`, `amf` unverified on hardware; decoding stays on the CPU (#28) |
 | Casting, play on another device, remote control | Unsupported | Casting not checked; session control routes not implemented (#34) |
 | Offline sync and downloads to the client | Unsupported | #34 |
 

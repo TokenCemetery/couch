@@ -107,6 +107,9 @@ type Manager struct {
 	// transcode; zero leaves them to FFmpeg. Set it before the first
 	// session.
 	Threads int
+	// Accel encodes transcodes on hardware. Set it before the first
+	// session.
+	Accel Accel
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -504,7 +507,7 @@ func (m *Manager) Segment(ctx context.Context, id, owner string, source Source, 
 				return nil, ErrSuperseded
 			}
 			s.stopJob()
-			if err := s.startJob(m.ffmpeg, m.Threads, bounds, start, n); err != nil {
+			if err := s.startJob(m.ffmpeg, m.Threads, m.Accel, bounds, start, n); err != nil {
 				s.mu.Unlock()
 				slog.Warn("HLS job failed to start", "item", source.ItemID, "error", err)
 				return nil, ErrSegment
@@ -608,7 +611,7 @@ func (j *job) finished() bool {
 }
 
 // startJob writes segments from n on. Caller holds s.mu.
-func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start float64, n int) error {
+func (s *session) startJob(ffmpeg string, threads int, accel Accel, bounds []float64, start float64, n int) error {
 	file, err := s.source.Open()
 	if err != nil {
 		return err
@@ -641,8 +644,11 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 		// starts below zero would lose the keyframe itself (#64).
 		args = append(args, "-seek_timestamp", "1", "-ss", strconv.FormatFloat(start+bounds[n]-0.001, 'f', 6, 64))
 	}
-	if s.source.VideoEncode && threads > 0 {
-		args = append(args, "-threads", strconv.Itoa(threads))
+	if s.source.VideoEncode {
+		args = append(args, accel.global()...)
+		if threads > 0 {
+			args = append(args, "-threads", strconv.Itoa(threads))
+		}
 	}
 	// A burned-in subtitle is mapped as the overlay's output.
 	video := "0:" + strconv.Itoa(s.source.VideoStream)
@@ -658,7 +664,7 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 		if trimmed {
 			trim = "trim=start=" + cut + ","
 		}
-		args = append(args, encodeVideo(bounds[n:], start, trim, threads, s.source)...)
+		args = append(args, encodeVideo(bounds[n:], start, trim, threads, accel, s.source)...)
 	} else {
 		args = append(args, "-c:v", "copy")
 	}
@@ -733,8 +739,12 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 			case s.source.AudioEncode:
 				audio = "aac"
 			}
-			slog.Info("HLS job ended", "item", s.source.ItemID, "video", video, "audio", audio,
-				"segments", segments, "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak)
+			attrs := []any{"item", s.source.ItemID, "video", video, "audio", audio}
+			if s.source.VideoEncode {
+				attrs = append(attrs, "encoder", accel.Encoder())
+			}
+			attrs = append(attrs, "segments", segments, "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak)
+			slog.Info("HLS job ended", attrs...)
 		}
 		if err != nil {
 			j.err = err
@@ -749,15 +759,13 @@ func (s *session) startJob(ffmpeg string, threads int, bounds []float64, start f
 // H.264 for the segments starting at bounds, relative to the file's start
 // time; trim, when set, is a filter that runs before scaling. A burned-in
 // subtitle is overlaid before both, on a canvas of the video's size, and the
-// result is the [v] output. Keyframes are
+// result is the [v] output; accel uploads it last. Keyframes are
 // forced on the plan's grid, so every segment starts with one. The encoder keeps the source's time base (demux):
 // with the frame rate's, timestamps are rounded and a forced keyframe can
 // land one frame late. The picture keeps its aspect ratio, shrinks to fit
 // the source's MaxWidth and MaxHeight, and has even dimensions, as 4:2:0
-// requires. Threads, when positive, caps the encoder threads. The x264
-// options are Emby's: they cut motion search and lookahead, a third less
-// CPU for a larger file at the same CRF (#99).
-func encodeVideo(bounds []float64, start float64, trim string, threads int, source Source) []string {
+// requires. Threads, when positive, caps the encoder threads.
+func encodeVideo(bounds []float64, start float64, trim string, threads int, accel Accel, source Source) []string {
 	keyframes := make([]string, len(bounds))
 	for i, b := range bounds {
 		keyframes[i] = strconv.FormatFloat(start+b-0.001, 'f', 6, 64)
@@ -768,19 +776,14 @@ func encodeVideo(bounds []float64, start float64, trim string, threads int, sour
 		}
 		return "'min(" + size + "," + strconv.Itoa(limit) + ")'"
 	}
-	scale := trim + "scale=w=" + bound(source.MaxWidth, "iw") + ":h=" + bound(source.MaxHeight, "ih") + ":force_original_aspect_ratio=decrease:force_divisible_by=2"
+	scale := trim + "scale=w=" + bound(source.MaxWidth, "iw") + ":h=" + bound(source.MaxHeight, "ih") + ":force_original_aspect_ratio=decrease:force_divisible_by=2" + accel.upload()
 	filter := []string{"-vf", scale}
 	if source.BurnSubtitle {
 		filter = []string{"-filter_complex", fmt.Sprintf("[0:%d][0:%d]overlay=eof_action=pass,%s[v]", source.VideoStream, source.SubtitleStream, scale)}
 	}
-	args := []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-x264-params", "subme=0:me_range=4:rc_lookahead=10:partitions=none", "-pix_fmt", "yuv420p"}
-	args = append(args, filter...)
+	args := append(accel.encode(source.VideoBitrate), filter...)
 	args = append(args, "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
 		"-force_key_frames", strings.Join(keyframes, ","))
-	if source.VideoBitrate > 0 {
-		rate := strconv.FormatInt(source.VideoBitrate, 10)
-		args = append(args, "-maxrate", rate, "-bufsize", strconv.FormatInt(2*source.VideoBitrate, 10))
-	}
 	if threads > 0 {
 		args = append(args, "-threads", strconv.Itoa(threads))
 	}
