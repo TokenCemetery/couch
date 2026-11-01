@@ -8,7 +8,7 @@ The reference is Emby Web **4.10.0.40**. The original API modules and the browse
 
 ## Running
 
-Requires Go 1.25+ and Linux/macOS.
+Requires Go 1.26+ and Linux/macOS.
 
 ```sh
 go -C src build -o ../bin/couch ./cmd/couch
@@ -178,10 +178,10 @@ The same commands are in the `Makefile`: `make` (lint, test, build), `make lint`
 CI ([ci.yml](.github/workflows/ci.yml)) runs on push to `main` and on every pull request. Stages run sequentially, each one only after the previous one succeeds:
 
 1. Build: golangci-lint v2.14 for both modules, `make build build-linux`.
-2. Tests: `make test` and `make e2e` in `golang:1.25-alpine3.24` with FFmpeg 8.1, as in the image, as a non-root user. The HLS tests also pass with FFmpeg 6.1 and 7.1 (Alpine 3.21, Debian 13).
+2. Tests: `make test` and `make e2e` in `golang:1.26-alpine3.24` with FFmpeg 8.1, as in the image, as a non-root user. The HLS tests also pass with FFmpeg 6.1 and 7.1 (Alpine 3.21, Debian 13).
 3. Container: image build and `scripts/check-container.sh` on linux/amd64 and linux/arm64.
 
-Build and tests run on Go 1.25, the minimum version from `src/go.mod`; the image is built with the Go from the `Dockerfile`. The Node scenario (`make check`) does not run in CI.
+Build and tests run on Go 1.26, the version from `src/go.mod`; the image is built with the same Go line (`golang:1.26-alpine3.24` in the `Dockerfile`). The Node scenario (`make check`) does not run in CI.
 
 ### Contract E2E
 

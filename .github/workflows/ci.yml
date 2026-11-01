@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # go.mod declares the minimum supported Go; the image builds with a newer one.
+      # go.mod declares the Go version; the image and the test container build with the same one.
       - uses: actions/setup-go@v7
         with:
           go-version-file: src/go.mod
@@ -37,7 +37,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     # FFmpeg 8.1, as in the image.
-    container: golang:1.25-alpine3.24
+    container: golang:1.26-alpine3.24
     steps:
       - uses: actions/checkout@v7
       - name: Install FFmpeg and the race detector toolchain

@@ -1,7 +1,7 @@
 # Release image: static Couch plus FFmpeg/FFprobe for scanning and HLS.
 # Alpine's FFmpeg has the fd protocol Couch requires and libx264/aac.
 
-FROM docker.io/library/golang:1.27-alpine3.24 AS build
+FROM docker.io/library/golang:1.26-alpine3.24 AS build
 WORKDIR /src
 COPY src/go.mod src/go.sum ./
 RUN go mod download
