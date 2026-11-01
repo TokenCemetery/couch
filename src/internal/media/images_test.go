@@ -177,6 +177,16 @@ func TestBackdropImageLookup(t *testing.T) {
 	if kindWidth(movie, "Logo") != 8 || kindWidth(movie, "logo") != 8 || kindWidth(movie, "Thumb") != 10 || kindWidth(movie, "Banner") != 0 {
 		t.Fatal("logo or thumb lookup")
 	}
+	// ImageInfos finds what ImageInfo finds for each type, from one listing.
+	for _, item := range []Item{movie, series} {
+		infos := catalog.ImageInfos(item)
+		for _, kind := range ImageTypes {
+			want, found := catalog.ImageInfo(item, kind)
+			if got, ok := infos[kind]; ok != found || got != want {
+				t.Fatalf("%s %s: ImageInfos %+v %v, ImageInfo %+v %v", item.ID, kind, got, ok, want, found)
+			}
+		}
+	}
 }
 
 func TestImageDirectoryListingIsRevalidated(t *testing.T) {

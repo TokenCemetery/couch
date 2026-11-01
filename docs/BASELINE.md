@@ -252,6 +252,14 @@ The startup scan read 85 MiB of the 18 files, against Emby's 25 MiB. Measured pe
 - Not a cause: `-probesize`. At 1 MB instead of 5 MB the output is the same, but reads only drop to 80 MiB, so it was left at 5 MB.
 - The keyframe listing of a remux (#98) gains nothing from the block size: R03 reads about 205 MiB either way, as it seeks every 2 s through the file.
 
+## List requests (2026-11-01)
+
+The movie list and Latest were the only API requests where Couch's p95 was above Emby's in the sixth run: Movies on large (2.7 against 2.6 ms) and Latest on average (2.7 against 2.5 ms). A CPU profile of the movie list with the 18 real files: JSON encoding of the map-based items takes about 62 % of the handler, a third of that sorting map keys; image lookup about 20 %, mostly a `stat` of the item's folder for each of the four image types.
+
+- Couch now checks each item's folder once for all image types (`Catalog.ImageInfos`); the rules for when a listing is reused are unchanged.
+- Handler time with the real files: Movies 1.41 → 1.17 ms, Latest 1.45 → 1.22 ms (Go benchmark, 2000 requests each).
+- `scripts/baseline.sh`, Couch only, all profiles, p95 small / average / large, with Emby's from the sixth run: Movies 2.7 / 2.5 / 2.6 ms against 3.7 / 2.6 / 2.6; Latest 2.6 / 2.5 / 2.6 ms against 4.8 / 2.5 / 3.2. The other five endpoints did not change. Two cells now equal Emby's at the 0.1 ms resolution, so the margin there is none.
+
 ## Not measured yet
 
 - Picture quality of the two encoders.

@@ -42,20 +42,27 @@ func (c *Catalog) OpenImage(item Item, kind string) (*os.File, Image, error) {
 	if !found {
 		return nil, Image{}, os.ErrNotExist
 	}
-	return c.openImage(item, names.own, names.shared)
+	if c == nil || c.root == nil {
+		return nil, Image{}, os.ErrNotExist
+	}
+	return c.openImage(item, names.own, names.shared, c.imageFiles(imageDirOf(item)))
+}
+
+// imageDirOf is the folder searched for an item's images.
+func imageDirOf(item Item) string {
+	if item.IsFolder() {
+		return item.Path
+	}
+	return path.Dir(item.Path)
 }
 
 // openImage tries the video's own sidecars (its name plus each suffix), then
 // the shared names in its folder; a folder item has only the shared names.
-func (c *Catalog) openImage(item Item, suffixes, shared []string) (*os.File, Image, error) {
-	if c == nil || c.root == nil {
-		return nil, Image{}, os.ErrNotExist
-	}
+// present lists the image names in that folder.
+func (c *Catalog) openImage(item Item, suffixes, shared []string, present map[string]bool) (*os.File, Image, error) {
 	bases := []string{}
-	dir := path.Dir(item.Path)
-	if item.IsFolder() {
-		dir = item.Path
-	} else {
+	dir := imageDirOf(item)
+	if !item.IsFolder() {
 		stem := strings.TrimSuffix(item.Path, path.Ext(item.Path))
 		for _, suffix := range suffixes {
 			bases = append(bases, stem+suffix)
@@ -64,7 +71,6 @@ func (c *Catalog) openImage(item Item, suffixes, shared []string) (*os.File, Ima
 	for _, name := range shared {
 		bases = append(bases, path.Join(dir, name))
 	}
-	present := c.imageFiles(dir)
 	for _, base := range bases {
 		for _, ext := range []string{".jpg", ".jpeg", ".png"} {
 			if !present[path.Base(base+ext)] {
@@ -98,6 +104,26 @@ func (c *Catalog) openImage(item Item, suffixes, shared []string) (*os.File, Ima
 // one exists.
 func (c *Catalog) ImageInfo(item Item, kind string) (Image, bool) {
 	return imageInfo(c.OpenImage(item, kind))
+}
+
+// ImageInfos reports the item's valid images by type, as ImageInfo does for
+// each of ImageTypes, but checks its folder once.
+func (c *Catalog) ImageInfos(item Item) map[string]Image {
+	infos := map[string]Image{}
+	if c == nil || c.root == nil {
+		return infos
+	}
+	present := c.imageFiles(imageDirOf(item))
+	if len(present) == 0 {
+		return infos
+	}
+	for _, kind := range ImageTypes {
+		names := imageNames[strings.ToLower(kind)]
+		if info, found := imageInfo(c.openImage(item, names.own, names.shared, present)); found {
+			infos[kind] = info
+		}
+	}
+	return infos
 }
 
 func imageInfo(file *os.File, info Image, err error) (Image, bool) {

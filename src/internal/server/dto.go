@@ -184,8 +184,10 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 	// names its series' image, and always names the series' cover, which
 	// cards and the player fall back to.
 	var series *media.Item
+	var seriesImages map[string]media.Image
+	images := catalog.ImageInfos(item)
 	for _, kind := range media.ImageTypes {
-		info, own := catalog.ImageInfo(item, kind)
+		info, own := images[kind]
 		if own {
 			tag := s.store.ImageTag(token, item.ID, info.Revision)
 			switch {
@@ -208,8 +210,9 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 				continue
 			}
 			series = &folder
+			seriesImages = catalog.ImageInfos(folder)
 		}
-		info, found := catalog.ImageInfo(*series, kind)
+		info, found := seriesImages[kind]
 		if !found {
 			continue
 		}

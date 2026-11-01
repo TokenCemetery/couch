@@ -26,7 +26,7 @@ Each budget is Emby 4.10.0.40's figure on the [BASELINE](BASELINE.md) bench: sam
 |---|---|---|---|
 | Idle 60 s | anonymous memory / server RSS / CPU | 67–70 MiB / 201–205 MiB / 0.13–0.36 s | met: 4 MiB / 11–12 MiB / 0 s |
 | Startup and scan of 18 files | wall / CPU / reads | 3.4–5.1 s / 2.3–2.5 s / 25 MiB | met: 1.2 s / 0.8 s / 18.6 MiB on small since FFprobe reads in 64 KiB blocks (BASELINE, "Scan reads"); 85 MiB before |
-| API, seven endpoints | p95 per profile | Emby's p95, 0.8–4.8 ms | met, except Movies on large (2.7 ms against 2.6 ms) and Latest on average (2.7 ms against 2.5 ms) |
+| API, seven endpoints | p95 per profile | Emby's p95, 0.8–4.8 ms | met since images are checked once per item (BASELINE, "List requests"); Movies on large (2.6 ms) and Latest on average (2.5 ms) equal Emby's at 0.1 ms resolution |
 | API, 100 PlaybackInfo calls | reads | 0 MiB | not met: 185–192 MiB, the keyframe listing of R03, which needs a remux (#98) |
 | Direct Stream | CPU / memory / seek to first byte | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms | met: 0.32–0.33 s / 7 MiB / 0.6–0.7 ms |
 | Remux, 120 s of video | CPU / memory / first segment / seek to 50 % | 1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.22 / 0.20 / 0.20 s | memory and first segment met (22 MiB, 0.24–0.34 s); CPU (2.1–2.2 s) and seek (0.31 / 0.21 / 0.21 s) not met, by up to 0.1 s |
