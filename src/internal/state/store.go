@@ -1,11 +1,13 @@
-// Package state persists the small authentication/settings state used in M1.
+// Package state persists the local user, sessions and playback state in SQLite.
 package state
 
 import (
+	"context"
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -93,7 +95,7 @@ func (p PlaybackRecord) Is(playID string) bool {
 	return p.ID == playID || slices.Contains(p.Switched, playID)
 }
 
-// Data is the persisted state file contents (schema v1).
+// Data is the persisted state (schema v1), loaded whole into memory.
 type Data struct {
 	SchemaVersion int
 	ServerID      string
@@ -101,11 +103,13 @@ type Data struct {
 	Sessions      map[string]Session
 }
 
-// Store holds the state in memory and writes every change to disk atomically.
+// Store holds the state in memory and commits every change to the database
+// in one transaction before publishing it.
 type Store struct {
 	mu   sync.RWMutex
-	path string
+	dir  string
 	lock *os.File
+	db   *sql.DB
 	data Data
 	// imageMu serializes avatar changes, so a file is removed only once the
 	// committed state no longer references it.
@@ -133,34 +137,33 @@ func Open(dir string) (*Store, error) {
 		return nil, fmt.Errorf("data directory is already in use: %w", err)
 	}
 	removeInterruptedWrites(dir)
-	s := &Store{path: filepath.Join(dir, "state.json"), lock: lock}
-	f, err := os.Open(s.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return s, nil
-	}
-	var b []byte
-	if err == nil {
-		b, err = io.ReadAll(io.LimitReader(f, maxStateBytes+1))
-		_ = f.Close()
-		if len(b) > maxStateBytes {
-			err = ErrStateLimit
-		}
-	}
-	if err == nil {
-		err = json.Unmarshal(b, &s.data)
-	}
-	if err == nil && (s.data.SchemaVersion != 1 || s.data.ServerID == "" || s.data.User.ID == "" || s.data.User.Name == "" || len(s.data.User.Salt) != 16 || len(s.data.User.PasswordHash) != 32 || s.data.User.Iterations != passwordIterations || s.data.User.Settings == nil || s.data.User.Configuration == nil || s.data.Sessions == nil) {
-		err = errors.New("invalid or unsupported state schema")
-	}
+	db, err := openDB(filepath.Join(dir, "couch.db"))
 	if err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	s := &Store{dir: dir, lock: lock, db: db}
+	if err := s.load(); err != nil {
 		_ = s.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-// removeInterruptedWrites deletes the temp files of writes cut short by a
-// crash, which skip their deferred removal. The caller holds the directory
+func (s *Store) load() error {
+	d, err := loadDB(context.Background(), s.db)
+	if err != nil || d.SchemaVersion == 0 {
+		return err
+	}
+	if err := validate(d); err != nil {
+		return err
+	}
+	s.data = d
+	return nil
+}
+
+// removeInterruptedWrites deletes the temp files of avatar writes cut short
+// by a crash, which skip their deferred removal. The caller holds the directory
 // lock, so no write is in progress.
 func removeInterruptedWrites(dir string) {
 	entries, err := os.ReadDir(dir)
@@ -169,14 +172,14 @@ func removeInterruptedWrites(dir string) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.Type().IsRegular() && (strings.HasPrefix(name, ".state-") || strings.HasPrefix(name, ".user-image-")) {
+		if entry.Type().IsRegular() && strings.HasPrefix(name, ".user-image-") {
 			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}
 }
 
-// Close releases the data directory lock.
-func (s *Store) Close() error { return s.lock.Close() }
+// Close closes the database and releases the data directory lock.
+func (s *Store) Close() error { return errors.Join(s.db.Close(), s.lock.Close()) }
 
 // Initialized reports whether a user has been created.
 func (s *Store) Initialized() bool {
@@ -207,7 +210,7 @@ func clone(d Data) Data {
 	return out
 }
 
-// update commits to disk before publishing a snapshot to readers.
+// update commits to the database before publishing a snapshot to readers.
 func (s *Store) update(fn func(*Data) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -222,34 +225,11 @@ func (s *Store) update(fn func(*Data) error) error {
 	if len(b) > maxStateBytes {
 		return ErrStateLimit
 	}
-	f, err := os.CreateTemp(filepath.Dir(s.path), ".state-*")
-	if err != nil {
+	if err := commit(context.Background(), s.db, s.data, next); err != nil {
 		return err
 	}
-	// After a successful rename this removal fails harmlessly.
-	defer func() { _ = os.Remove(f.Name()) }()
-	if _, err = f.Write(b); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), s.path); err != nil {
-		return err
-	}
-	// Rename already committed: keep memory consistent even if directory fsync fails.
 	s.data = next
-	dir, err := os.Open(filepath.Dir(s.path))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dir.Close() }()
-	return dir.Sync()
+	return nil
 }
 
 // Initialize creates the single local user. It fails if one already exists.

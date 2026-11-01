@@ -40,7 +40,7 @@ func TestUserImageFailedChangeKeepsCommittedFile(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("avatar files = %d, want 1 (rejected upload must be cleaned up)", len(files))
 	}
-	if _, err := os.Stat(filepath.Join(dir, "state.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "couch.db")); err != nil {
 		t.Fatal(err)
 	}
 }

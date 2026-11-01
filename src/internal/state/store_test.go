@@ -40,14 +40,14 @@ func TestStateProtectionAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	b, err := os.ReadFile(filepath.Join(dir, "couch.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(b, []byte(token)) || bytes.Contains(b, []byte("test-only-password")) {
 		t.Fatal("plaintext secret persisted")
 	}
-	info, err := os.Stat(filepath.Join(dir, "state.json"))
+	info, err := os.Stat(filepath.Join(dir, "couch.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,8 +71,11 @@ func TestFailedWriteDoesNotPublishState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := s.path
-	s.path = filepath.Join(dir, "missing-parent", "state.json")
+	// A directory in place of the rollback journal fails the transaction.
+	journal := filepath.Join(dir, "couch.db-journal")
+	if err := os.Mkdir(journal, 0700); err != nil {
+		t.Fatal(err)
+	}
 	err = s.Change(token, func(d *Data, session *Session) { d.User.Settings["theme"] = json.RawMessage(`"changed"`) })
 	if err == nil {
 		t.Fatal("write should fail")
@@ -80,23 +83,45 @@ func TestFailedWriteDoesNotPublishState(t *testing.T) {
 	if len(s.Snapshot().User.Settings) != 0 {
 		t.Fatal("failed write changed memory")
 	}
-	s.path = original
+	if err := os.Remove(journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Change(token, func(d *Data, session *Session) { d.User.Settings["theme"] = json.RawMessage(`"changed"`) }); err != nil {
+		t.Fatal("write after recovery:", err)
+	}
 }
 
 func TestCorruptAndFutureStateAreNotReset(t *testing.T) {
-	for _, content := range []string{"{invalid", `{"SchemaVersion":99}`, `{"SchemaVersion":1}`} {
+	cases := []string{
+		"not a database, but long enough to be read as one",
+		"", // replaced below by a database from a newer release
+	}
+	for _, content := range cases {
 		dir := t.TempDir()
-		file := filepath.Join(dir, "state.json")
-		if err := os.WriteFile(file, []byte(content), 0600); err != nil {
+		file := filepath.Join(dir, "couch.db")
+		if content == "" {
+			db, err := openDB(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.ExecContext(t.Context(), "PRAGMA user_version = 99"); err != nil {
+				t.Fatal(err)
+			}
+			_ = db.Close()
+		} else if err := os.WriteFile(file, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(file)
+		if err != nil {
 			t.Fatal(err)
 		}
 		if s, err := Open(dir); err == nil {
 			_ = s.Close()
-			t.Fatal("invalid state accepted")
+			t.Fatal("invalid database accepted")
 		}
-		b, err := os.ReadFile(file)
-		if err != nil || string(b) != content {
-			t.Fatal("invalid state overwritten")
+		after, err := os.ReadFile(file)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatal("invalid database overwritten")
 		}
 	}
 }
@@ -132,7 +157,7 @@ func TestStateSizeLimitDoesNotChangeCommittedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	before, err := os.ReadFile(filepath.Join(dir, "couch.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +167,7 @@ func TestStateSizeLimitDoesNotChangeCommittedData(t *testing.T) {
 	if !errors.Is(err, ErrStateLimit) {
 		t.Fatal("expected state size limit")
 	}
-	after, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	after, err := os.ReadFile(filepath.Join(dir, "couch.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +179,7 @@ func TestStateSizeLimitDoesNotChangeCommittedData(t *testing.T) {
 func TestOpenRemovesInterruptedWrites(t *testing.T) {
 	s, dir := testStore(t)
 	_ = s.Close()
-	for _, name := range []string{".state-123", ".user-image-456", "user-image-kept", ".other"} {
+	for _, name := range []string{".user-image-456", "user-image-kept", ".other"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -167,7 +192,7 @@ func TestOpenRemovesInterruptedWrites(t *testing.T) {
 	if !reopened.Initialized() {
 		t.Fatal("committed state was not loaded")
 	}
-	for name, kept := range map[string]bool{".state-123": false, ".user-image-456": false, "user-image-kept": true, ".other": true, "state.json": true} {
+	for name, kept := range map[string]bool{".user-image-456": false, "user-image-kept": true, ".other": true, "couch.db": true} {
 		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != kept {
 			t.Fatalf("%s: kept=%v, want %v", name, err == nil, kept)
 		}
@@ -224,42 +249,53 @@ func TestIdentityCarriesOnlyPublicFields(t *testing.T) {
 	}
 }
 
-// TestOpenFirstReleaseState opens a state file that the first release
-// (172bee0) wrote after -init, a login, a favorite and a progress report.
-// Schema v1 has only gained fields since; a schema change must keep this file
-// opening with its data.
-func TestOpenFirstReleaseState(t *testing.T) {
-	dir := t.TempDir()
-	raw, err := os.ReadFile(filepath.Join("testdata", "state-172bee0.json"))
+// TestReopenRestoresAllState writes every kind of state, reopens the store
+// and expects an identical snapshot.
+func TestReopenRestoresAllState(t *testing.T) {
+	s, dir := testStore(t)
+	token, _, err := s.Login("viewer", "test-only-password", Session{Client: "test", DeviceID: "d", Capabilities: map[string]json.RawMessage{"PlayableMediaTypes": json.RawMessage(`["Video"]`)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "state.json"), raw, 0600); err != nil { //nolint:gosec // dir is t.TempDir(); raw is the fixture
+	if _, _, err := s.Login("viewer", "test-only-password", Session{Client: "second"}); err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(dir)
-	if err != nil {
+	now := time.Now().UTC()
+	if err := s.Change(token, func(d *Data, session *Session) {
+		d.User.Settings["theme"] = json.RawMessage(`"dark"`)
+		d.User.Configuration["SubtitleMode"] = json.RawMessage(`"Smart"`)
+		session.RecentPlays = []PlaybackRecord{{ID: "p", ItemID: "a", Switched: []string{"q"}}}
+	}); err != nil {
 		t.Fatal(err)
 	}
-	const item = "1c2a5d7bc7e1f3b93feec81d7240491f"
-	data := s.Snapshot()
-	if old := data.User.Items[item]; len(data.Sessions) != 1 || old.PositionTicks != 12340000 || !old.IsFavorite {
-		t.Fatalf("first release state not carried over: sessions %d, item %+v", len(data.Sessions), old)
-	}
-	token, _, err := s.Login("viewer", "old-release-test-password", Session{})
-	if err != nil {
+	if err := s.SetUserImage(token, []byte("png"), "image/png"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetItem(token, item, func(state *ItemState) { state.Played = true }); err != nil {
+	if _, err := s.SetItems(token, []string{"a", "b", "c"}, func(st *ItemState) { st.Played, st.PlayCount, st.LastPlayed = true, 1, now }); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetItem(token, "b", func(st *ItemState) {
+		st.PositionTicks, st.IsFavorite, st.HiddenFromResume, st.LastSearched = 42, true, true, now
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetItem(token, "c", func(st *ItemState) { *st = ItemState{} }); err != nil {
+		t.Fatal(err)
+	}
+	want := s.Snapshot()
 	_ = s.Close()
-	s, err = Open(dir)
+	reopened, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close() }()
-	if got := s.Snapshot().User.Items[item]; !got.Played || !got.IsFavorite || got.PositionTicks != 12340000 {
-		t.Fatalf("after a write and reopen: %+v", got)
+	defer func() { _ = reopened.Close() }()
+	got := reopened.Snapshot()
+	wantJSON, _ := json.Marshal(want)
+	gotJSON, _ := json.Marshal(got)
+	if !bytes.Equal(wantJSON, gotJSON) {
+		t.Fatalf("reopened state differs:\n got %s\nwant %s", gotJSON, wantJSON)
+	}
+	if _, ok := got.User.Items["c"]; ok || len(got.Sessions) != 2 || got.User.Image == nil {
+		t.Fatalf("items %v, sessions %d, image %v", got.User.Items, len(got.Sessions), got.User.Image)
 	}
 }

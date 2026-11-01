@@ -163,13 +163,8 @@ func TestEventOrderAndFailedPersistence(t *testing.T) {
 			t.Fatal("events are not in commit order")
 		}
 	}
-	// Replace only this test's state path with a directory to fail atomic rename.
-	statePath := filepath.Join(dir, "state.json")
-	backup := filepath.Join(dir, "state.backup")
-	if err := os.Rename(statePath, backup); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(statePath, 0700); err != nil {
+	// A directory in place of the database's rollback journal fails the commit.
+	if err := os.Mkdir(filepath.Join(dir, "couch.db-journal"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := api.updateItem(token, playbackMovie(), func(st *state.ItemState) { st.PlayCount++ }); err == nil {

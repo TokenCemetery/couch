@@ -15,7 +15,7 @@ type UserImage struct {
 }
 
 func (s *Store) userImagePath(revision string) string {
-	return filepath.Join(filepath.Dir(s.path), "user-image-"+revision)
+	return filepath.Join(s.dir, "user-image-"+revision)
 }
 
 // SetUserImage stores an already validated avatar. The file is written and

@@ -8,7 +8,7 @@
 4. Check login, wrong password, access without a token, revocation, restart, another user's userId, settings persistence, token conflict and upstream isolation. Run the race detector, vet and build.
 5. Check the original API client separately from the UI. If a browser is available, check the screens. Record the actual verification boundaries.
 
-The initial implementation uses the Go standard library. A JSON store with schema v1, atomic file replacement and directory locking suits one account and a small number of M1 sessions; it is not meant for the M2 media catalog. Passwords use PBKDF2-HMAC-SHA256 with a per-user salt; only token hashes remain in the store. The listener is reachable only on loopback by default.
+The implementation uses the Go standard library, plus `modernc.org/sqlite` for state. The user, sessions and watch state are in SQLite (`couch.db`): each change is one transaction that writes only the changed rows, with the rollback journal and `synchronous=FULL`; reads are served from an in-memory copy, and the data directory is locked against a second process. The pure-Go driver keeps `CGO_ENABLED=0` and the static binary; it adds about 4 MB to the binary and 3 MiB to idle RSS (#106). Passwords use PBKDF2-HMAC-SHA256 with a per-user salt; only token hashes remain in the store. The listener is reachable only on loopback by default.
 
 The first user is created by a local command and does not get administrative rights through the API. Administration, WebSocket, scanning and playback are not part of this stage. Unknown routes return an error, not a fake success.
 

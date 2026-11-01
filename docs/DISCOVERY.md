@@ -54,7 +54,7 @@ The [PlaybackInfo documentation](https://dev.emby.media/reference/RestAPI/MediaI
 | Porting Jellyfin subsystems to Go one by one | Ready examples of complex media logic | Large volume; porting does not prove compatibility with modern Emby |
 | Go proxy in front of Jellyfin | Quick experiment with API translation | The .NET server and its resource use remain; not a final solution |
 
-Proposed initial architecture: one Go process, local data storage, FFprobe/FFmpeg for media, bounded background queues. The choice of DB and libraries is deferred until the first scenario's requirements. Microservices are not justified for it.
+Proposed initial architecture: one Go process, local data storage, FFprobe/FFmpeg for media, bounded background queues. The choice of DB and libraries is deferred until the first scenario's requirements (decided 2026-11-01: SQLite through the pure-Go `modernc.org/sqlite`, #106). Microservices are not justified for it.
 
 ## Next discovery
 
