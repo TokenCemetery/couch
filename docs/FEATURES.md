@@ -33,7 +33,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Local images: Primary, Backdrop, Logo, Thumb; series images on seasons and episodes | Supported | #85, #86, #88 |
 | Titles from file names, duration and technical data from FFprobe | Supported | Used when an item has no metadata |
 | Metadata from `.nfo` files: title, overview, year, genres, studios, tags, ratings, people, provider IDs | Supported | Re-read when the file changes; checked in Emby Web (#101) |
-| Metadata and poster/backdrop from TMDb and TheTVDB | Partial | On only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; checked against a local stand-in for the providers, not the live services (#101) |
+| Metadata and poster/backdrop from TMDb and TheTVDB | Supported | On only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; checked against the live services in English and Russian (#101) |
 | Collections, playlists, missing and upcoming episodes, recommendations | Unsupported | Empty lists (#40, #34); Emby Web offers creating and editing a collection only to an administrator (#33) |
 | Music, photos, books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
 

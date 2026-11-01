@@ -63,7 +63,9 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bodies := map[string]string{
-		"/tmdb/search/movie": `{"results":[{"id":1}]}`,
+		// Ranked as TMDb does for a query in another language than the
+		// titles: a minor title first.
+		"/tmdb/search/movie": `{"results":[{"id":2,"title":"The Movie: Making Of","popularity":1.5},{"id":1,"title":"Le Film","original_title":"The Movie","popularity":40}]}`,
 		"/tmdb/movie/1": `{"title":"Online Movie","original_title":"Film en ligne","overview":"From TMDb.","release_date":"2010-05-01",
 			"vote_average":7.2,"genres":[{"name":"Comedy"}],"production_companies":[{"name":"Studio A"}],"poster_path":"/img/poster.png",
 			"imdb_id":"tt0000001","credits":{"cast":[{"name":"Actor One","character":"Hero"}],"crew":[{"name":"Dir One","job":"Director","department":"Directing"}]},

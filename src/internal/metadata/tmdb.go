@@ -5,9 +5,11 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Provider addresses; tests point them at a local server.
@@ -157,7 +159,10 @@ func (t *tmdb) find(ctx context.Context, ids map[string]string, kind string) (st
 }
 
 // search returns the TMDb ID of the best match for a title, trying without
-// the year when nothing matches with it.
+// the year when nothing matches with it. TMDb ranks results by the title in
+// the requested language, so an English file name searched in Russian can
+// rank a minor title first: a result whose title or original title equals
+// the query wins, else the most popular one.
 func (t *tmdb) search(ctx context.Context, kind, title string, year int) (string, error) {
 	yearKey := "year"
 	if kind == "tv" {
@@ -170,20 +175,48 @@ func (t *tmdb) search(ctx context.Context, kind, title string, year int) (string
 		}
 		var result struct {
 			Results []struct {
-				ID int `json:"id"`
+				ID            int     `json:"id"`
+				Title         string  `json:"title"`
+				OriginalTitle string  `json:"original_title"`
+				Name          string  `json:"name"`
+				OriginalName  string  `json:"original_name"`
+				Popularity    float64 `json:"popularity"`
 			} `json:"results"`
 		}
 		if err := t.get(ctx, "/search/"+kind, params, &result); err != nil {
 			return "", err
 		}
-		if len(result.Results) > 0 {
-			return strconv.Itoa(result.Results[0].ID), nil
+		best := -1
+		for n, r := range result.Results {
+			if slices.ContainsFunc([]string{r.Title, r.OriginalTitle, r.Name, r.OriginalName}, func(s string) bool { return sameTitle(s, title) }) {
+				best = n
+				break
+			}
+			if best < 0 || r.Popularity > result.Results[best].Popularity {
+				best = n
+			}
+		}
+		if best >= 0 {
+			return strconv.Itoa(result.Results[best].ID), nil
 		}
 		if !withYear {
 			break
 		}
 	}
 	return "", errNotFound
+}
+
+// sameTitle compares titles by their letters and digits only, ignoring case.
+func sameTitle(a, b string) bool {
+	key := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				return unicode.ToLower(r)
+			}
+			return -1
+		}, s)
+	}
+	return a != "" && key(a) == key(b)
 }
 
 func (t *tmdb) resolve(ctx context.Context, kind string, ids map[string]string, title string, year int) (string, error) {
