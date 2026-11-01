@@ -25,7 +25,8 @@ import (
 // duration such as "10m") and samples the process. It is skipped otherwise.
 // Workers 0 and 1 also remux to HLS and worker 2 transcodes, which fills the
 // FFmpeg session limits, and the media directory is rescanned (SIGHUP)
-// during the load.
+// during the load: every COUCH_SOAK_RESCAN (a Go duration), eight times by
+// default.
 // Budgets are not agreed yet (#15), so it reports the numbers and fails only
 // on leftovers: child processes, file descriptors or files in the data
 // directory that outlive the load.
@@ -37,6 +38,12 @@ func TestSoak(t *testing.T) {
 	workers := 8
 	if n, err := strconv.Atoi(os.Getenv("COUCH_SOAK_WORKERS")); err == nil && n > 0 {
 		workers = n
+	}
+	rescanEvery := max(duration/8, 5*time.Second)
+	if text := os.Getenv("COUCH_SOAK_RESCAN"); text != "" {
+		if rescanEvery, err = time.ParseDuration(text); err != nil || rescanEvery <= 0 {
+			t.Fatalf("COUCH_SOAK_RESCAN must be a positive duration, got %q", text)
+		}
 	}
 	inst, err := getEnv(t).suite.Start()
 	if err != nil {
@@ -81,7 +88,7 @@ func TestSoak(t *testing.T) {
 	// Rescan during playback, as -rescan-interval or an admin's SIGHUP would.
 	var rescans atomic.Int64
 	wg.Go(func() {
-		tick := time.NewTicker(max(duration/8, 5*time.Second))
+		tick := time.NewTicker(rescanEvery)
 		defer tick.Stop()
 		for {
 			select {

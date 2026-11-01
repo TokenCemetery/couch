@@ -40,7 +40,7 @@ Picture quality is a condition, not a budget: a transcode change must stay withi
 
 Stability (G-3), proposed:
 
-- Load: the existing soak test (`COUCH_SOAK`, 8 workers) with two remux sessions and one transcode running at once, which are Couch's limits, and a rescan every 75 s, on the large profile.
+- Load: the existing soak test (`COUCH_SOAK=8h COUCH_SOAK_RESCAN=75s`, 8 workers) with two remux sessions and one transcode running at once, which are Couch's limits, and a rescan every 75 s, on the large profile.
 - Duration: 8 hours. Pass: no request errors, no child processes or segments left at the end, open files back to the start count, and RSS flat over the last 4 hours (no growth above the peak of the first 4).
 - Acceptable progress loss after a forced stop: the last confirmed `Progress` report, which Emby Web sends every 10 s. This is what `forced-stop-keeps-confirmed-state` already checks.
 
