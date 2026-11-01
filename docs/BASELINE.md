@@ -241,7 +241,16 @@ API p95 in ms, Couch against Emby, small / average / large: Views 0.4–0.5 agai
 - **Transcoding is now close to Emby's.** The first segment and a seek come 0.09–0.27 s later, and CPU is 4–9 % higher. Memory, the temp folder and reads are equal or lower. The server/FFmpeg split shows the gap is FFmpeg's: Couch's own process stays at 7 MiB.
 - **4K** starts on the large profile 0.6 s after Emby's, with the same CPU and less memory. Both servers run out of memory on 1 and 2 GiB.
 - **Variance:** Emby's figures agree with the first two runs within about 5 %, Couch's remux, Direct Stream and API with the third run within about 5 %.
-- **Still not met:** remux CPU and seek by up to 0.1 s, startup reads (85 against 25 MiB), and the API phase's reads (the remux keyframe listing, #98).
+- **Still not met:** remux CPU and seek by up to 0.1 s, and the API phase's reads (the remux keyframe listing, #98). Startup reads are met since, see below.
+
+## Scan reads (2026-11-01)
+
+The startup scan read 85 MiB of the 18 files, against Emby's 25 MiB. Measured per file in a container, with the page cache evicted before each run, FFprobe reads 17.5 MiB in all by path, but 7–18 MiB for each MP4 through a descriptor (`-fd 3 -i fd:`), as Couch runs it. MKV and AVI files read the same either way. FFmpeg's `fd` protocol reads in unbounded blocks by default, so each seek in an MP4 header pulls in megabytes; with `-blocksize 65536`, R04 reads 1.8 MiB instead of 17.8 MiB, as by path.
+
+- Couch's scan probe now passes `-blocksize 65536`. Its output is byte-identical on all 18 files.
+- Startup on the small profile, two runs: reads 85 → 18.6 MiB, wall time 1.24 s and CPU 0.8 s unchanged.
+- Not a cause: `-probesize`. At 1 MB instead of 5 MB the output is the same, but reads only drop to 80 MiB, so it was left at 5 MB.
+- The keyframe listing of a remux (#98) gains nothing from the block size: R03 reads about 205 MiB either way, as it seeks every 2 s through the file.
 
 ## Not measured yet
 

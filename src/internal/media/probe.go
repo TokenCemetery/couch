@@ -81,7 +81,10 @@ func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error
 	return func(ctx context.Context, file *os.File) (Item, error) {
 		data, err := runProbe(ctx, binary, stats, file, "-v", "error", "-max_alloc", "67108864",
 			"-protocol_whitelist", "fd", "-threads", "1", "-probesize", "5000000", "-analyzeduration", "5000000",
-			"-max_streams", "64", "-fd", "3", "-i", "fd:", "-of", "json",
+			// The fd protocol reads in unbounded blocks by default, so each
+			// seek in an MP4 header pulls in megabytes; 64 KiB reads cut
+			// the scan's reads to what FFprobe reads by path.
+			"-max_streams", "64", "-blocksize", "65536", "-fd", "3", "-i", "fd:", "-of", "json",
 			// Clients decide direct play from codec profile, level and pixel
 			// format, so those are probed alongside the basic descriptors.
 			"-show_entries", "format=duration:stream=index,codec_type,codec_name,codec_tag_string,profile,level,width,height,channels,channel_layout,sample_rate,bit_rate,pix_fmt,bits_per_raw_sample,refs,avg_frame_rate,r_frame_rate,time_base,field_order:stream_tags=language,title:stream_disposition=default,forced,attached_pic,hearing_impaired:stream_side_data=rotation")
