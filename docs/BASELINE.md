@@ -276,6 +276,34 @@ After the changes above, Couch's remux and transcode still cost more CPU than Em
 
 So the remaining CPU difference comes from the FFmpeg build, not from what Couch asks it to do. Closing it means another FFmpeg build in the image, for example a glibc-based one, which is a packaging choice (#33) and was not tried.
 
+## Encoder threads under a CPU quota (2026-11-01, #92, #99)
+
+The first transcoded segment still came 0.1–0.3 s after Emby's, while FFmpeg encodes those 3 s of R06 in 0.96 s on one CPU. Emby's extra options (`-f mp4`, `-g 72 -keyint_min 72 -sc_threshold 0`) and Couch's own (`scale` filter, the long `-force_key_frames` list, reading through a descriptor) change nothing. What delays segment 0 is x264's frame threads: FFmpeg sizes them from the host's 16 CPUs, not the container's quota, and the segment closes only when the encoder emits the keyframe at 3 s, after as many frames as it has threads. Segment 0 of Couch's job alone, median of 3:
+
+| Encoder threads | 1 CPU | 4 CPUs |
+|---|---|---|
+| automatic (now) | 1.57 s | 0.41 s |
+| 1 | 0.98 s | 0.46 s |
+| 2 | 1.10 s | 0.31 s |
+| 4 | 1.21 s | 0.33 s |
+| 8 | 1.28 s | 0.33 s |
+
+`scripts/baseline.sh` with `COUCH_ARGS="-ffmpeg-threads N"`, N the container's CPUs (1 / 2 / 4), Couch at c4f1c78; automatic threads and Emby from the sixth run. Small / average / large:
+
+| Phase | Measure | Couch, threads = CPUs | Couch, automatic | Emby |
+|---|---|---|---|---|
+| Transcode of R06, 120 s | first segment | 0.94 / 0.64 / 0.43 s | 1.59 / 0.94 / 0.56 s | 1.39 / 0.79 / 0.47 s |
+| | seek to 50 % | 1.31 / 0.83 / 0.54 s | 2.02 / 1.08 / 0.66 s | 1.75 / 0.88 / 0.40 s |
+| | seek to 75 % | 1.36 / 0.86 / 0.54 s | 2.02 / 1.09 / 0.53 s | 1.67 / 0.89 / 0.52 s |
+| | CPU | 26.0 / 29.0 / 31.9 s | 36.1 / 36.8 / 36.9 s | 34.8 / 33.7 / 33.8 s |
+| | peak anon. memory | 115 / 140 / 163 MiB | 303–304 MiB | 368 MiB |
+| 4K transcode of R09 | first segment | 6.3 / 4.1 / 3.0 s | out of memory / out of memory / 5.0 s | out of memory / out of memory / 4.4 s |
+| | peak anon. memory | 716 / 922 / 1141 MiB | 956 / 1965 / 2584 MiB | 679 / 1678 / 2602 MiB |
+
+- With threads matching the quota, Couch meets every transcode budget except the seek on large (0.54 against 0.40–0.52 s): first segment, CPU and memory are below Emby's on all profiles.
+- 4K now transcodes on 1 and 2 GiB, where both servers ran out of memory, and its first segment on large comes in 3.0 s against Emby's 4.4 s.
+- Without a quota, #92 measured the opposite: automatic threads halve the encode time when the cores are free. The default therefore stays automatic until the owner decides otherwise.
+
 ## Not measured yet
 
 - Picture quality of the two encoders.
