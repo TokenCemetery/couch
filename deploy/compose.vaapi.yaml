@@ -1,0 +1,11 @@
+# Adds VA-API encoding on the host's GPU to compose.yaml: Mesa's drivers in
+# the image and the render node. Enabled from .env (see .env.example).
+services:
+  couch:
+    build:
+      args:
+        VAAPI: "1"
+    devices:
+      - /dev/dri/renderD128
+    group_add:
+      - ${COUCH_RENDER_GID:?set COUCH_RENDER_GID in .env}

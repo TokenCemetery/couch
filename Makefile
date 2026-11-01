@@ -1,7 +1,7 @@
 BIN := bin/couch
 E2E_RESULTS := e2e/allure-results
 
-.PHONY: all build build-linux test vet lint check e2e e2e-report clean
+.PHONY: all build build-linux release test vet lint check e2e e2e-report clean
 
 all: lint test build
 
@@ -10,6 +10,11 @@ build:
 
 build-linux:
 	cd src && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../$(BIN)-linux-amd64 ./cmd/couch
+
+# The binary for the native install (docs/INSTALL.md), built as in the image.
+release:
+	cd src && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o ../$(BIN)-linux-amd64 ./cmd/couch
+	cd bin && sha256sum couch-linux-amd64 > couch-linux-amd64.sha256
 
 test:
 	cd src && go test -race ./...
@@ -32,5 +37,5 @@ e2e-report:
 	allure generate $(E2E_RESULTS) --output e2e/allure-report
 
 clean:
-	rm -f $(BIN) $(BIN)-linux-amd64 coverage.out
+	rm -f $(BIN) $(BIN)-linux-amd64 $(BIN)-linux-amd64.sha256 coverage.out
 	rm -rf $(E2E_RESULTS) e2e/allure-report

@@ -1,0 +1,47 @@
+# Couch as a systemd service, installed by scripts/install.sh (docs/INSTALL.md).
+# Options are in /etc/default/couch; state is in /var/lib/couch.
+[Unit]
+Description=Couch media server
+Documentation=https://github.com/TokenCemetery/couch/blob/main/docs/INSTALL.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=couch
+Group=couch
+EnvironmentFile=/etc/default/couch
+ExecStart=/usr/local/bin/couch -data /var/lib/couch $COUCH_ARGS
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2s
+StateDirectory=couch
+StateDirectoryMode=0700
+UMask=0077
+
+# The service reads the media and Emby Web, writes only /var/lib/couch and
+# uses no device besides the GPU render node for -hwaccel vaapi.
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+DevicePolicy=closed
+DeviceAllow=/dev/dri/renderD128 rw
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

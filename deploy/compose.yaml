@@ -1,0 +1,21 @@
+# Couch in a container on the LAN, plain HTTP on port 8097. Settings come
+# from .env next to this file (see .env.example); README "Container".
+name: couch
+services:
+  couch:
+    build: ..
+    image: couch:latest
+    restart: unless-stopped
+    command: -listen :8097 -media-dir /media -web-dir /web ${COUCH_ARGS:-}
+    environment:
+      COUCH_TMDB_API_KEY: ${COUCH_TMDB_API_KEY:-}
+      COUCH_TVDB_API_KEY: ${COUCH_TVDB_API_KEY:-}
+    volumes:
+      - data:/data
+      - ${COUCH_MEDIA:?set COUCH_MEDIA in .env}:/media:ro
+      - ${COUCH_WEB:?set COUCH_WEB in .env}:/web:ro
+    ports:
+      - 8097:8097
+
+volumes:
+  data:

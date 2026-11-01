@@ -661,3 +661,20 @@ The `internal/metadata` tests also run the providers against a local TLS server 
 - **Provider responses:** the largest seen was TheTVDB's extended record of a series with 30+ seasons, at 475 KB, against the 4 MiB cap. The longest season checked, 194 episodes, fits TheTVDB's 500 per page. TMDb sends no rate-limit headers.
 - **Tests:** two 429 answers waited out; a failed metadata save stops the run without storing the lookup; an image that cannot be written leaves its item to be fetched again; a stopped lookup is retried by the timer; a rescan with the same items does not restart a running lookup. A mutation that restarts it fails the last test.
 
+
+## Install on the target host (2026-11-01, #114)
+
+Host: AMD Ryzen 7 255 with Radeon 780M, Ubuntu 26.04.1 LTS, kernel 7.0.0-42, Docker 29.9.2 with the iptables firewall backend and `docker-proxy`, Docker Compose v5.6.1. Image built from `deploy/compose.yaml`: Go 1.26.10 on `golang:1.26-alpine3.24`, Alpine 3.24.3, FFmpeg 8.1.3. Host FFmpeg for the native install: 8.0.1-3ubuntu2 (`fd` protocol present; `h264_vaapi` encodes on the 780M through `radeonsi` from `mesa-libgallium`). Media: three files of the agreed set (R05, R07, R10) and a copy of Emby Web, mounted read-only.
+
+Container, with Compose as the README describes:
+
+- **Fresh install:** `docker compose build`, `-init` through `docker compose run -T`, `up -d`: two libraries created from `/media`, 3 videos scanned, Emby Web served at `http://192.168.1.87:8097/web/`, the server name from `COUCH_ARGS`.
+- **Upgrade:** the stack was installed from `99c9d16` (the release before #33, an older schema), a movie marked played, then upgraded to the current image with `docker compose up -d`. The old token stayed valid, the mark stayed, and the start loaded the catalog index (`Media index loaded`, the background rescan probed 0 files).
+- **Forced stop:** `SIGKILL` sent to Couch's process from the host PID namespace: Docker restarted the container (`RestartCount` 1) with its state. `docker kill` itself counts as a manual stop, after which `restart: unless-stopped` does not restart it.
+- **Restore:** a backup written with `-backup` in the running container and copied out with `docker compose cp`; the mark was then removed; after the documented restore the mark was back. Copied-out files belong to the host user with mode 0600, so the restore runs as root in the container and gives them back to `couch`.
+- **VA-API:** with `compose.vaapi.yaml` the image is 540 MB and Couch starts with `-hwaccel vaapi`, which encodes a test pattern on `/dev/dri/renderD128` at startup.
+- **Client address:** a sign-in to `192.168.1.87:8097` is logged from `192.168.1.87`, and `System/Endpoint` answers `lan`. Sign-ins to `127.0.0.1:8097` and from a container on another Docker network are logged from the gateway `172.19.0.1`, through `docker-proxy`.
+
+Native service: `make release` builds a static 13.6 MB binary with its SHA-256. `systemd-analyze verify` accepts `deploy/couch.service` (it reports only that `/usr/local/bin/couch` is not yet installed), and `systemd-analyze security --offline` rates its exposure 1.8, "OK".
+
+Not checked: running `scripts/install.sh` and the service on the host (it needs root), a sign-in from another LAN host, a host reboot, and Podman (not installed) (#117).

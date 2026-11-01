@@ -1,0 +1,8 @@
+# Options of couch.service, installed as /etc/default/couch (docs/INSTALL.md).
+# The unit adds -data /var/lib/couch. Values are split at spaces, so paths
+# must not contain them. Restart the service after a change.
+COUCH_ARGS=-listen :8097 -media-dir /srv/media -web-dir /opt/emby-webui
+
+# Online metadata; a provider is used only when its key is set.
+#COUCH_TMDB_API_KEY=
+#COUCH_TVDB_API_KEY=

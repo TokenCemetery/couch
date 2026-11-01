@@ -37,22 +37,58 @@ The alternative is `-web-upstream http://192.168.1.11:8096`: `/web/*` fetches th
 
 The `-web-dir` and `-web-upstream` options are mutually exclusive. Without either, only the API and the information at `/` are available. In all modes, authentication, the catalog and video are served by Couch.
 
-Other options: `-listen` (default `127.0.0.1:8097`), `-data` (`./data`), `-name` (`Couch`), `-ffmpeg-threads` (`0`), and `-metadata-language` and `-metadata-refresh` (see [Metadata](#metadata)). `-ffmpeg-threads N` caps the decoder and `libx264` encoder threads of each transcode at N; remux is not affected. FFmpeg sizes them from the host's CPUs, ignoring a container CPU quota, so by default (`0`) Couch caps them at the quota (Go's `GOMAXPROCS`: the quota rounded up to whole CPUs, at least 2) and logs `FFmpeg transcode threads follow the CPU quota`; without a quota FFmpeg keeps its own count. Under a quota the cap halves transcoding memory and brings the first segment forward (#92, [VALIDATION](docs/VALIDATION.md), [BASELINE](docs/BASELINE.md)). `-hwaccel` encodes transcodes on the GPU instead of with `libx264`: `vaapi` (Intel and AMD through VA-API), `qsv` (Intel Quick Sync), `nvenc` (Nvidia) or `amf` (AMD AMF); `-hwaccel-device` is the DRM render node for `vaapi` and `qsv` (default `/dev/dri/renderD128`). Decoding, scaling and subtitle burn-in stay on the CPU, so every source that `libx264` transcodes reaches the GPU encoder. At startup Couch encodes a short test pattern with the chosen encoder and refuses to start with FFmpeg's error if it fails (no device, driver or encoder in this FFmpeg build). Only `vaapi` is verified, on an AMD Radeon 780M (radeonsi), the target hardware: every transcode file of the agreed set passes in Emby Web, including the 4K source, and a transcode takes less than half the CPU and memory of `libx264` at a similar picture ([BASELINE](docs/BASELINE.md), "VA-API"); `qsv`, `nvenc` and `amf` follow FFmpeg's documented options and have not run on their hardware (#28). The `-media-dir` scan enables HLS, so without it `-hwaccel` is not checked or used. Hardware encoders have a minimum frame size (128×128 on AMD VCN). The default listener is local; TLS and running behind a reverse proxy are not configured yet. On a graceful shutdown (SIGINT, SIGTERM) Couch writes a `Couch stopped` line: its own CPU time and peak resident memory (`cpu`, `peak_rss_kib`) and, separately, the total time and the highest peak of finished FFmpeg and FFprobe child processes (`children_cpu`, `children_peak_rss_kib`) over the whole run.
+Other options: `-listen` (default `127.0.0.1:8097`), `-data` (`./data`), `-name` (`Couch`), `-ffmpeg-threads` (`0`), and `-metadata-language` and `-metadata-refresh` (see [Metadata](#metadata)). `-ffmpeg-threads N` caps the decoder and `libx264` encoder threads of each transcode at N; remux is not affected. FFmpeg sizes them from the host's CPUs, ignoring a container CPU quota, so by default (`0`) Couch caps them at the quota (Go's `GOMAXPROCS`: the quota rounded up to whole CPUs, at least 2) and logs `FFmpeg transcode threads follow the CPU quota`; without a quota FFmpeg keeps its own count. Under a quota the cap halves transcoding memory and brings the first segment forward (#92, [VALIDATION](docs/VALIDATION.md), [BASELINE](docs/BASELINE.md)). `-hwaccel` encodes transcodes on the GPU instead of with `libx264`: `vaapi` (Intel and AMD through VA-API), `qsv` (Intel Quick Sync), `nvenc` (Nvidia) or `amf` (AMD AMF); `-hwaccel-device` is the DRM render node for `vaapi` and `qsv` (default `/dev/dri/renderD128`). Decoding, scaling and subtitle burn-in stay on the CPU, so every source that `libx264` transcodes reaches the GPU encoder. At startup Couch encodes a short test pattern with the chosen encoder and refuses to start with FFmpeg's error if it fails (no device, driver or encoder in this FFmpeg build). Only `vaapi` is verified, on an AMD Radeon 780M (radeonsi), the target hardware: every transcode file of the agreed set passes in Emby Web, including the 4K source, and a transcode takes less than half the CPU and memory of `libx264` at a similar picture ([BASELINE](docs/BASELINE.md), "VA-API"); `qsv`, `nvenc` and `amf` follow FFmpeg's documented options and have not run on their hardware (#28). The `-media-dir` scan enables HLS, so without it `-hwaccel` is not checked or used. Hardware encoders have a minimum frame size (128×128 on AMD VCN). The default listener is local; the container and the service listen on port 8097 of every address, for the LAN. TLS and running behind a reverse proxy are not configured. On a graceful shutdown (SIGINT, SIGTERM) Couch writes a `Couch stopped` line: its own CPU time and peak resident memory (`cpu`, `peak_rss_kib`) and, separately, the total time and the highest peak of finished FFmpeg and FFprobe child processes (`children_cpu`, `children_peak_rss_kib`) over the whole run.
 
 ### Container
 
-The [Dockerfile](Dockerfile) builds an image: a static `couch` on Alpine 3.24 with FFmpeg/FFprobe 8.1 (`fd` protocol, `libx264`, `aac`). The process runs as user `couch` (UID 10001), state is kept in the `/data` volume, and it listens on `:8097` inside the container. Example for Podman; Docker accepts the same commands:
+The container is the main way to run Couch on the home server; [docs/INSTALL.md](docs/INSTALL.md) runs the binary as a systemd service instead. The [Dockerfile](Dockerfile) builds the image: a static `couch` on Alpine 3.24 with FFmpeg/FFprobe 8.1 (`fd` protocol, `libx264`, `aac`). The process runs as user `couch` (UID 10001), keeps its state in the `/data` volume and listens on `:8097`.
+
+[deploy/compose.yaml](deploy/compose.yaml) runs it with Docker Compose. It builds the image from this checkout and restarts Couch after a crash and when the host boots. State goes to the `couch_data` volume. The media folder is mounted read-only at `/media` and becomes the Movies and TV Shows libraries on the first start; more folders below it are added in Emby Web. Emby Web is mounted read-only at `/web`, and Couch is published on port 8097 of every host address. Both folders must be readable by UID 10001. The settings live in `deploy/.env`; start from [deploy/.env.example](deploy/.env.example). First start:
 
 ```sh
-podman build -t couch .
-read -rs 'couch_password?New Couch user password: '
-printf '\n'
-printf '%s\n' "$couch_password" | podman run --rm -i -v couch-data:/data couch -init -username viewer
+cd deploy
+cp .env.example .env    # set COUCH_MEDIA and COUCH_WEB
+docker compose build
+read -rsp 'New Couch user password: ' couch_password; printf '\n'
+printf '%s\n' "$couch_password" | docker compose run --rm -T couch -init -username viewer
 unset couch_password
-podman run -d --name couch -p 127.0.0.1:8097:8097 -v couch-data:/data -v /absolute/path/to/media:/media:ro couch -listen :8097 -media-root /media -web-upstream http://192.168.1.11:8096
+docker compose up -d
 ```
 
-Arguments after the image name replace `-listen :8097`, so `-listen` is given explicitly. The image has no GPU drivers; `--build-arg VAAPI=1` adds Mesa's VA-API drivers for AMD (`docker images` reports 534 MB instead of 213 MB), and the container then needs the render node and its group, for example `--device /dev/dri/renderD128 --group-add "$(getent group render | cut -d: -f3)"`, with `-hwaccel vaapi` after the image name; `-data /data` is set in the image. For `-web-dir`, the Emby Web directory is mounted separately (for example, `-v /absolute/path/to/emby-webui:/web:ro` and `-web-dir /web`). Rescan: `podman kill -s HUP couch`. Sign-in rate limiting counts the client address as the container sees it; with port forwarding this may be a shared gateway address.
+Then open `http://HOST:8097/` from a device on the LAN. `COUCH_ARGS` in `.env` adds options such as `-rescan-interval 30m`, and the TMDb and TheTVDB keys go there too. To take Emby Web from a running Emby instead, replace the `/web` volume and `-web-dir /web` in `compose.yaml` with `-web-upstream http://192.168.1.11:8096`. Logs: `docker compose logs -f`. Rescan: `docker compose kill -s HUP couch`.
+
+VA-API on an AMD or Intel GPU: uncomment the three lines at the end of `.env.example` in your `.env`. They add [deploy/compose.vaapi.yaml](deploy/compose.vaapi.yaml), which builds the image with Mesa's VA-API drivers (`VAAPI=1`, 540 MB instead of 213 MB) and passes `/dev/dri/renderD128` with the host's `render` group, and `-hwaccel vaapi`.
+
+Upgrade: take a backup (below), then build the new image and recreate the container. Couch upgrades the database on its first start, keeps the catalog index and refuses a database from a newer version without changing it. Tagging the old image first allows going back: point `image:` at `couch:previous` and restore the backup.
+
+```sh
+docker tag couch:latest couch:previous
+git pull
+docker compose build --pull
+docker compose up -d
+```
+
+Backup and restore (see `-backup` in "Storage and limitations"). The copy holds password and token hashes, so keep it private:
+
+```sh
+docker compose exec couch couch -data /data -backup /data/backup
+docker compose cp couch:/data/backup ./backup-2026-11-01
+docker compose exec couch rm -r /data/backup
+
+docker compose stop couch
+docker compose run --rm --no-deps --user root -v ./backup-2026-11-01:/backup:ro --entrypoint sh couch \
+  -c 'rm -f /data/couch.db /data/couch.db-journal /data/user-image-* && cp /backup/* /data/ && chown couch:couch /data/*'
+docker compose start couch
+```
+
+Client addresses: with Docker's default port publishing (iptables), Couch sees the address of each LAN client, so the sign-in limit per address and the activity log name the real client. Connections to `127.0.0.1` on the host and from other containers arrive through `docker-proxy` from the network's gateway (for example `172.19.0.1`) and share one sign-in limit. A port forwarder that proxies every connection, such as rootless Podman's default, would hide all clients behind one address the same way; `network_mode: host` avoids it. Podman has not been checked.
+
+Without Compose, the same image runs with `docker run` or `podman run`; arguments after the image name replace `-listen :8097`, and `-data /data` is set in the image:
+
+```sh
+docker build -t couch .
+docker run -d --name couch --restart unless-stopped -p 8097:8097 -v couch-data:/data -v /srv/media:/media:ro -v /opt/emby-webui:/web:ro couch -listen :8097 -media-dir /media -web-dir /web
+```
 
 `scripts/check-container.sh IMAGE` checks the image: `-init`, scanning an MKV H.264 + AC3 and remux to HLS (FFprobe reads `h264` + `aac`), and shutdown with exit code 0. Docker is used by default, Podman via `CONTAINER=podman`. Requires `curl` and `jq`.
 
@@ -179,7 +215,7 @@ Emby schemas have no `required`, so only types and enums are checked, not field 
 - Data upgrades: the database schema version is `PRAGMA user_version`; startup rejects a newer one without overwriting the database. Version 2 adds the `metadata` table, version 3 the administrator role, version 4 the rest of the stored policy, version 5 the libraries and version 6 the activity log and the server name; an older database is upgraded on the first start, and its existing user becomes the administrator. A `state.json` from builds before the database is not read: there was no release, so it is not migrated.
 - WebSocket sends UserDataChanged after "played", "favorite" and progress are saved, to all active connections of that user. After `Users/{id}/Configuration` is saved (subtitle mode, languages, etc.), the user's connections receive UserConfigurationUpdated with the user as each of them sees it: Emby Web replaces the cached user with it, and the setting takes effect in other tabs and on other devices without a reload. `UserSettings` are not part of the user and do not send the event. On a graceful shutdown (SIGTERM, Ctrl+C) each connection receives `ServerShuttingDown` and a 1001 close frame, all in parallel; a client that has stopped reading delays shutdown by no more than a couple of seconds. Each connection may have 32 pending events; on overflow it is closed without delaying the API or other clients. There is no log/redelivery: after reconnecting, state must be re-read via the API.
 - Logout closes all WebSocket connections of its session without affecting others. Token validity is checked before an event, on incoming frames and every 20 seconds on ping; stopping Couch closes open connections.
-- Other server events, remote control, item editing and deletion, packaging (#114) and a custom frontend are not implemented.
+- Other server events, remote control, item editing and deletion and a custom frontend are not implemented.
 
 ## Verification
 
@@ -198,7 +234,7 @@ The `COUCH_CHECK_MEDIA=1` variant requires FFmpeg and FFprobe: it generates a sy
 
 Another instance/binary can be specified via `EMBY_REFERENCE` and `COUCH_BINARY`. The check expects web version 4.10.0.40; a version change requires revisiting the contract. The report prints module SHA-256 hashes and routes without tokens. Application events and browser storage are replaced with minimal adapters. In the media scenario, the original ApiClient opens a WebSocket, receives UserDataChanged and reconnects after a restart; closing on logout is checked. The DOM, player and connection manager are not checked.
 
-The same commands are in the `Makefile`: `make` (lint, test, build), `make lint` (golangci-lint v2 per `.golangci.yml`, including go vet and the gofmt/goimports check; installed separately), `make vet`, `make build-linux` (Linux amd64, `CGO_ENABLED=0`), `make check` (build and the Node scenario; environment variables are passed as above), `make e2e`, `make e2e-report`, `make clean`. `make lint` also checks the `e2e/` module with the same `.golangci.yml`.
+The same commands are in the `Makefile`: `make` (lint, test, build), `make lint` (golangci-lint v2 per `.golangci.yml`, including go vet and the gofmt/goimports check; installed separately), `make vet`, `make build-linux` (Linux amd64, `CGO_ENABLED=0`), `make release` (the same build as in the image, with its SHA-256, for [docs/INSTALL.md](docs/INSTALL.md)), `make check` (build and the Node scenario; environment variables are passed as above), `make e2e`, `make e2e-report`, `make clean`. `make lint` also checks the `e2e/` module with the same `.golangci.yml`.
 
 CI ([ci.yml](.github/workflows/ci.yml)) runs on push to `main` and on every pull request. Stages run sequentially, each one only after the previous one succeeds:
 
@@ -238,6 +274,7 @@ In a restricted environment, Go may need an accessible `GOCACHE`, and network te
 
 - [Requirements](docs/PRD.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Install as a systemd service](docs/INSTALL.md)
 - [Emby/Jellyfin discovery](docs/DISCOVERY.md)
 - [First stage plan](docs/IMPLEMENTATION.md)
 
