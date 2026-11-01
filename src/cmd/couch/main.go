@@ -43,6 +43,7 @@ func run() error {
 	rescanInterval := flag.Duration("rescan-interval", 0, "rescan -media-dir this often, for example 30m; 0 disables")
 	init := flag.Bool("init", false, "initialize a local user; read password from stdin and exit")
 	username := flag.String("username", "", "username for -init")
+	backup := flag.String("backup", "", "copy the state in -data to this new or empty directory and exit; works while the server runs")
 	ffmpegThreads := flag.Int("ffmpeg-threads", 0, "cap FFmpeg decoder and encoder threads per transcode; 0 follows a CPU quota, or leaves them to FFmpeg without one")
 	hwaccel := flag.String("hwaccel", "", "encode transcodes on hardware: "+strings.Join(hls.Accels, ", ")+"; empty uses libx264")
 	hwaccelDevice := flag.String("hwaccel-device", "/dev/dri/renderD128", "DRM render node for -hwaccel vaapi and qsv")
@@ -58,6 +59,13 @@ func run() error {
 	}
 	if *hwaccel != "" && !slices.Contains(hls.Accels, *hwaccel) {
 		return fmt.Errorf("-hwaccel must be one of %s", strings.Join(hls.Accels, ", "))
+	}
+	if *backup != "" {
+		if err := state.Backup(*data, *backup); err != nil {
+			return fmt.Errorf("backup: %w", err)
+		}
+		fmt.Println("Backup written.")
+		return nil
 	}
 	s, err := state.Open(*data)
 	if err != nil {

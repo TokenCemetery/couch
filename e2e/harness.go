@@ -152,6 +152,16 @@ func (inst *Instance) Restart(offline func(data string) error) error {
 	return inst.restart()
 }
 
+// Backup runs the binary with -backup on the running instance's data
+// directory, as an operator would with Couch running.
+func (inst *Instance) Backup(dest string) error {
+	out, err := exec.CommandContext(context.Background(), inst.args[0], "-data", inst.data, "-backup", dest).CombinedOutput() //nolint:gosec // see NewSuite
+	if err != nil {
+		return fmt.Errorf("%w\n%s", err, out)
+	}
+	return nil
+}
+
 // restart starts the stopped process again with the same arguments.
 func (inst *Instance) restart() error {
 	inst.cmd = exec.CommandContext(context.Background(), inst.args[0], inst.args[1:]...) //nolint:gosec // see NewSuite

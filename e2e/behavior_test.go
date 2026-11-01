@@ -288,7 +288,7 @@ var behaviors = []behavior{
 	},
 	{
 		Key:     "backup-restores-after-forced-stop",
-		Title:   "A copy of the stopped data directory restores after a forced stop",
+		Title:   "A backup taken while Couch runs restores after a forced stop",
 		Feature: "UserLibraryService",
 		Run: func(inst *Instance, check *Check) {
 			favorite := Request{Method: "POST", Path: "/Users/" + inst.IDs.UserID + "/FavoriteItems/" + inst.IDs.MovieID}
@@ -296,15 +296,14 @@ var behaviors = []behavior{
 				check.Errorf("favorite: status %d, err %v, want 200", resp.Status, err)
 				return
 			}
-			// The README procedure: stop Couch, copy the files of the data
-			// directory, start Couch.
+			// The README procedure: couch -backup while the server runs.
 			backup, err := os.MkdirTemp("", "couch-e2e-backup-")
 			if err != nil {
 				check.Errorf("backup directory: %v", err)
 				return
 			}
 			defer func() { _ = os.RemoveAll(backup) }()
-			if err := inst.Restart(func(data string) error { return copyDir(data, backup) }); err != nil {
+			if err := inst.Backup(backup); err != nil {
 				check.Errorf("back up: %v", err)
 				return
 			}
