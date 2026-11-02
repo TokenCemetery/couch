@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,9 +28,10 @@ import (
 // FFmpeg session limits, and the media directory is rescanned (SIGHUP)
 // during the load: every COUCH_SOAK_RESCAN (a Go duration), eight times by
 // default.
-// Budgets are not agreed yet (#15), so it reports the numbers and fails only
-// on leftovers: child processes, file descriptors or files in the data
-// directory that outlive the load.
+// It fails on the stability criterion in ROADMAP M0 (#15): request errors,
+// leftovers (child processes, file descriptors or files in the data directory
+// that outlive the load) and RSS growth, a second-half peak more than 5%
+// above the first half's.
 func TestSoak(t *testing.T) {
 	duration, err := time.ParseDuration(os.Getenv("COUCH_SOAK"))
 	if err != nil {
@@ -120,6 +122,16 @@ func TestSoak(t *testing.T) {
 	peak := slices.MaxFunc(samples, func(a, b processSample) int { return a.rssKiB - b.rssKiB })
 	t.Logf("%d workers, %s: %d requests, %d failures, %d rescans", workers, duration, requests.Load(), failures.Load(), rescans.Load())
 	t.Logf("RSS KiB: start %d, peak %d, end %d; open files: start %d, end %d", baseline.rssKiB, peak.rssKiB, final.rssKiB, baseline.files, final.files)
+	middle := baseline.at.Add(duration / 2)
+	var firstPeak, secondPeak int
+	for _, s := range samples {
+		if s.at.Before(middle) {
+			firstPeak = max(firstPeak, s.rssKiB)
+		} else {
+			secondPeak = max(secondPeak, s.rssKiB)
+		}
+	}
+	t.Logf("RSS peak KiB: first half %d, second half %d", firstPeak, secondPeak)
 	for _, s := range samples {
 		t.Logf("  %s rss=%dKiB files=%d children=%d", s.at.Format(time.TimeOnly), s.rssKiB, s.files, s.children)
 	}
@@ -129,10 +141,14 @@ func TestSoak(t *testing.T) {
 	if final.children != 0 {
 		t.Errorf("%d child processes remain after the load", final.children)
 	}
-	// A few descriptors may come and go (keep-alive pools, the log); a leak
+	// The test's HTTP client keeps up to 2 idle connections per host; a leak
 	// grows with the number of requests.
-	if final.files > baseline.files+8 {
+	if final.files > baseline.files+2 {
 		t.Errorf("open files grew from %d to %d", baseline.files, final.files)
+	}
+	// Garbage collection moves the peak by a few percent; a leak keeps rising.
+	if secondPeak*100 > firstPeak*105 {
+		t.Errorf("RSS peak grew more than 5%%, from %d KiB in the first half to %d KiB in the second", firstPeak, secondPeak)
 	}
 	if extra := listFiles(inst.data); !slices.Equal(extra, dataFiles) {
 		t.Errorf("data directory changed from %v to %v", dataFiles, extra)
@@ -259,11 +275,16 @@ func sampleProcess(pid int) processSample {
 	return s
 }
 
+var rotatedLog = regexp.MustCompile(`^/logs/couch-[0-9]+\.log$`)
+
+// listFiles lists the files under dir except rotated server logs
+// (logs/couch-N.log), which a long run creates by design and Couch bounds.
 func listFiles(dir string) []string {
 	names := []string{}
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
-			names = append(names, strings.TrimPrefix(path, dir))
+		name := strings.TrimPrefix(path, dir)
+		if err == nil && !d.IsDir() && !rotatedLog.MatchString(name) {
+			names = append(names, name)
 		}
 		return nil
 	})

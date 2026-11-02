@@ -598,6 +598,30 @@ So the 4K source now starts in Emby Web on 4 CPUs, but does not play smoothly, a
 
 Against the stability criteria in [ROADMAP](ROADMAP.md) M0 (#15, approved 2026-11-01): the duration, profile, concurrency, errors, child processes and segments match. The rescan was hourly, not every 75 s, and "no growth above the peak of the first 4 hours" is missed by 280 KiB. Rerun with a 75 s rescan (`COUCH_SOAK_RESCAN=75s`, added after this run) and the current code.
 
+## 2-hour and 6-hour soak with a 75 s rescan (2026-11-02, #30)
+
+A rerun of the 8-hour soak above with the approved 75 s rescan and the current code, split at the owner's request into a 2-hour run followed, once it passed, by a 6-hour run. Both used the `couch` binary from 44c86c8 (with the saved catalog index, #39, and the 3 s transcode segments, #99) in a `couch:soak` image limited like the large profile (`--cpus 4 --memory 4g`), on the bench host (AMD Ryzen 7 255): `COUCH_SOAK=2h` and then `COUCH_SOAK=6h`, both with `COUCH_SOAK_RESCAN=75s` and 8 workers. Workers 0 and 1 remux and worker 2 transcodes, filling the FFmpeg limits.
+
+A first 2-hour attempt failed only because Couch rotated its server log (`logs/couch-1.log`), which the test counted as a leftover file (#118). Its load was clean: 7,312,796 requests, 0 failures, 95 rescans. The test now leaves rotated logs out of that check.
+
+| | 2 hours | 6 hours |
+|---|---|---|
+| Requests / failures | 7,404,574 / 0 | 22,036,315 / 0 |
+| Rescans | 96 | 288 |
+| Child processes under load / at the end | 0–3 / 0 | 0–2 / 0 |
+| Data directory at the end | same files as at the start | same files as at the start |
+| Open files: start, under load, end | 12, 20–30, 13 | 12, 19–26, 13 |
+| RSS at start | 15.6 MiB (16,004 KiB) | 15.6 MiB (16,020 KiB) |
+| RSS band after warm-up | 20.6–21.5 MiB (21,096–22,048 KiB) | 20.6–21.2 MiB (21,100–21,676 KiB) |
+| RSS peak, first half / second half | 21,620 / 22,048 KiB | 21,504 / 21,676 KiB |
+| RSS at the end | 21,548 KiB | 21,512 KiB |
+
+The extra open file at the end is the test's HTTP client, not Couch: a 20-second run listed the descriptors at the start and the end, and the files (database, lock, log, media directory, cgroup file) were identical. Only the accepted TCP sockets differed: one idle client connection at the start, two at the end, which is the Go client's limit of 2 idle connections per host.
+
+Against the stability criteria in [ROADMAP](ROADMAP.md) M0 (#15): the profile, concurrency, 75 s rescan, errors, child processes and segments match, and open files return to the start count apart from that client connection. The second half's RSS peak is 428 KiB above the first half's in the 2-hour run (one sample at hour 1.2, followed by the same band) and 172 KiB above it in the 6-hour run, with no trend: the last samples of each run sit inside the band. Two runs are not the approved single 8-hour run, so the "last 4 hours against the first 4" comparison is not made across them.
+
+The owner then amended the criterion (2026-11-02): 4 hours or more, the second half's RSS peak at most 5% above the first half's, and up to 2 idle connections of the test's client among the open files. The 6-hour run meets it (+0.8%), and so does the 2-hour one apart from its length (+2.0%), as does the earlier 8-hour run apart from its hourly rescan (+1.8%). `TestSoak` now fails when the criterion is not met.
+
 ## Hardware encoding with `-hwaccel` (2026-11-01, #28)
 
 `-hwaccel vaapi|qsv|nvenc|amf` replaces `libx264` with the GPU's H.264 encoder; decoding, scaling and subtitle burn-in stay on the CPU. Host FFmpeg 8.0.1 (not the image), AMD Ryzen 7 255 with Radeon 780M (radeonsi, VA-API render node `/dev/dri/renderD128`), 16 CPUs, no container limit.
