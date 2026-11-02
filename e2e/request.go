@@ -71,6 +71,10 @@ var requestOverrides = map[string]func(*Request, Fixtures){
 	"getMusicgenresInstantmix": func(r *Request, ids Fixtures) {
 		r.Query.Set("Ids", ids.GenreID)
 	},
+	// Emby Web's section editor sends a type from its list, here Latest Media.
+	"postUsersByUseridHomesections": func(r *Request, _ Fixtures) {
+		r.Body = []byte(`{"SectionType":"latestmediablock","IncludeNextUpInResume":true,"ExcludedFolders":[],"Query":{}}`)
+	},
 	// Emby Web always reports at least one item and WasSearched.
 	"postUsersByUseridSearcheditems": func(r *Request, ids Fixtures) {
 		r.Body = fmt.Appendf(nil, `{"Ids":[%q],"WasSearched":true}`, ids.MovieID)

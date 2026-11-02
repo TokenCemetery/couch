@@ -783,3 +783,17 @@ Emby Web 4.10.0.40 (`-web-dir`) in Chromium 152 against Couch with only `-media-
 - **Embedded cover (2026-11-02, #120):** an MP3 whose only cover is a green JPEG in its ID3 tag, in `Artist D/Embedded Art`, showed that cover on its album card and album page. The restart rejected the version 3 index and scanned again (`media index is for another version`), and the cover was cached once in `covers/` (765 bytes).
 
 No server errors were logged. A music library shared with a movies library's folder, the saved index with tags, the artist filters, an album added to a playlist in track order and marking an album played are covered by `TestMusicLibrary` and `TestMusic`; encoding once per track for concurrent requests and keeping 32 encoded tracks by `TestAudioEncodesOnceAndKeepsRecentTracks`; MP3 and FLAC covers, an album taking its first track's, the cache and a local cover winning by `TestEmbeddedCovers`; Instant Mix from every kind of seed and its limit by `TestMusic`, and its seven operations in `make e2e`, which now adds a Music library on its sample track. Real music collections, other clients and gapless playback were not checked.
+
+## Home Screen settings (2026-11-03, #100)
+
+Emby Web 4.10.0.40 (`-web-dir`) in Chromium against Couch with `-media-dir` on the real-file set (16 movies, one series), signed in as the `-init` user.
+
+- **Editor list:** Settings → Home Screen listed My Media, Continue Watching and Latest Media, from `HomeSections?isEditMode=true`.
+- **Add:** Add → Dynamic Media, type Movies, custom title "Films to watch", Playstate Unplayed → Save sent `POST Users/{id}/HomeSections` (204). The section came back with its type, title, item types and `IsPlayed: false`.
+- **Move and remove:** dragging "Films to watch" to the top sent `HomeSections/Move` (204). Removing Continue Watching after the confirmation sent `HomeSections/Delete` (204).
+- **Edit:** unticking TV Shows under Libraries on Latest Media and saving left one latest row.
+- **Home:** rows in order: Films to watch (R01, R02, R03…), My Media, Latest Movies. No Continue Watching, no Latest Episodes. The row's "›" link opened its list page with all 16 movies.
+- **Restart:** after the server was stopped and started again, the home screen kept that layout.
+- **Refusal:** saving an On Now section answered 400 "Couch has no Live TV, so this section would always be empty."
+
+No server errors were logged. The other section types, the display-mode choice, the play-state filter of Latest Media, edits of a missing section and the stored layout across a database upgrade are covered by `TestHomeSectionsCanBeEdited` and `TestHomeSections`.

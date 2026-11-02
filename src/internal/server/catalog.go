@@ -238,7 +238,18 @@ func (s *Server) reportSearched(w http.ResponseWriter, r *http.Request, token st
 }
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state.Session, latest, resume bool) {
-	catalog := s.catalogFor(session)
+	s.listItemsIn(w, r, session, s.catalogFor(session), latest, resume)
+}
+
+// supportedSorts lists the SortBy keys listItemsIn accepts, in lower case.
+const supportedSorts = "sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber," +
+	"totalbitrate,videocodec,container,size,resolution,framerate,playcount,random,seriesdateplayed,datelastcontentadded," +
+	"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder,listitemorder,datemodified," +
+	"album,albumartist,artist,bitrate,composer"
+
+// listItemsIn answers an Items query over catalog, which is the session's
+// catalogue or part of it.
+func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session state.Session, catalog *media.Catalog, latest, resume bool) {
 	token, _ := requestToken(r) // Callers have already authenticated this request.
 	typesOnly := r.URL.Path == "/itemtypes"
 	query, err := catalogQuery(r)
@@ -328,10 +339,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	}
 	sortKeys := strings.Split(sortBy, ",")
 	for _, key := range sortKeys {
-		if !member("sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber,"+
-			"totalbitrate,videocodec,container,size,resolution,framerate,playcount,random,seriesdateplayed,datelastcontentadded,"+
-			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder,listitemorder,datemodified,"+
-			"album,albumartist,artist,bitrate,composer", key) {
+		if !member(supportedSorts, key) {
 			fail(w, 400, "UnsupportedSort")
 			return
 		}

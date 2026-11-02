@@ -30,7 +30,7 @@ The in-memory catalog is a temporary solution for a limited read-only scenario; 
 Implemented after the reference contract was captured with the user's authorization and Emby Web could run in the browser against Couch. Each decision below is confirmed by real client behavior, not inferred from documentation:
 
 1. The DTO layer (`src/internal/server/dto.go`) reproduces the reference fields, including arrays the client dereferences without guards. `Subviews` is returned only in the library item response, as in the reference.
-2. Home screen (`src/internal/server/home.go`): `HomeSections` and `Sections/{id}/Items`. The server fills the rows; only sections Couch can populate are declared.
+2. Home screen (`src/internal/server/home.go`): `HomeSections` and `Sections/{id}/Items`. The server fills the rows. A user's sections are stored once they edit them in Settings → Home Screen; until then a default applies. Only section types Couch can fill are accepted, and a Latest Media block becomes one row per library it includes.
 3. `PlaybackInfo` negotiates Direct Stream by the client's `DeviceProfile`. Couch does not transcode, so on a profile mismatch the source is declared unsupported rather than promised and then refused.
 4. File serving uses `http.ServeContent`: Range, If-Range, HEAD, 206 and 416 come from the standard library, and the file is streamed. The catalog holds an open `os.Root`, so reopening a file cannot escape the chosen directory.
 5. `SupportsDirectPlay` is deliberately `false`: in the Emby model it means the client reads the file by `MediaSource.Path`. HTTP delivery is Direct Stream.

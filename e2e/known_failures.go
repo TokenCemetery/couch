@@ -12,7 +12,6 @@ type knownFailure struct {
 func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 
 var (
-	homeSections    = knownFailure{100, "Home Screen settings cannot add, remove or move sections"}
 	administration  = knownFailure{33, "administration is not implemented"}
 	identifyInputs  = knownFailure{115, "refused on purpose: the contract run has no provider image URL or provider IDs to identify with"}
 	refusedLibrary  = knownFailure{112, "implemented; the generated request names no library, folder or task Couch has, or a folder outside the media roots, which Couch refuses"}
@@ -55,10 +54,6 @@ var knownFailures = map[string]knownFailure{
 	"getConnectPending":              unranked,
 	"postUsersByIdConnectLink":       unranked,
 	"postUsersByIdConnectLinkDelete": unranked,
-	// ContentService
-	"postUsersByUseridHomesections":       homeSections,
-	"postUsersByUseridHomesectionsDelete": homeSections,
-	"postUsersByUseridHomesectionsMove":   homeSections,
 	// DeviceService
 	"getDevicesCamerauploads":  administration,
 	"getDevicesInfo":           refusedAdmin,

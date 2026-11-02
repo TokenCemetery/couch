@@ -639,55 +639,6 @@ func (s *Server) hideFromResume(w http.ResponseWriter, r *http.Request, token st
 	respond(w, 200, data)
 }
 
-// resumeItems fills the home Continue Watching row: videos with meaningful
-// stored progress plus, because the section advertises IncludeNextUpInResume,
-// each started series' next episode dated by the series' last watch. Most
-// recent first. With audio it fills Continue Listening: tracks with progress.
-func (s *Server) resumeItems(limit int, token string, session state.Session, audio bool) []object {
-	catalog := s.catalogFor(session)
-	snapshot := s.store.Snapshot()
-	serverID := snapshot.ServerID
-	candidates := []*media.Item{}
-	played := map[string]time.Time{}
-	episodes := s.nextUpEpisodes(catalog, userOf(snapshot, session).Items, "", "")
-	if audio {
-		episodes = nil
-	}
-	for _, c := range episodes {
-		if userOf(snapshot, session).Items[c.next.ID].HiddenFromResume {
-			continue
-		}
-		candidates = append(candidates, c.next)
-		played[c.next.ID] = c.lastPlayed
-	}
-	if catalog != nil {
-		for i := range catalog.Items {
-			item := &catalog.Items[i]
-			st := userOf(snapshot, session).Items[item.ID]
-			if !resumable(st, item.RunTimeTicks) || (item.Type() == "Audio") != audio {
-				continue
-			}
-			if _, listed := played[item.ID]; !listed {
-				candidates = append(candidates, item)
-			}
-			if st.LastPlayed.After(played[item.ID]) {
-				played[item.ID] = st.LastPlayed
-			}
-		}
-	}
-	slices.SortFunc(candidates, func(a, b *media.Item) int {
-		if c := played[b.ID].Compare(played[a.ID]); c != 0 {
-			return c
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
-	result := []object{}
-	for _, item := range candidates[:min(limit, len(candidates))] {
-		result = append(result, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token))
-	}
-	return result
-}
-
 func (s *Server) playbackRoutes(mux *http.ServeMux) {
 	for path, event := range map[string]string{
 		"/sessions/playing":          "start",

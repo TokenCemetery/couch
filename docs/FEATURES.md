@@ -26,7 +26,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Home screen: My Media, Continue Watching (with Next Up), Continue Listening, Latest | Supported | Row titles localized for ru, de, fr, es, it; English otherwise (#18); Continue Listening only with a music library (#104) |
 | Movie and TV Shows libraries, item pages, seasons, episodes | Supported | Series need `Show/Season NN/Show.SNNENN.ext` naming; a movies library holds the other files |
 | Search, recent searches | Supported | By title, original title or file name |
-| Customizing home sections in Settings → Home Screen | Unsupported | Adding, removing or reordering a section shows "Couch's home screen sections are fixed for now" in Emby Web's error dialog (#100) |
+| Customizing home sections in Settings → Home Screen | Supported | Add, edit, remove and reorder sections per user, stored in `couch.db`; "Copy Data to Users" copies them with the configuration. Types: My Media, Continue Watching, Continue Listening, Latest Media, Collections, Playlists, a single collection or playlist, Dynamic Media, Recently Released Movies and Episodes. On Now and Active Recordings are refused: there is no Live TV. An administrator cannot edit another user's home screen (#100) |
 | Sorting, paging, filters on technical data (container, codecs, audio layout, languages) | Supported | #78, #79 |
 | Filters and sorts on metadata: genres, studios, tags, parental ratings, years, people; genre, studio and person pages | Supported | Values come from `.nfo` files and online providers; people cannot be marked favorite (#101, #80) |
 | Next Up, Suggestions tab of TV Shows | Supported | Merge order with in-progress items is an assumption, not captured from Emby (#40) |

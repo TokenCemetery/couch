@@ -29,6 +29,11 @@ func (s *Server) catalogView(catalog *media.Catalog, user state.User) *media.Cat
 	if catalog == nil || !limited {
 		return catalog
 	}
+	return s.catalogOnly(catalog, ids)
+}
+
+// catalogOnly is catalog.Only(ids), kept until the catalogue changes.
+func (s *Server) catalogOnly(catalog *media.Catalog, ids []string) *media.Catalog {
 	key := strings.Join(ids, "\x00")
 	s.viewMu.Lock()
 	defer s.viewMu.Unlock()

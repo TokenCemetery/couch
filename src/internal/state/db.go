@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 9
+const dbSchemaVersion = 10
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,9 +57,13 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + `
-PRAGMA user_version = 9;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + `
+PRAGMA user_version = 10;
 `
+
+// homeSectionsColumn was added in version 10: the user's home screen as a
+// JSON array of HomeSection, NULL until the user first changes it.
+const homeSectionsColumn = "ALTER TABLE users ADD COLUMN home_sections TEXT;"
 
 // playlistsSchema was added in version 9; entries is a JSON array of
 // {ID, ItemID} objects.
@@ -153,6 +157,8 @@ var migrations = map[int]string{
 	7: collectionsSchema + "PRAGMA user_version = 8;",
 	// Version 9 stores playlists.
 	8: playlistsSchema + "PRAGMA user_version = 9;",
+	// Version 10 stores home screens arranged in Emby Web.
+	9: homeSectionsColumn + "PRAGMA user_version = 10;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -235,7 +241,7 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 
 func loadUsers(ctx context.Context, db *sql.DB) (map[string]User, error) {
 	rows, err := db.QueryContext(ctx, `SELECT id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime,
-		is_administrator, is_disabled, is_hidden, enable_all_folders, enabled_folders FROM users`)
+		is_administrator, is_disabled, is_hidden, enable_all_folders, enabled_folders, home_sections FROM users`)
 	if err != nil {
 		return nil, err
 	}
@@ -244,11 +250,16 @@ func loadUsers(ctx context.Context, db *sql.DB) (map[string]User, error) {
 	for rows.Next() {
 		var u User
 		var configuration, settings, folders string
-		var revision, mime sql.NullString
+		var revision, mime, sections sql.NullString
 		p := &u.Policy
 		if err := rows.Scan(&u.ID, &u.Name, &u.Salt, &u.PasswordHash, &u.Iterations, &configuration, &settings, &revision, &mime,
-			&p.IsAdministrator, &p.IsDisabled, &p.IsHidden, &p.EnableAllFolders, &folders); err != nil {
+			&p.IsAdministrator, &p.IsDisabled, &p.IsHidden, &p.EnableAllFolders, &folders, &sections); err != nil {
 			return nil, err
+		}
+		if sections.Valid {
+			if err := json.Unmarshal([]byte(sections.String), &u.HomeSections); err != nil {
+				return nil, err
+			}
 		}
 		if err := json.Unmarshal([]byte(configuration), &u.Configuration); err != nil {
 			return nil, err
@@ -397,13 +408,13 @@ func writeUser(ctx context.Context, tx *sql.Tx, prev, next User, items []string)
 	}
 	if !reflect.DeepEqual(prevRow, nextRow) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, name, salt, password_hash, iterations, configuration, settings, image_revision, image_mime,
-				is_administrator, is_disabled, is_hidden, enable_all_folders, enabled_folders)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				is_administrator, is_disabled, is_hidden, enable_all_folders, enabled_folders, home_sections)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (id) DO UPDATE SET name = excluded.name, salt = excluded.salt, password_hash = excluded.password_hash,
 				iterations = excluded.iterations, configuration = excluded.configuration, settings = excluded.settings,
 				image_revision = excluded.image_revision, image_mime = excluded.image_mime, is_administrator = excluded.is_administrator,
 				is_disabled = excluded.is_disabled, is_hidden = excluded.is_hidden, enable_all_folders = excluded.enable_all_folders,
-				enabled_folders = excluded.enabled_folders`, nextRow...); err != nil {
+				enabled_folders = excluded.enabled_folders, home_sections = excluded.home_sections`, nextRow...); err != nil {
 			return err
 		}
 	}
@@ -426,9 +437,16 @@ func userRow(u User) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var revision, mime any
+	var revision, mime, sections any
 	if u.Image != nil {
 		revision, mime = u.Image.Revision, u.Image.MIME
+	}
+	if u.HomeSections != nil {
+		text, err := json.Marshal(u.HomeSections)
+		if err != nil {
+			return nil, err
+		}
+		sections = string(text)
 	}
 	// A user without a password stores empty blobs, which the columns require.
 	salt, hash := u.Salt, u.PasswordHash
@@ -440,7 +458,7 @@ func userRow(u User) ([]any, error) {
 	}
 	p := u.Policy
 	return []any{u.ID, u.Name, salt, hash, u.Iterations, string(configuration), string(settings), revision, mime,
-		p.IsAdministrator, p.IsDisabled, p.IsHidden, p.EnableAllFolders, string(folders)}, nil
+		p.IsAdministrator, p.IsDisabled, p.IsHidden, p.EnableAllFolders, string(folders), sections}, nil
 }
 
 // writeItems upserts or deletes the rows of ids whose state differs.

@@ -79,6 +79,9 @@ type User struct {
 	// Image is the uploaded avatar, absent until one is uploaded.
 	Image  *UserImage `json:",omitempty"`
 	Policy Policy
+	// HomeSections is the home screen the user arranged, nil until the
+	// first change: then the server's default applies.
+	HomeSections []HomeSection `json:",omitempty"`
 }
 
 // HasPassword reports whether the user can sign in with a password.
@@ -341,6 +344,9 @@ func settingsBytes(u User) int {
 	}
 	for k, v := range u.Configuration {
 		n += len(k) + len(v)
+	}
+	if sections, err := json.Marshal(u.HomeSections); err == nil {
+		n += len(sections)
 	}
 	return n
 }
@@ -775,6 +781,7 @@ func (s *Store) CopyUserData(from string, to []string, policy, configuration boo
 			}
 			if configuration {
 				u.Configuration = maps.Clone(source.Configuration)
+				u.HomeSections = slices.Clone(source.HomeSections)
 			}
 			d.Users[id] = u
 		}
