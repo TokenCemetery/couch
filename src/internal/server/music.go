@@ -1,11 +1,14 @@
 package server
 
 import (
+	"cmp"
 	"context"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -220,15 +223,116 @@ func (s *Server) artistList(albumArtists bool) authenticated {
 func (s *Server) musicRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /artists", s.protect(s.artistList(false)))
 	mux.HandleFunc("GET /artists/albumartists", s.protect(s.artistList(true)))
-	// Emby Web offers Instant Mix on every track, album and artist. Until it
-	// is implemented, its error dialog says so instead of "not found".
-	notYet := s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		failText(w, 400, "Instant Mix is not available in Couch yet.")
-	})
+	// Emby Web asks Items/{id}/InstantMix for every kind of seed; the other
+	// routes name the seed their own way.
 	for _, path := range []string{"/items/{item}/instantmix", "/albums/{item}/instantmix", "/songs/{item}/instantmix", "/playlists/{item}/instantmix",
 		"/artists/instantmix", "/musicgenres/instantmix", "/musicgenres/{name}/instantmix"} {
-		mux.HandleFunc("GET "+path, notYet)
+		mux.HandleFunc("GET "+path, s.protect(s.instantMix))
 	}
+}
+
+// maxMix is the most tracks an Instant Mix holds, however many the client
+// asks for (Emby Web asks for 5000).
+const maxMix = 200
+
+// instantMix answers Instant Mix: the seed's tracks, then the other tracks
+// that share an artist or a genre with them, of the libraries the user can
+// see. The seed is a track, album, artist, music genre or playlist, by its
+// ID in the path, Id or the first of Ids or, for a genre, its name. The first seed track leads and the rest are
+// shuffled, at most maxMix or Limit. A seed without tracks, such as a movie,
+// makes an empty mix.
+func (s *Server) instantMix(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	catalog := s.catalogFor(session)
+	id := r.PathValue("item")
+	if id == "" {
+		id = value(r, "Id")
+	}
+	if id == "" {
+		id, _, _ = strings.Cut(value(r, "Ids"), ",")
+	}
+	if name := r.PathValue("name"); name != "" {
+		id = metadata.ID("Genre", name)
+	}
+	limit := maxMix
+	if text := value(r, "Limit"); text != "" {
+		v, err := strconv.Atoi(text)
+		if err != nil || v < 0 {
+			fail(w, 400, "InvalidPagination")
+			return
+		}
+		limit = min(v, maxMix)
+	}
+	if catalog == nil {
+		fail(w, 404, "NotFound")
+		return
+	}
+	var seeds []*media.Item
+	tracks := func(keep func(media.Item) bool) []*media.Item {
+		found := []*media.Item{}
+		for i := range catalog.Items {
+			if item := &catalog.Items[i]; item.Type() == "Audio" && keep(*item) {
+				found = append(found, item)
+			}
+		}
+		return found
+	}
+	if list, ok := s.sessionPlaylists(session)[id]; ok {
+		for _, e := range list.entries {
+			if e.item.Type() == "Audio" {
+				seeds = append(seeds, e.item)
+			}
+		}
+	} else if item, ok := catalog.Lookup(id); ok {
+		switch item.Type() {
+		case "Audio":
+			seeds = []*media.Item{item}
+		case "MusicAlbum":
+			seeds = tracks(func(t media.Item) bool { return t.ParentID == item.ID })
+			slices.SortFunc(seeds, func(a, b *media.Item) int {
+				return cmp.Or(cmp.Compare(max(a.Tags.Disc, 1), max(b.Tags.Disc, 1)), cmp.Compare(a.Tags.Track, b.Tags.Track))
+			})
+		}
+	} else if e, ok := s.entityIn(catalog, id); ok && (e.Type == "MusicArtist" || e.Type == "Genre") {
+		seeds = tracks(func(t media.Item) bool {
+			if e.Type == "Genre" {
+				return slices.ContainsFunc(s.info(t.ID).Genres, func(g string) bool { return strings.EqualFold(g, e.Name) })
+			}
+			return slices.ContainsFunc(artistsOf(catalog, t, "Artist,AlbumArtist"), func(a string) bool { return strings.EqualFold(a, e.Name) })
+		})
+	} else {
+		fail(w, 404, "NotFound")
+		return
+	}
+	artists, genres := map[string]bool{}, map[string]bool{}
+	inMix := map[string]bool{}
+	for _, seed := range seeds {
+		inMix[seed.ID] = true
+		for _, a := range artistsOf(catalog, *seed, "Artist,AlbumArtist") {
+			artists[strings.ToLower(a)] = true
+		}
+		for _, g := range s.info(seed.ID).Genres {
+			genres[strings.ToLower(g)] = true
+		}
+	}
+	related := tracks(func(t media.Item) bool {
+		if inMix[t.ID] {
+			return false
+		}
+		return slices.ContainsFunc(artistsOf(catalog, t, "Artist,AlbumArtist"), func(a string) bool { return artists[strings.ToLower(a)] }) ||
+			slices.ContainsFunc(s.info(t.ID).Genres, func(g string) bool { return genres[strings.ToLower(g)] })
+	})
+	mix := append(slices.Clone(seeds), related...)
+	if len(mix) > 1 {
+		rest := mix[1:]
+		rand.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] }) //nolint:gosec // a play order, not a secret
+	}
+	mix = mix[:min(limit, len(mix))]
+	snapshot := s.store.Snapshot()
+	result := make([]object, 0, len(mix))
+	for _, item := range mix {
+		result = append(result, s.movieDTO(*item, snapshot.ServerID, userOf(snapshot, session).Items, token))
+	}
+	respond(w, 200, object{"Items": result, "TotalRecordCount": len(result)})
 }
 
 // maxCovers covers read from audio files are cached; the least recently

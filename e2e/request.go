@@ -64,6 +64,13 @@ var requestOverrides = map[string]func(*Request, Fixtures){
 	"postItemsDelete": func(r *Request, ids Fixtures) {
 		r.Query.Set("Ids", ids.CollectionID)
 	},
+	// An artist's or a genre's Instant Mix names its seed in Ids.
+	"getArtistsInstantmix": func(r *Request, ids Fixtures) {
+		r.Query.Set("Ids", ids.ArtistID)
+	},
+	"getMusicgenresInstantmix": func(r *Request, ids Fixtures) {
+		r.Query.Set("Ids", ids.GenreID)
+	},
 	// Emby Web always reports at least one item and WasSearched.
 	"postUsersByUseridSearcheditems": func(r *Request, ids Fixtures) {
 		r.Body = fmt.Appendf(nil, `{"Ids":[%q],"WasSearched":true}`, ids.MovieID)
@@ -165,6 +172,10 @@ func (c *Contract) value(p Param, path string, ids Fixtures) string {
 		}
 	case "DisplayPreferencesId":
 		return "usersettings"
+	case "Name":
+		if strings.HasPrefix(path, "/MusicGenres/") {
+			return ids.GenreName
+		}
 	case "Path":
 		return "/"
 	}
@@ -195,6 +206,14 @@ func entityFor(path string, ids Fixtures) string {
 		return ids.SessionID
 	case strings.HasPrefix(path, "/Shows/"):
 		return ids.SeriesID
+	case strings.HasPrefix(path, "/Albums/"):
+		return ids.AlbumID
+	case strings.HasPrefix(path, "/Artists/"):
+		return ids.ArtistID
+	case strings.HasPrefix(path, "/MusicGenres/"):
+		return ids.GenreID
+	case strings.HasPrefix(path, "/Songs/"), strings.HasSuffix(path, "/InstantMix"):
+		return ids.TrackID
 	}
 	return ids.MovieID
 }

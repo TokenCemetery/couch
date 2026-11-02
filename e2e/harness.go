@@ -53,6 +53,8 @@ type Fixtures struct {
 	PlaylistID    string
 	// PlaylistEntry is the playlist's only entry: the movie.
 	PlaylistEntry string
+	// The Music library's track, its album, artist and genre.
+	TrackID, AlbumID, ArtistID, GenreID, GenreName string
 }
 
 // Instance is one running couch process with a logged-in session.
@@ -120,6 +122,9 @@ func (s *Suite) Start() (*Instance, error) {
 	}
 	if err := inst.waitReady(); err == nil {
 		err = inst.login()
+		if err == nil {
+			err = inst.addMusicLibrary(filepath.Join(s.Media, "Music"))
+		}
 		if err == nil {
 			err = inst.discover()
 		}
@@ -330,6 +335,34 @@ func (inst *Instance) uploadAvatar() error {
 	return err
 }
 
+// addMusicLibrary adds a Music library on folder, as an administrator does
+// in Emby Web's library setup, and waits for its scan to list the track.
+func (inst *Instance) addMusicLibrary(folder string) error {
+	body, _ := json.Marshal(map[string]any{"LibraryOptions": map[string]any{"PathInfos": []map[string]string{{"Path": folder}}}})
+	r := Request{Method: "POST", Path: "/Library/VirtualFolders", Query: url.Values{"collectionType": {"music"}, "name": {"Music"}, "refreshLibrary": {"true"}},
+		Body: body, ContentType: "application/json"}
+	resp, err := inst.Send(r, true)
+	if err != nil {
+		return err
+	}
+	if resp.Status != http.StatusNoContent {
+		return fmt.Errorf("add music library: status %d: %s", resp.Status, snippet(resp.Body))
+	}
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		var tracks struct {
+			Items []struct{ Id, AlbumId string }
+		}
+		if err := inst.Get("/emby/Users/"+inst.IDs.UserID+"/Items?Recursive=true&IncludeItemTypes=Audio", &tracks); err != nil {
+			return err
+		}
+		if len(tracks.Items) > 0 {
+			inst.IDs.TrackID, inst.IDs.AlbumID = tracks.Items[0].Id, tracks.Items[0].AlbumId
+			return nil
+		}
+	}
+	return errors.New("the music library's scan did not list the track")
+}
+
 // createCollection puts the movie in a collection, so the collection and
 // item deletion operations have one to change.
 func (inst *Instance) createCollection() error {
@@ -426,7 +459,20 @@ func (inst *Instance) discover() error {
 			setOnce(&inst.IDs.EpisodeID, it.Id)
 		}
 	}
-	if inst.IDs.MovieID == "" || inst.IDs.SeriesID == "" || inst.IDs.EpisodeID == "" {
+	var named struct{ Items []struct{ Id, Name string } }
+	if err := inst.Get("/emby/Artists?UserId="+inst.IDs.UserID, &named); err != nil {
+		return err
+	}
+	if len(named.Items) > 0 {
+		inst.IDs.ArtistID = named.Items[0].Id
+	}
+	if err := inst.Get("/emby/Genres?IncludeItemTypes=MusicAlbum&UserId="+inst.IDs.UserID, &named); err != nil {
+		return err
+	}
+	if len(named.Items) > 0 {
+		inst.IDs.GenreID, inst.IDs.GenreName = named.Items[0].Id, named.Items[0].Name
+	}
+	if inst.IDs.MovieID == "" || inst.IDs.SeriesID == "" || inst.IDs.EpisodeID == "" || inst.IDs.AlbumID == "" || inst.IDs.ArtistID == "" || inst.IDs.GenreID == "" {
 		return fmt.Errorf("media fixtures not found in catalog: %+v", inst.IDs)
 	}
 	return nil

@@ -129,14 +129,7 @@ var knownFailures = map[string]knownFailure{
 	"postItemsByIdImagesByTypeByIndexUrl":      administration,
 	"postItemsByIdImagesByTypeDelete":          administration,
 	// InstantMixService
-	"getAlbumsByIdInstantmix":        unranked,
-	"getArtistsInstantmix":           unranked,
-	"getAudiobooksNextup":            unranked,
-	"getItemsByIdInstantmix":         unranked,
-	"getMusicgenresByNameInstantmix": unranked,
-	"getMusicgenresInstantmix":       unranked,
-	"getPlaylistsByIdInstantmix":     unranked,
-	"getSongsByIdInstantmix":         unranked,
+	"getAudiobooksNextup": unranked,
 	// ItemLookupService
 	"getItemsRemotesearchImage":        identifyInputs,
 	"postItemsRemotesearchApplyById":   identifyInputs,

@@ -12,8 +12,8 @@ const subtitle = "1\n00:00:00,000 --> 00:00:02,000\nCouch e2e subtitle\n"
 
 // generateMedia writes the synthetic library: a movie with two audio tracks,
 // an embedded and an external subtitle and a poster; a series with a regular
-// and a special season; and an audio track and a photo, which Couch does not
-// catalog yet but the contract covers.
+// and a special season; a tagged audio track for the Music library; and a
+// photo, which Couch does not catalog yet but the contract covers.
 func generateMedia(root string) error {
 	movieDir := filepath.Join(root, "Movies", "Sample Movie (2024)")
 	showDir := filepath.Join(root, "Sample Show")
@@ -44,6 +44,7 @@ func generateMedia(root string) error {
 		episode(filepath.Join(showDir, "Season 01", "Sample Show.S01E02.mp4")),
 		episode(filepath.Join(showDir, "Season 00", "Sample Show.S00E01.mp4")),
 		{"-f", "lavfi", "-i", "sine=frequency=330:duration=2", "-c:a", "aac",
+			"-metadata", "title=Sample Track", "-metadata", "artist=Sample Artist", "-metadata", "album=Sample Album", "-metadata", "genre=Sample Genre",
 			filepath.Join(root, "Music", "Sample Artist", "Sample Album", "01 - Sample Track.m4a")},
 		poster(filepath.Join(root, "Photos", "Sample Photo.jpg")),
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -197,9 +198,35 @@ func TestMusic(t *testing.T) {
 	if w := request(h, "GET", "/Audio/"+encoded[0].Id+"/universal", "", "", token); w.Header().Get("Content-Type") != "audio/x-ms-wma" {
 		t.Fatalf("no container list: %s", w.Header().Get("Content-Type"))
 	}
-	if w := request(h, "GET", "/Items/"+album+"/InstantMix", "", "", token); w.Code != 400 || !strings.Contains(w.Body.String(), "Instant Mix") {
-		t.Fatalf("instant mix: %d %s", w.Code, w.Body)
+
+	// Instant Mix: the seed's tracks lead, then those sharing an artist or a
+	// genre; a track of another artist and genre stays out.
+	mix := func(path string) string {
+		t.Helper()
+		got := page(path)
+		sorted := names(got[min(1, len(got)):])
+		parts := strings.Split(sorted, ",")
+		slices.Sort(parts)
+		if len(got) == 0 {
+			return ""
+		}
+		return got[0].Name + "|" + strings.Join(parts, ",")
 	}
+	for path, want := range map[string]string{
+		"/Items/" + tracks[0].Id + "/InstantMix?Limit=5000":          "First|Second",
+		"/Songs/" + tracks[1].Id + "/InstantMix":                     "Second|First",
+		"/Albums/" + albums[1].Id + "/InstantMix":                    "Encoded|",
+		"/Artists/InstantMix?Id=" + guest:                            "Second|First",
+		"/MusicGenres/Rock/InstantMix":                               "Second|First",
+		"/MusicGenres/InstantMix?Id=" + metadata.ID("Genre", "Rock"): "Second|First",
+		"/Playlists/" + created.Id + "/InstantMix":                   "First|Second",
+		"/Items/" + album + "/InstantMix?Limit=1":                    "First|",
+	} {
+		if got := mix(path); got != want {
+			t.Errorf("%s: %q, want %q", path, got, want)
+		}
+	}
+	expectStatus(t, request(h, "GET", "/Items/missing/InstantMix", "", "", token), 404)
 }
 
 // TestEmbeddedCovers serves the covers embedded in MP3 and FLAC files as
