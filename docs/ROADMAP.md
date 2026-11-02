@@ -114,7 +114,7 @@ Done when the M0 budgets are met, recovery is verified, there are no open blocki
 
 Status as of 2026-11-01:
 
-- Recovery ([summary](VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. A library that is empty at startup keeps the saved catalog (#39). Open: power loss (needs a test bench).
+- Recovery ([summary](VALIDATION.md), #31): verified forced shutdown, storage error (read-only directory), corrupted state file, vanished and broken media file, FFprobe and FFmpeg failures, client disconnect. A library that is empty at startup keeps the saved catalog (#39). A real full disk (ENOSPC) and the write order for a power loss are checked (#122); a power cut on a VM or hardware was not run.
 - Backup/restore and data upgrades between versions are verified (#32).
 - Sustained load: met (2026-11-02, #30). 6 hours on the large profile with a rescan every 75 s, the G-3 load: 22.0 million requests with no failures, 288 rescans, no child processes, segments or Couch files left over, and RSS flat at 20.6–21.2 MiB, the second half's peak 0.8% above the first half's ([VALIDATION](VALIDATION.md)). Earlier runs: 8 hours with an hourly rescan (2026-11-01) and 2 hours with a 75 s rescan, both without failures or leaks.
 - Diagnostics: a playback refusal is logged with its reason (#84). Resource usage is logged separately: each FFmpeg job (#90), FFprobe per scan (#93), Couch itself and the sum of child processes at shutdown (#94). There is no separate metrics endpoint. The log is also kept in `-data/logs` with rotation, and the dashboard shows activity, sessions and tasks (#113).

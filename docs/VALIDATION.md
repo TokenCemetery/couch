@@ -266,14 +266,14 @@ The behavioral check `forced-stop-keeps-confirmed-state` in `make e2e` sends `Se
 
 ## State write error (2026-10-04, #31)
 
-The behavioral check `storage-error-is-reported` in `make e2e` makes the data directory read-only (as with a full disk or a read-only remount) and sets a "favorite" mark: the response is 500 `StorageError`, and the item does not become a favorite. After permissions are restored, the same mark succeeds with 200 and is saved; the server keeps running without a restart. Run as root, the check is meaningless (directory permissions are ignored) and reports that as an error. A real ENOSPC was not reproduced.
+The behavioral check `storage-error-is-reported` in `make e2e` makes the data directory read-only (as with a full disk or a read-only remount) and sets a "favorite" mark: the response is 500 `StorageError`, and the item does not become a favorite. After permissions are restored, the same mark succeeds with 200 and is saved; the server keeps running without a restart. Run as root, the check is meaningless (directory permissions are ignored) and reports that as an error. A real ENOSPC is reproduced in the section "Full disk" below.
 
 ## Failure recovery: #31 summary (2026-10-04)
 
 | Case | Checked by | Outcome |
 |---|---|---|
 | Forced stop | e2e `forced-stop-keeps-confirmed-state`; `TestOpenRemovesInterruptedWrites` | the confirmed position is kept, temporary files of interrupted writes are removed at startup |
-| Storage error / full disk | e2e `storage-error-is-reported`; `TestFailedWriteDoesNotPublishState`, `TestStateSizeLimitDoesNotChangeCommittedData` | 500 without publishing the change; after recovery, writes succeed without a restart. A real ENOSPC was not reproduced |
+| Storage error / full disk | e2e `storage-error-is-reported`; `TestFailedWriteDoesNotPublishState`, `TestStateSizeLimitDoesNotChangeCommittedData` | 500 without publishing the change; after recovery, writes succeed without a restart. Real ENOSPC: section "Full disk" (2026-11-02) |
 | Corrupted state file | `TestCorruptAndFutureStateAreNotReset` | startup fails, the file is not overwritten |
 | File vanished after scan | browser, section above | 404, playback error in Emby Web, log warning, state unchanged |
 | Broken media file | `TestScanReadOnlyStableAndIsolated` | skipped with a counter, the walk continues |
@@ -281,8 +281,34 @@ The behavioral check `storage-error-is-reported` in `make e2e` makes the data di
 | Client disconnect during a stream | `stream_test.go`: a canceled stream releases the file | the handler exits, the descriptor is closed |
 | FFmpeg failure in HLS | `TestFailedJobIsReported`: FFmpeg error; `TestKilledJobIsRestarted`: killed by `SIGKILL` (2026-10-11) | the request waiting for a segment receives 500, the next request restarts the job, other sessions keep working |
 | FFmpeg failure during subtitle extraction | `TestEmbeddedSubtitleExtraction`: no track, all jobs busy | the subtitle request receives 404 and a log warning; the video stream is a separate request and is not affected |
-| Power loss | not checked | needs a test rig; `SIGKILL` does not lose the OS cache |
+| Power loss | write order audited and traced with `strace`, section "Write order for a power loss" (2026-11-02, #122) | every file the database refers to is synced with its directory before the commit; caches are synced before the rename. Not run on a VM or hardware: `SIGKILL` does not lose the OS cache |
 | Library unavailable at startup | `TestSavedCatalog`; container run, section "Saved catalog index" (2026-11-01) | with a saved index, an empty volume keeps the saved catalog published and the index unchanged; without an index (first start) or with a missing directory, startup still fails with a scan error |
+
+## Full disk (2026-11-02, #31)
+
+Couch built from the working tree, run in the `couch:dev` image as root with `-data` on a 16 MiB tmpfs and one 5 s H.264 movie. After sign-in and a "favorite" mark, `dd` filled `/data` to 0 bytes free.
+
+- With the disk full, "played", a `Sessions/Playing/Progress` report, an avatar upload and a sign-in each answered 500. `/healthz` answered 200, and the item stayed a favorite and unplayed. The log showed `ERROR state persistence failed`.
+- `SIGKILL` with the disk still full: the restart loaded the database and the saved catalog, and the old token still worked. The rescan logged `Media index not saved … no space left on device`, and the activity log entry was dropped with `database or disk is full`.
+- After the filler was removed, "played" answered 200 and the avatar upload 204, without a restart. After another `SIGKILL`, the item was a favorite and played, and the avatar was served.
+- No temporary `.user-image-*` or `.catalog-*` file was left in `/data`.
+
+## Write order for a power loss (2026-11-02, #31, #122)
+
+`SIGKILL` keeps the OS page cache, so it cannot show what a power loss does. Instead, every write under `-data` was checked for the order that keeps a file's data on disk before any name or database row points at it:
+
+| Data | Order |
+|---|---|
+| Database `couch.db` | SQLite with `journal_mode=DELETE` and `synchronous=FULL`: the journal and the database are synced at every commit |
+| Catalog index `catalog.json` | temporary file, fsync, rename, directory fsync |
+| Avatar `user-image-<rev>` | temporary file, fsync, rename, directory fsync, then the database commit |
+| Metadata images `metadata/<hex>.{jpg,png}` | temporary file, fsync, rename, directory fsync, then the database commit |
+| Embedded cover cache `covers/<rev>` | temporary file, fsync, rename. A lost rename is a cache miss |
+| AAC audio cache `transcode/audio/<key>.m4a` | FFmpeg's `.part` output, fsync, rename. A lost rename is a cache miss |
+
+Before #122, the last four paths had no directory fsync or no file fsync. The database could then refer to an avatar or image whose rename a power loss took back, or a cache could keep an empty file under its final name. The order was confirmed by running each path's tests under `strace -f -e trace=fsync,renameat`: `TestUserImageFailedChangeKeepsCommittedFile`, the `internal/metadata` tests, `TestEmbeddedCovers` and `TestAudioEncodesOnceAndKeepsRecentTracks`.
+
+Not verified: a real power cut on a VM or hardware, a drive cache that ignores flushes, and NAS file systems (NFS, SMB), which may not honor a directory fsync.
 
 ## Data backup and upgrade (2026-10-11, #32)
 
