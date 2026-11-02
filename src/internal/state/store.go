@@ -142,6 +142,8 @@ type Data struct {
 	LibrariesConfigured bool
 	// ServerName is the name set in Emby Web, empty until one is set.
 	ServerName string
+	// Collections are the collections in creation order.
+	Collections []Collection
 }
 
 // Library is a media library: a name, a content type and absolute folders.

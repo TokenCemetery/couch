@@ -48,10 +48,26 @@ var requestOverrides = map[string]func(*Request, Fixtures){
 	"getVideosByIdSubtitlesM3u8": func(r *Request, ids Fixtures) {
 		r.Query.Set("CurrentSubtitleStreamIndex", ids.SubtitleIndex)
 	},
+	// Emby Web names the new collection and the items it starts with.
+	"postCollections": func(r *Request, ids Fixtures) {
+		r.Query.Set("Name", "e2e")
+		r.Query.Set("Ids", ids.MovieID)
+	},
+	// Couch deletes collections only, never media files.
+	"getItemsByIdDeleteinfo": collectionPath,
+	"deleteItemsById":        collectionPath,
+	"postItemsDelete": func(r *Request, ids Fixtures) {
+		r.Query.Set("Ids", ids.CollectionID)
+	},
 	// Emby Web always reports at least one item and WasSearched.
 	"postUsersByUseridSearcheditems": func(r *Request, ids Fixtures) {
 		r.Body = fmt.Appendf(nil, `{"Ids":[%q],"WasSearched":true}`, ids.MovieID)
 	},
+}
+
+// collectionPath points an item operation at the collection.
+func collectionPath(r *Request, ids Fixtures) {
+	r.Path = strings.Replace(r.Path, "/Items/"+url.PathEscape(ids.MovieID), "/Items/"+url.PathEscape(ids.CollectionID), 1)
 }
 
 // avatarUpload sends an image the way Emby Web does: base64 text, not bytes.
@@ -96,6 +112,10 @@ func (c *Contract) value(p Param, path string, ids Fixtures) string {
 	case "UserId":
 		return ids.UserID
 	case "Id", "ItemId", "Ids", "ItemIds", "EntryIds":
+		// A collection is changed by its ID; its items are the movie.
+		if p.Name == "Id" && strings.HasPrefix(path, "/Collections/") {
+			return ids.CollectionID
+		}
 		return entityFor(path, ids)
 	case "MediaSourceId":
 		return ids.MediaSourceID

@@ -57,19 +57,35 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 		for _, id := range libraryIDs(s.catalogFor(session)) {
 			items = append(items, s.collectionDTO(id, serverID, false))
 		}
+		if sets := s.sessionBoxSets(session); len(sets) > 0 {
+			items = append(items, collectionsViewDTO(serverID, len(sets), false))
+		}
 		respond(w, 200, object{"Items": items, "TotalRecordCount": len(items)})
 	}))
 	for _, path := range []string{"/items/root", "/users/{user}/items/root"} {
 		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-			respond(w, 200, rootFolderDTO(s.store.Snapshot().ServerID, len(libraryIDs(s.catalogFor(session)))))
+			views := len(libraryIDs(s.catalogFor(session)))
+			if len(s.sessionBoxSets(session)) > 0 {
+				views++
+			}
+			respond(w, 200, rootFolderDTO(s.store.Snapshot().ServerID, views))
 		}))
 	}
 	for _, path := range []string{"/items/{item}", "/users/{user}/items/{item}"} {
 		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 			id := r.PathValue("item")
+			snapshot := s.store.Snapshot()
+			sets := s.sessionBoxSets(session)
+			if set, ok := sets[id]; ok {
+				respond(w, 200, s.boxSetDTO(set, snapshot.ServerID, userOf(snapshot, session).Items, userOf(snapshot, session).Policy.IsAdministrator))
+				return
+			}
+			if id == collectionsViewID && len(sets) > 0 {
+				respond(w, 200, collectionsViewDTO(snapshot.ServerID, len(sets), true))
+				return
+			}
 			// A rescan replaces the catalog, so each request reads it (#75).
 			if catalog := s.catalogFor(session); catalog != nil {
-				snapshot := s.store.Snapshot()
 				if _, ok := catalog.Library(id); ok {
 					respond(w, 200, s.collectionDTO(id, snapshot.ServerID, true))
 					return
@@ -122,7 +138,9 @@ func (s *Server) extrasRoutes(mux *http.ServeMux) {
 		catalog := s.catalogFor(session)
 		_, found := findItem(catalog, id)
 		_, isEntity := s.entityIn(catalog, id)
-		return found || isEntity || slices.Contains(libraryIDs(catalog), id)
+		sets := s.sessionBoxSets(session)
+		_, isBoxSet := sets[id]
+		return found || isEntity || isBoxSet || (id == collectionsViewID && len(sets) > 0) || slices.Contains(libraryIDs(catalog), id)
 	}
 	emptyPage := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		if !known(r, session) {
@@ -215,7 +233,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			"groupprogramsbyseries", "includesearchtypes", "isstandalonespecial", "collapseboxsetitems", "excludelocationtypes",
 			"userid", "api_key", "x-mediabrowser-token", "reqformat", "listitemids", "wassearched", "minpremieredate", "isunaired", "includenextup", "isspecialepisode", "ismissing", "isvirtualunaired", "collectiontypes", "canedititems",
 			"containers", "videocodecs", "audiocodecs", "audiolayouts", "subtitlecodecs", "audiolanguages", "subtitlelanguages", "extendedvideotypes",
-			"genres", "studios", "tags", "officialratings", "years", "genreids", "studioids", "tagids", "personids", "persontypes":
+			"genres", "studios", "tags", "officialratings", "years", "genreids", "studioids", "tagids", "personids", "persontypes",
+			"namestartswithorgreater", "groupitemsintocollections", "projecttomedia":
 		default:
 			if !strings.HasPrefix(key, "x-emby-") {
 				fail(w, 400, "UnsupportedQuery")
@@ -223,7 +242,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			}
 		}
 	}
-	for _, key := range []string{"recursive", "isfolder", "isplayed", "isfavorite", "groupprogramsbyseries", "includesearchtypes", "isstandalonespecial", "collapseboxsetitems", "wassearched", "isunaired", "includenextup", "isspecialepisode", "ismissing", "isvirtualunaired", "canedititems"} {
+	for _, key := range []string{"recursive", "isfolder", "isplayed", "isfavorite", "groupprogramsbyseries", "includesearchtypes", "isstandalonespecial", "collapseboxsetitems", "wassearched", "isunaired", "includenextup", "isspecialepisode", "ismissing", "isvirtualunaired", "canedititems", "groupitemsintocollections", "projecttomedia"} {
 		query[key] = strings.ToLower(query[key])
 		if v := query[key]; v != "" && v != "true" && v != "false" {
 			fail(w, 400, "InvalidQuery")
@@ -285,7 +304,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	for _, key := range sortKeys {
 		if !member("sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber,"+
 			"totalbitrate,videocodec,container,size,resolution,framerate,playcount,random,seriesdateplayed,datelastcontentadded,"+
-			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate", key) {
+			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder", key) {
 			fail(w, 400, "UnsupportedSort")
 			return
 		}
@@ -322,15 +341,23 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	}
 	// Select and paginate metadata before allocating response DTOs.
 	items := []*media.Item{}
+	user := userOf(snapshot, session)
+	sets := boxSets(catalog, user, snapshot)
+	view := &media.Item{ID: collectionsViewID, Name: "Collections", Kind: "CollectionFolder"}
+	isBoxSet := func(item *media.Item) bool { return item.Kind == "BoxSet" }
+	// isCollection reports a library folder, including the Collections one.
 	isCollection := func(item *media.Item) bool {
 		_, ok := catalog.Library(item.ID)
-		return catalog != nil && ok
+		return (catalog != nil && ok) || item == view
 	}
 	// collectionType names the library an item belongs to, for CollectionTypes;
 	// Couch has only movie and TV libraries (#76).
 	collectionType := func(item *media.Item) string {
 		if library, ok := catalog.Library(item.ID); ok {
 			return library.Type
+		}
+		if item == view || isBoxSet(item) {
+			return "boxsets"
 		}
 		if item.Type() == "Movie" {
 			return media.Movies
@@ -342,14 +369,44 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		for _, library := range catalog.Libraries() {
 			folders = append(folders, &media.Item{ID: library.ID, Name: library.Name})
 		}
+		if len(sets) > 0 {
+			folders = append(folders, view)
+		}
 		return folders
 	}
+	// grouped holds the collections that stand in for their members when a
+	// listing groups items into collections; they pass the type filter.
+	grouped := map[string]bool{}
 	if catalog != nil {
 		parent := query["parentid"]
 		root := parent == "" || parent == "root"
-		if root && query["recursive"] != "true" && !latest && query["ids"] == "" {
+		set, inSet := sets[parent]
+		switch {
+		case parent == collectionsViewID:
+			for _, set := range sets {
+				items = append(items, set.item())
+			}
+		case inSet:
+			items = append(items, set.members...)
+			// Playing a collection asks for its media: a series or season
+			// stands for its episodes.
+			if query["projecttomedia"] == "true" {
+				items = items[:0]
+				for _, member := range set.members {
+					if !member.IsFolder() {
+						items = append(items, member)
+						continue
+					}
+					for _, episode := range catalog.Episodes(member.ID) {
+						if found, ok := catalog.Lookup(episode.ID); ok {
+							items = append(items, found)
+						}
+					}
+				}
+			}
+		case root && query["recursive"] != "true" && !latest && query["ids"] == "":
 			items = append(items, libraries()...)
-		} else {
+		default:
 			items = make([]*media.Item, 0, len(catalog.Items)+1)
 			for _, candidates := range [][]media.Item{catalog.Items, catalog.Folders} {
 				for i := range candidates {
@@ -365,22 +422,48 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			if query["ids"] != "" && root {
 				items = append(items, libraries()...)
 			}
+			// Collections join a listing that asks for them by type, by item
+			// or by ID, as Emby Web's tabs, pickers and item pages do: those
+			// with an item in the parent library, or every one from the root.
+			wanted := member(query["includeitemtypes"], "BoxSet") || query["listitemids"] != ""
+			for id := range sets {
+				wanted = wanted || member(query["ids"], id)
+			}
+			if wanted && !latest && !resume {
+				for _, set := range sets {
+					if root || slices.ContainsFunc(set.members, func(m *media.Item) bool { return catalog.LibraryOf(*m) == parent }) {
+						items = append(items, set.item())
+					}
+				}
+			}
+			if query["groupitemsintocollections"] == "true" && !latest && !resume {
+				items = groupIntoCollections(items, sets, grouped)
+			}
 		}
 	}
 	items = slices.DeleteFunc(items, func(item *media.Item) bool {
-		id, kind, folder := item.ID, item.Type(), item.IsFolder() || isCollection(item)
-		st := userOf(snapshot, session).Items[id]
+		id, kind, folder := item.ID, item.Type(), item.IsFolder() || isCollection(item) || isBoxSet(item)
+		st := user.Items[id]
 		info := s.info(id)
 		if item.IsFolder() {
-			st.Played, _ = s.folderPlayed(*item, userOf(snapshot, session).Items)
+			st.Played, _ = s.folderPlayed(*item, user.Items)
+		}
+		if isBoxSet(item) {
+			st.Played = s.boxSetUserData(sets[id], user.Items)["Played"].(bool)
 		}
 		if isCollection(item) {
 			kind = "CollectionFolder"
 		}
+		// ListItemIds asks for the collections that hold an item.
+		holds := func(ids string) bool {
+			return slices.ContainsFunc(sets[id].members, func(m *media.Item) bool { return member(ids, m.ID) })
+		}
 		return (query["ids"] != "" && !member(query["ids"], id)) || member(query["excludeitemids"], id) ||
 			(query["collectiontypes"] != "" && !member(query["collectiontypes"], collectionType(item))) ||
 			(resume && !resumable(st, item.RunTimeTicks) && nextUp[id].IsZero()) ||
-			(query["includeitemtypes"] != "" && !member(query["includeitemtypes"], kind)) || member(query["excludeitemtypes"], kind) ||
+			(query["includeitemtypes"] != "" && !member(query["includeitemtypes"], kind) && !grouped[id]) || member(query["excludeitemtypes"], kind) ||
+			(query["listitemids"] != "" && (!isBoxSet(item) || !holds(query["listitemids"]))) ||
+			(query["namestartswithorgreater"] != "" && strings.ToLower(s.sortName(*item)) < strings.ToLower(query["namestartswithorgreater"])) ||
 			(query["mediatypes"] != "" && (folder || !member(query["mediatypes"], "Video"))) ||
 			(query["isfolder"] != "" && (query["isfolder"] == "true") != folder) ||
 			!matchesSearch(query["searchterm"], item.Name, s.displayName(*item), info.OriginalTitle) ||
@@ -401,9 +484,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			// Every catalogued item is a file on disk: none is missing or a
 			// virtual unaired episode. Playing an episode sends both as false.
 			query["ismissing"] == "true" || query["isvirtualunaired"] == "true" ||
-			// The library is read-only and Couch has no playlists or
-			// collections, so the user can edit no item (#77).
-			query["canedititems"] == "true" ||
+			// Only an administrator edits items, and no one a library (#77).
+			(query["canedititems"] == "true" && (!user.Policy.IsAdministrator || isCollection(item))) ||
 			failsMediaFilters(catalog, item, query, info) ||
 			// The series page lists specials (Season 00 episodes) in their own row.
 			(query["isspecialepisode"] != "" && (query["isspecialepisode"] == "true") != (kind == "Episode" && item.SeasonNumber == 0))
@@ -495,7 +577,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 				comparison = cmp.Compare(a.EpisodeNumber, b.EpisodeNumber)
 			case "isfolder":
 				// Folders first, as in a file browser.
-				comparison = -cmp.Compare(boolRank(a.IsFolder() || isCollection(a)), boolRank(b.IsFolder() || isCollection(b)))
+				comparison = -cmp.Compare(boolRank(a.IsFolder() || isCollection(a) || isBoxSet(a)), boolRank(b.IsFolder() || isCollection(b) || isBoxSet(b)))
 			case "filename":
 				comparison = strings.Compare(strings.ToLower(path.Base(a.Path)), strings.ToLower(path.Base(b.Path)))
 			case "seriessortname":
@@ -512,6 +594,12 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 				comparison = cmp.Compare(s.info(a.ID).Critic, s.info(b.ID).Critic)
 			case "director":
 				comparison = strings.Compare(director(a), director(b))
+			case "displayorder":
+				// A collection lists its items by release date, then name.
+				comparison = s.info(a.ID).Premiere.Compare(s.info(b.ID).Premiere)
+				if comparison == 0 {
+					comparison = strings.Compare(s.sortKey(*a), s.sortKey(*b))
+				}
 			case "lastcontentpremieredate":
 				comparison = newestPremiere[a.ID].Compare(newestPremiere[b.ID])
 			case "totalbitrate":
@@ -562,9 +650,14 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	items = items[start : start+min(limit, total-start)]
 	result := make([]object, 0, len(items))
 	for _, item := range items {
-		if isCollection(item) {
+		switch {
+		case item == view:
+			result = append(result, collectionsViewDTO(serverID, len(sets), false))
+		case isBoxSet(item):
+			result = append(result, s.boxSetDTO(sets[item.ID], serverID, user.Items, user.Policy.IsAdministrator))
+		case isCollection(item):
 			result = append(result, s.collectionDTO(item.ID, serverID, false))
-		} else {
+		default:
 			result = append(result, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token))
 		}
 	}
@@ -584,4 +677,30 @@ func matchesSearch(term string, names ...string) bool {
 		}
 	}
 	return term == ""
+}
+
+// groupIntoCollections replaces the items that belong to a collection by that
+// collection, as Emby's "Group into collections" view option does, and records
+// the collections it added in grouped.
+func groupIntoCollections(items []*media.Item, sets map[string]boxSet, grouped map[string]bool) []*media.Item {
+	listed := map[string]bool{}
+	for _, item := range items {
+		listed[item.ID] = true
+	}
+	hidden := map[*media.Item]bool{}
+	for id, set := range sets {
+		if listed[id] {
+			continue
+		}
+		for _, m := range set.members {
+			if listed[m.ID] {
+				hidden[m] = true
+				grouped[id] = true
+			}
+		}
+		if grouped[id] {
+			items = append(items, set.item())
+		}
+	}
+	return slices.DeleteFunc(items, func(item *media.Item) bool { return hidden[item] })
 }

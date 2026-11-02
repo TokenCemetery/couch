@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 7
+const dbSchemaVersion = 8
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,8 +57,19 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + `
-PRAGMA user_version = 7;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + `
+PRAGMA user_version = 8;
+`
+
+// collectionsSchema was added in version 8; items is a JSON array of item IDs.
+const collectionsSchema = `
+CREATE TABLE collections (
+	id TEXT PRIMARY KEY,
+	position INTEGER NOT NULL,
+	name TEXT NOT NULL,
+	added TEXT NOT NULL,
+	items TEXT NOT NULL
+) STRICT;
 `
 
 // identifiedColumn was added in version 7: the provider IDs an administrator
@@ -124,6 +135,8 @@ var migrations = map[int]string{
 	5: "ALTER TABLE server ADD COLUMN server_name TEXT NOT NULL DEFAULT '';" + activitySchema + "PRAGMA user_version = 6;",
 	// Version 7 stores the identification an administrator chose.
 	6: identifiedColumn + "PRAGMA user_version = 7;",
+	// Version 8 stores collections.
+	7: collectionsSchema + "PRAGMA user_version = 8;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -174,6 +187,9 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 		return Data{}, err
 	}
 	d.Libraries = libraries
+	if d.Collections, err = loadCollections(ctx, db); err != nil {
+		return Data{}, err
+	}
 	users, err := loadUsers(ctx, db)
 	if err != nil {
 		return Data{}, err
@@ -300,9 +316,15 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 		if err := writeLibraries(ctx, tx, Data{}, next); err != nil {
 			return err
 		}
+		if err := writeCollections(ctx, tx, Data{}, next); err != nil {
+			return err
+		}
 		return writeSessions(ctx, tx, prev.Sessions, next.Sessions)
 	}
 	if err := writeLibraries(ctx, tx, prev, next); err != nil {
+		return err
+	}
+	if err := writeCollections(ctx, tx, prev, next); err != nil {
 		return err
 	}
 	if prev.ServerName != next.ServerName {
@@ -491,6 +513,11 @@ func validate(d Data) error {
 			return errInvalidSchema
 		}
 	}
+	for _, c := range d.Collections {
+		if c.ID == "" || c.Name == "" || c.Items == nil {
+			return errInvalidSchema
+		}
+	}
 	for id, u := range d.Users {
 		password := len(u.Salt) == 16 && len(u.PasswordHash) == 32 && u.Iterations == passwordIterations
 		none := len(u.Salt) == 0 && len(u.PasswordHash) == 0 && u.Iterations == 0
@@ -541,6 +568,56 @@ func writeLibraries(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 		}
 		if _, err := tx.ExecContext(ctx, "INSERT INTO libraries (id, position, name, type, paths) VALUES (?, ?, ?, ?, ?)",
 			library.ID, n, library.Name, library.Type, string(paths)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadCollections(ctx context.Context, db *sql.DB) ([]Collection, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, name, added, items FROM collections ORDER BY position")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var collections []Collection
+	for rows.Next() {
+		var c Collection
+		var added, items string
+		if err := rows.Scan(&c.ID, &c.Name, &added, &items); err != nil {
+			return nil, err
+		}
+		if err := c.Added.UnmarshalText([]byte(added)); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(items), &c.Items); err != nil {
+			return nil, err
+		}
+		collections = append(collections, c)
+	}
+	return collections, rows.Err()
+}
+
+// writeCollections rewrites the collections when any changed, like the
+// libraries; an administrator edits them rarely.
+func writeCollections(ctx context.Context, tx *sql.Tx, prev, next Data) error {
+	if reflect.DeepEqual(prev.Collections, next.Collections) {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM collections"); err != nil {
+		return err
+	}
+	for n, c := range next.Collections {
+		items, err := json.Marshal(c.Items)
+		if err != nil {
+			return err
+		}
+		added, err := timeText(c.Added)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "INSERT INTO collections (id, position, name, added, items) VALUES (?, ?, ?, ?, ?)",
+			c.ID, n, c.Name, added, string(items)); err != nil {
 			return err
 		}
 	}

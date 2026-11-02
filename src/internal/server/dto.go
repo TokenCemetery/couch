@@ -32,9 +32,9 @@ func derive(purpose, id string) string {
 // baseFields carries the properties Emby returns on every item. Emby Web
 // dereferences several of these arrays without a guard, so they are always
 // emitted even when empty; omitting them crashes the client. The library is
-// read-only: CanEditItems false keeps Emby Web from offering an administrator
-// the metadata and image editors, identify and refresh, which it otherwise
-// decides by the role alone.
+// read-only: CanEditItems false keeps Emby Web from offering the metadata and
+// image editors, identify and refresh, which it otherwise decides by the role
+// alone. movieDTO and boxSetDTO allow them to an administrator.
 func baseFields(id, name, kind, serverID string) object {
 	guid := derive("guid", id)
 	return object{
@@ -151,7 +151,7 @@ func (s *Server) collectionDTO(id, serverID string, detail bool) object {
 	if detail {
 		dto["ChildCount"] = s.childCount(id)
 		// Only the subviews Couch can actually serve are advertised.
-		dto["Subviews"] = []string{subview}
+		dto["Subviews"] = []string{subview, "collections"}
 	}
 	return dto
 }
@@ -180,6 +180,10 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 	dto["IsFolder"] = item.IsFolder()
 	dto["ParentId"] = catalog.Parent(item)
 	dto["UserData"] = itemUserData(items[item.ID], item.RunTimeTicks)
+	// An administrator adds items to collections, which Emby Web offers by
+	// CanEditItems; it also opens the metadata and image editors, which show
+	// the item and refuse changes.
+	dto["CanEditItems"] = s.store.IsAdministrator(token)
 	// Like Emby, a season or episode without its own backdrop, logo or thumb
 	// names its series' image, and always names the series' cover, which
 	// cards and the player fall back to.

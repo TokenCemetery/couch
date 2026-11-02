@@ -27,6 +27,10 @@ var externalIDs = map[string][]object{
 	},
 }
 
+// notIdentified answers Identify and Remove Identification on a collection,
+// which Emby Web offers by the role alone.
+const notIdentified = "Couch identifies movies and series, not collections."
+
 // searchTimeout bounds a provider search the Identify dialog waits for.
 const searchTimeout = 20 * time.Second
 
@@ -48,6 +52,10 @@ func (s *Server) identifyRoutes(mux *http.ServeMux) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	mux.HandleFunc("GET /items/{item}/externalidinfos", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		if _, ok := s.store.Snapshot().Collection(r.PathValue("item")); ok {
+			failText(w, 400, notIdentified)
+			return
+		}
 		item, found := findItem(s.catalog(), r.PathValue("item"))
 		if !found {
 			fail(w, 404, "NotFound")
@@ -154,6 +162,10 @@ func (s *Server) identifyRoutes(mux *http.ServeMux) {
 		}
 		items := []media.Item{}
 		for _, id := range strings.Split(body.ItemIds, ",") {
+			if _, ok := s.store.Snapshot().Collection(strings.TrimSpace(id)); ok {
+				failText(w, 400, notIdentified)
+				return
+			}
 			item, found := findItem(s.catalog(), strings.TrimSpace(id))
 			if !found {
 				fail(w, 404, "NotFound")
@@ -174,7 +186,13 @@ func (s *Server) identifyRoutes(mux *http.ServeMux) {
 	}))
 	// The Metadata Manager and the item editor show an item's fields; the
 	// library is read-only, so a save is refused with the way to change them.
+	// Saving a collection renames it.
 	mux.HandleFunc("GET /items/{item}/metadataeditor", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		if _, ok := s.store.Snapshot().Collection(r.PathValue("item")); ok {
+			respond(w, 200, object{"ParentalRatingOptions": []any{}, "Countries": []any{}, "Cultures": []any{},
+				"ExternalIdInfos": []any{}, "PersonExternalIdInfos": []any{}})
+			return
+		}
 		item, found := findItem(s.catalog(), r.PathValue("item"))
 		if !found {
 			fail(w, 404, "NotFound")
@@ -184,6 +202,10 @@ func (s *Server) identifyRoutes(mux *http.ServeMux) {
 			"ExternalIdInfos": identifiers(item), "PersonExternalIdInfos": []any{}})
 	}))
 	mux.HandleFunc("POST /items/{item}", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		if _, ok := s.store.Snapshot().Collection(r.PathValue("item")); ok {
+			s.renameCollection(w, r, r.PathValue("item"))
+			return
+		}
 		if _, found := findItem(s.catalog(), r.PathValue("item")); !found {
 			fail(w, 404, "NotFound")
 			return
@@ -232,6 +254,16 @@ func (s *Server) refreshScope(id string) ([]string, bool) {
 				if catalog.LibraryOf(item) == id {
 					ids = append(ids, item.ID)
 				}
+			}
+		}
+		return ids, true
+	}
+	// A collection refreshes its items.
+	if c, ok := s.store.Snapshot().Collection(id); ok {
+		ids := []string{}
+		for _, member := range c.Items {
+			if scope, found := s.refreshScope(member); found {
+				ids = append(ids, scope...)
 			}
 		}
 		return ids, true

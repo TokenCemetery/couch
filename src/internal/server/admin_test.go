@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/TokenCemetery/couch/internal/media"
@@ -48,13 +49,15 @@ func TestAdministratorRole(t *testing.T) {
 	}
 }
 
-// TestItemsAreNotEditable checks that items tell Emby Web the library is
-// read-only, so an administrator is not offered editors Couch does not serve.
-func TestItemsAreNotEditable(t *testing.T) {
+// TestItemsEditableByAdministrator checks that media items let an
+// administrator add them to a collection, which Emby Web offers by
+// CanEditItems, while libraries and other users' items stay read-only.
+func TestItemsEditableByAdministrator(t *testing.T) {
 	store, _, _ := newTestServer(t)
 	h := New(store, "test", nil, &media.Catalog{ID: "movies", Items: []media.Item{playbackMovie()}}).Handler()
 	token := login(t, h)
-	for _, path := range []string{"/Items?Recursive=true&IncludeItemTypes=Movie", "/Users/" + testUser(store).ID + "/Views"} {
+	editable := func(path string) []any {
+		t.Helper()
 		w := request(h, "GET", path, "", "", token)
 		expectStatus(t, w, 200)
 		var page struct{ Items []map[string]any }
@@ -64,9 +67,39 @@ func TestItemsAreNotEditable(t *testing.T) {
 		if len(page.Items) == 0 {
 			t.Fatalf("%s: no items", path)
 		}
+		flags := []any{}
 		for _, item := range page.Items {
-			if item["CanEditItems"] != false {
-				t.Fatalf("%s: %v has CanEditItems %v", path, item["Id"], item["CanEditItems"])
+			flags = append(flags, item["CanEditItems"])
+		}
+		return flags
+	}
+	movies, views := "/Items?Recursive=true&IncludeItemTypes=Movie", "/Users/"+testUser(store).ID+"/Views"
+	if got := editable(movies); got[0] != true {
+		t.Fatalf("administrator: movie CanEditItems %v", got)
+	}
+	if got := editable(views); got[0] != false {
+		t.Fatalf("administrator: library CanEditItems %v", got)
+	}
+	// The image editor opens on an item's images and refuses changes.
+	for path, want := range map[string]string{"/Items/movie/Images": "[]", "/Items/movie/RemoteImages/Providers?itemId=movie": "[]"} {
+		w := request(h, "GET", path, "", "", token)
+		expectStatus(t, w, 200)
+		if strings.TrimSpace(w.Body.String()) != want {
+			t.Fatalf("%s: %s", path, w.Body)
+		}
+	}
+	expectStatus(t, request(h, "POST", "/Items/movie/Images/Primary", "image/png", "x", token), 400)
+	expectStatus(t, request(h, "DELETE", "/Items/movie/Images/Backdrop/0", "", "", token), 400)
+	if _, err := store.CreateUser("other", state.Policy{IsAdministrator: true, EnableAllFolders: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetPolicy(testUser(store).ID, state.Policy{EnableAllFolders: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{movies, views} {
+		for _, flag := range editable(path) {
+			if flag != false {
+				t.Fatalf("user: %s has CanEditItems %v", path, flag)
 			}
 		}
 	}

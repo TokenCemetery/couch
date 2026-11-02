@@ -10,6 +10,7 @@ type catalogIndex struct {
 	episodes map[string][]int // series or season ID → positions in Items
 	children map[string]int   // parent ID → number of direct children
 	folders  map[string]int   // folder ID → position in Folders
+	items    map[string]int   // video ID → position in Items
 }
 
 func (c *Catalog) built() *catalogIndex {
@@ -17,7 +18,9 @@ func (c *Catalog) built() *catalogIndex {
 		c.index.episodes = map[string][]int{}
 		c.index.children = map[string]int{}
 		c.index.folders = map[string]int{}
+		c.index.items = map[string]int{}
 		for n, item := range c.Items {
+			c.index.items[item.ID] = n
 			if item.SeriesID != "" {
 				c.index.episodes[item.SeriesID] = append(c.index.episodes[item.SeriesID], n)
 			}
@@ -56,4 +59,16 @@ func (c *Catalog) Folder(id string) (Item, bool) {
 		return Item{}, false
 	}
 	return c.Folders[n], true
+}
+
+// Lookup returns the video, series or season with this ID. The catalogue is
+// not changed after it is built, so the item must not be modified.
+func (c *Catalog) Lookup(id string) (*Item, bool) {
+	if n, found := c.built().items[id]; found {
+		return &c.Items[n], true
+	}
+	if n, found := c.built().folders[id]; found {
+		return &c.Folders[n], true
+	}
+	return nil, false
 }

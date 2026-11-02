@@ -46,12 +46,7 @@ var knownFailures = map[string]knownFailure{
 	"getEncodingCodecparameters":  administration,
 	"postEncodingCodecparameters": administration,
 	// CollectionService
-	"deleteCollectionsByIdItems":      notCalledByWeb,
-	"getCollectionsByIdMissing":       notOfferedByWeb,
 	"getCollectionsByIdProvideritems": notCalledByWeb,
-	"postCollections":                 administration,
-	"postCollectionsByIdItems":        administration,
-	"postCollectionsByIdItemsDelete":  administration,
 	// ConfigurationService
 	"postSystemConfigurationByKey":   refusedAdmin,
 	"postSystemConfigurationPartial": administration,
@@ -108,7 +103,6 @@ var knownFailures = map[string]knownFailure{
 	"getGamegenresByNameImagesByTypeByIndex": notCalledByWeb,
 	"getGenresByNameImagesByType":            notCalledByWeb,
 	"getGenresByNameImagesByTypeByIndex":     notCalledByWeb,
-	"getItemsByIdImages":                     administration,
 	"getItemsByIdImagesByTypeByIndexByTagByFormatByMaxwidthByMaxheightByPercentplayedByUnplayedcount": notCalledByWeb,
 	"getMusicgenresByNameImagesByType":        notCalledByWeb,
 	"getMusicgenresByNameImagesByTypeByIndex": notCalledByWeb,
@@ -160,13 +154,11 @@ var knownFailures = map[string]knownFailure{
 	"postItemsByItemid": unranked,
 	// LibraryService
 	"deleteItems":               administration,
-	"deleteItemsById":           administration,
 	"getAlbumsByIdSimilar":      notCalledByWeb,
 	"getArtistsByIdSimilar":     notCalledByWeb,
 	"getGamesByIdSimilar":       notCalledByWeb,
 	"getItemsByIdAncestors":     notCalledByWeb,
 	"getItemsByIdCriticreviews": notCalledByWeb,
-	"getItemsByIdDeleteinfo":    administration,
 	"getItemsByIdFile":          notOfferedByWeb,
 	"getItemsByIdThemesongs":    notCalledByWeb,
 	"getItemsByIdThemevideos":   notCalledByWeb,
@@ -177,7 +169,6 @@ var knownFailures = map[string]knownFailure{
 	"getShowsByIdSimilar":       notCalledByWeb,
 	"getTrailersByIdSimilar":    notCalledByWeb,
 	"postItemsByIdDelete":       administration,
-	"postItemsDelete":           administration,
 	"postLibraryMediaUpdated":   notCalledByWeb,
 	"postLibraryMoviesAdded":    notCalledByWeb,
 	"postLibraryMoviesUpdated":  notCalledByWeb,
@@ -328,7 +319,6 @@ var knownFailures = map[string]knownFailure{
 	// RemoteImageService
 	"getImagesRemote":                   unranked,
 	"getItemsByIdRemoteimages":          unranked,
-	"getItemsByIdRemoteimagesProviders": unranked,
 	"postItemsByIdRemoteimagesDownload": unranked,
 	// ScheduledTaskService
 	"deleteScheduledtasksRunningById":     scanNotStopped,

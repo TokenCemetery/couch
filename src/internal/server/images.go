@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TokenCemetery/couch/internal/media"
 	"github.com/TokenCemetery/couch/internal/state"
 )
 
@@ -13,6 +14,43 @@ func (s *Server) imageRoutes(mux *http.ServeMux) {
 	for _, route := range []string{"/items/{item}/images/{kind}", "/items/{item}/images/{kind}/{index}"} {
 		mux.HandleFunc("GET "+route, s.itemImage)
 	}
+	// The image editor lists an item's images; Couch has no image search
+	// and changes no image.
+	mux.HandleFunc("GET /items/{item}/images", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		id := r.PathValue("item")
+		if _, ok := s.store.Snapshot().Collection(id); ok {
+			respond(w, 200, []object{})
+			return
+		}
+		catalog := s.catalog()
+		item, found := findItem(catalog, id)
+		if !found {
+			fail(w, 404, "NotFound")
+			return
+		}
+		images := s.imageInfos(catalog, item)
+		infos := []object{}
+		for _, kind := range media.ImageTypes {
+			image, ok := images[kind]
+			if !ok {
+				continue
+			}
+			info := object{"ImageType": kind, "ImageTag": s.store.ImageTag(token, id, image.Revision), "Width": image.Width, "Height": image.Height}
+			if kind == "Backdrop" {
+				info["ImageIndex"] = 0
+			}
+			infos = append(infos, info)
+		}
+		respond(w, 200, infos)
+	}))
+	mux.HandleFunc("GET /items/{item}/remoteimages/providers", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		respond(w, 200, []object{})
+	}))
+	refuse := s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		failText(w, 400, "Couch does not change images: replace the image file next to the video, or use Identify, then Refresh Metadata.")
+	})
+	mux.HandleFunc("POST /items/{item}/images/{rest...}", refuse)
+	mux.HandleFunc("DELETE /items/{item}/images/{rest...}", refuse)
 }
 
 // imageAccess authorizes an image request by API token or, because browsers

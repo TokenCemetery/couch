@@ -34,7 +34,8 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Titles from file names, duration and technical data from FFprobe | Supported | Used when an item has no metadata |
 | Metadata from `.nfo` files: title, overview, year, genres, studios, tags, ratings, people, provider IDs | Supported | Re-read when the file changes; checked in Emby Web (#101) |
 | Metadata and poster/backdrop from TMDb and TheTVDB | Supported | On only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; checked against the live services in English and Russian (#101) |
-| Collections, playlists, missing and upcoming episodes, recommendations | Unsupported | Empty lists (#40, #34); Emby Web offers creating and editing a collection only to an administrator, and hides it while items report `CanEditItems: false` (#40, #110) |
+| Collections: create, add and remove items, rename, delete, play; Collections library and tabs, "Included In" row | Supported | Administrators edit them; other users see those with an item they can see. No collection images, no `.nfo` `<set>`, missing items always empty (#40) |
+| Playlists, missing and upcoming episodes, recommendations | Unsupported | Empty lists (#103, #34) |
 | Music, photos, books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
 
 ## Watching

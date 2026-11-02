@@ -529,6 +529,10 @@ func playReportProblem(session *state.Session, itemID, playID, event string) str
 func (s *Server) setItemFlag(favorite, value bool) authenticated {
 	return func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		item, found := findItem(s.catalogFor(session), r.PathValue("item"))
+		if set, ok := s.sessionBoxSets(session)[r.PathValue("item")]; ok {
+			s.setBoxSetFlag(w, token, session, set, favorite, value)
+			return
+		}
 		if !found {
 			fail(w, 404, "NotFound")
 			return

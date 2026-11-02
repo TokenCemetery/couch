@@ -702,3 +702,22 @@ Container, with Compose as the README describes:
 Native service: `make release` builds a static 13.6 MB binary with its SHA-256. `systemd-analyze verify` accepts `deploy/couch.service` (it reports only that `/usr/local/bin/couch` is not yet installed), and `systemd-analyze security --offline` rates its exposure 1.8, "OK".
 
 Not checked: running `scripts/install.sh` and the service on the host (it needs root), a sign-in from another LAN host, a host reboot, and Podman (not installed) (#117).
+
+## Collections (2026-11-02, #40)
+
+Emby Web 4.10.0.40 (`-web-dir`) in Chromium against Couch with the 18-file real set, signed in as the administrator:
+
+- **Create:** a movie's "…" menu offers "Add to Collection". "New Collection" sent `POST Collections?Name=…&Ids=…` and showed the "Added to collection" toast.
+- **Add:** a second movie was added from the same dialog, which listed the collection under "Recent" and "All Collections". Emby Web posts the IDs as JSON in a `text/plain` body with `reqformat=json`. The first build read only `application/json`, answered 204 and added nothing. Fixed, and the test now posts the body the way Emby Web does.
+- **Show:**
+  - The Movies library got a Collections tab listing the collection.
+  - My Media got a "Collections" tile, and it opens as a list of collections. The sidebar lists it after a reload.
+  - The collection page lists its movies under "Movies".
+  - A member's page shows the collection under "Included In".
+- **Play:** "Play" on the collection card sent `Items?ParentId=<collection>&ProjectToMedia=true&…`. That answered 400 until `ProjectToMedia` was supported; then it played the first movie.
+- **Remove:** "Remove from Collection" on the "Included In" card sent `POST Collections/{id}/Items/Delete`, and the row disappeared.
+- **Rename:** Edit Metadata on the collection saved a new title ("Item saved.").
+- **Edit Images:** the image editor opened on a movie, with no error.
+- **Delete:** confirmed with "Are you sure you wish to delete …?", which lists no file paths. It sent `POST Items/Delete`, and Emby Web went back to the previous page.
+
+Other users, "Group into collections", "Mark Played" and favorites are covered by `TestCollections` but were not clicked through. `make e2e` passes the collection operations, `Items/{id}/DeleteInfo`, `Items/Delete`, `DELETE Items/{id}`, `Items/{id}/Images` and `RemoteImages/Providers` against a collection made at startup.

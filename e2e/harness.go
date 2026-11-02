@@ -49,6 +49,7 @@ type Fixtures struct {
 	SeriesID      string
 	SeasonID      string
 	EpisodeID     string
+	CollectionID  string
 }
 
 // Instance is one running couch process with a logged-in session.
@@ -121,6 +122,9 @@ func (s *Suite) Start() (*Instance, error) {
 		}
 		if err == nil {
 			err = inst.uploadAvatar()
+		}
+		if err == nil {
+			err = inst.createCollection()
 		}
 		if err != nil {
 			inst.Stop()
@@ -318,6 +322,22 @@ func (inst *Instance) uploadAvatar() error {
 		err = fmt.Errorf("upload avatar: status %d: %s", resp.Status, snippet(resp.Body))
 	}
 	return err
+}
+
+// createCollection puts the movie in a collection, so the collection and
+// item deletion operations have one to change.
+func (inst *Instance) createCollection() error {
+	r := Request{Method: "POST", Path: "/Collections", Query: url.Values{"Name": {"e2e"}, "Ids": {inst.IDs.MovieID}}}
+	resp, err := inst.Send(r, true)
+	if err != nil {
+		return err
+	}
+	var created struct{ Id string }
+	if resp.Status != http.StatusOK || json.Unmarshal(resp.Body, &created) != nil || created.Id == "" {
+		return fmt.Errorf("create collection: status %d: %s", resp.Status, snippet(resp.Body))
+	}
+	inst.IDs.CollectionID = created.Id
+	return nil
 }
 
 // avatarBody is a 1x1 PNG encoded as base64, as Emby Web sends an avatar.

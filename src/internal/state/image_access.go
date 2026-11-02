@@ -46,3 +46,12 @@ func (s *Store) AuthenticateImageTag(itemID, tag string) (Session, string, error
 	}
 	return Session{}, "", ErrSession
 }
+
+// IsAdministrator reports whether the token's session belongs to an
+// administrator.
+func (s *Store) IsAdministrator(token string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	session, ok := s.data.Sessions[tokenHash(token)]
+	return ok && token != "" && session.ExpiresAt.After(time.Now()) && s.data.Users[session.UserID].Policy.IsAdministrator
+}

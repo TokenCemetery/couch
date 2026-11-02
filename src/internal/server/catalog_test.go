@@ -151,8 +151,9 @@ func TestItemsQueriesFromEmbyWeb(t *testing.T) {
 			t.Fatalf("CollectionTypes=%s: %s, want %s", types, got, want)
 		}
 	}
-	// "Add to playlist" lists the playlists the user can edit: none (#77).
-	for query, want := range map[string]string{"CanEditItems=true": `"TotalRecordCount":0`, "CanEditItems=false": `"TotalRecordCount":4`} {
+	// "Add to playlist" lists the items the user can edit: an administrator
+	// every media item (#77).
+	for query, want := range map[string]string{"CanEditItems=true": `"TotalRecordCount":4`, "CanEditItems=false": `"TotalRecordCount":4`} {
 		w := request(h, "GET", "/Users/"+user+"/Items?Recursive=true&"+query, "", "", token)
 		expectStatus(t, w, 200)
 		if !strings.Contains(w.Body.String(), want) {

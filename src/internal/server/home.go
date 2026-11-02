@@ -88,6 +88,9 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 		for _, id := range libraryIDs(catalog) {
 			items = append(items, s.collectionDTO(id, serverID, false))
 		}
+		if sets := s.sessionBoxSets(session); len(sets) > 0 {
+			items = append(items, collectionsViewDTO(serverID, len(sets), false))
+		}
 	case section == "resume":
 		items = s.resumeItems(limit, token, session)
 	case section == "resumeaudio":
