@@ -99,7 +99,7 @@ func TestSavedCatalog(t *testing.T) {
 	}
 	for name, content := range map[string]string{
 		"corrupted":                      string(saved[:len(saved)/2]),
-		"other version":                  strings.Replace(string(saved), `"Version":3`, `"Version":99`, 1),
+		"other version":                  strings.Replace(string(saved), `"Version":4`, `"Version":99`, 1),
 		"path outside":                   strings.Replace(string(saved), `"Path":"Movie.mkv"`, `"Path":"../Movie.mkv"`, 1),
 		"duplicate path":                 strings.Replace(string(saved), `"Path":"New.mp4"`, `"Path":"Movie.mkv"`, 1),
 		"no folders":                     `{"Version":2,"Folders":[]}`,

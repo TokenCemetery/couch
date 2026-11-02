@@ -1,6 +1,10 @@
 package media
 
 import (
+	"bytes"
+	"cmp"
+	"context"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg" // register JPEG for image.DecodeConfig
@@ -8,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -107,23 +112,72 @@ func (c *Catalog) ImageInfo(item Item, kind string) (Image, bool) {
 }
 
 // ImageInfos reports the item's valid images by type, as ImageInfo does for
-// each of ImageTypes, but checks its folder once.
+// each of ImageTypes, but checks its folder once. A track or album without a
+// local Primary image has its embedded cover's, if any (EmbeddedCover).
 func (c *Catalog) ImageInfos(item Item) map[string]Image {
 	infos := map[string]Image{}
 	if c == nil || c.rootOf(item) == nil {
 		return infos
 	}
-	present := c.imageFiles(item)
-	if len(present) == 0 {
-		return infos
+	if present := c.imageFiles(item); len(present) > 0 {
+		for _, kind := range ImageTypes {
+			names := imageNames[strings.ToLower(kind)]
+			if info, found := imageInfo(c.openImage(item, names.own, names.shared, present)); found {
+				infos[kind] = info
+			}
+		}
 	}
-	for _, kind := range ImageTypes {
-		names := imageNames[strings.ToLower(kind)]
-		if info, found := imageInfo(c.openImage(item, names.own, names.shared, present)); found {
-			infos[kind] = info
+	if _, local := infos["Primary"]; !local {
+		if _, cover, found := c.EmbeddedCover(item); found {
+			infos["Primary"] = cover
 		}
 	}
 	return infos
+}
+
+// EmbeddedCover returns the track whose embedded cover is item's: a track's
+// own, or for an album the first of its tracks by disc and track number that
+// has one, with that cover's Image. Its revision changes with the track file.
+// Without FFmpeg no cover can be read, so none is reported.
+func (c *Catalog) EmbeddedCover(item Item) (Item, Image, bool) {
+	if c == nil || c.extractor == nil {
+		return Item{}, Image{}, false
+	}
+	tracks := []Item{item}
+	if item.Type() == "MusicAlbum" {
+		tracks = c.Episodes(item.ID)
+		slices.SortFunc(tracks, func(a, b Item) int {
+			return cmp.Or(cmp.Compare(max(a.Tags.Disc, 1), max(b.Tags.Disc, 1)), cmp.Compare(a.Tags.Track, b.Tags.Track), strings.Compare(a.Path, b.Path))
+		})
+	}
+	for _, track := range tracks {
+		if track.Type() == "Audio" && track.Cover != (Image{}) {
+			cover := track.Cover
+			cover.Revision = stableID(fmt.Sprintf("cover\x00%s\x00%d\x00%d", track.Path, track.Size, track.Modified.UnixNano()))
+			return track, cover, true
+		}
+	}
+	return Item{}, Image{}, false
+}
+
+// ExtractCover reads the embedded cover of track, which EmbeddedCover
+// returned, as the file holds it: JPEG or PNG within the local image limits.
+// It needs FFmpeg.
+func (c *Catalog) ExtractCover(ctx context.Context, track Item) ([]byte, error) {
+	file, err := c.Open(track)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := c.extractor.extractCover(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || "image/"+format != track.Cover.MIME || config.Width <= 0 || config.Height <= 0 || config.Width > 16384 || config.Height > 16384 || int64(config.Width)*int64(config.Height) > 32_000_000 {
+		return nil, errors.New("embedded cover is not a valid JPEG or PNG image")
+	}
+	return data, nil
 }
 
 func imageInfo(file *os.File, info Image, err error) (Image, bool) {

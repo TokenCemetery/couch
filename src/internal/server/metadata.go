@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -237,9 +238,17 @@ func (s *Server) imageInfos(catalog *media.Catalog, item media.Item) map[string]
 }
 
 // openImage opens the item's image of a type, as imageInfos chooses it.
-func (s *Server) openImage(catalog *media.Catalog, item media.Item, kind string) (*os.File, media.Image, error) {
+func (s *Server) openImage(ctx context.Context, catalog *media.Catalog, item media.Item, kind string) (*os.File, media.Image, error) {
 	file, info, err := catalog.OpenImage(item, kind)
-	if err == nil || s.metadataImages == "" {
+	if err == nil {
+		return file, info, nil
+	}
+	if strings.EqualFold(kind, "Primary") {
+		if file, info, err := s.embeddedCover(ctx, catalog, item); err == nil {
+			return file, info, nil
+		}
+	}
+	if s.metadataImages == "" {
 		return file, info, err
 	}
 	for name, image := range s.info(item.ID).Images {

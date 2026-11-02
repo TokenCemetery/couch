@@ -17,8 +17,8 @@ import (
 // savedVersion changes whenever the saved form or what a probe records does;
 // an index of another version is rejected and the libraries scanned again.
 // Version 1 held one directory and version 2 no audio files; both are still
-// read.
-const savedVersion = 3
+// read. Version 3 lacked embedded covers and is scanned again.
+const savedVersion = 4
 
 const maxSavedBytes = 256 << 20
 
@@ -45,7 +45,8 @@ type savedItem struct {
 	Added        time.Time
 	RunTimeTicks int64
 	Streams      []Stream
-	Tags         Tags `json:",omitzero"`
+	Tags         Tags  `json:",omitzero"`
+	Cover        Image `json:",omitzero"`
 }
 
 // Save writes the catalog to file atomically, so a crash leaves either the
@@ -57,7 +58,7 @@ func (c *Catalog) Save(file string) error {
 		f := savedFolder{Path: folder, Items: make([]savedItem, len(src.items))}
 		for n, item := range src.items {
 			f.Items[n] = savedItem{Path: item.Path, Size: item.Size, Modified: item.Modified, Added: item.Added,
-				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags}
+				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags, Cover: item.Cover}
 		}
 		saved.Folders = append(saved.Folders, f)
 	}
@@ -204,14 +205,14 @@ func loadSource(folder string, saved []savedItem, video, audio bool) (*source, e
 		if (music && !audio) || (!music && !video) {
 			continue
 		}
-		tags := s.Tags
+		tags, cover := s.Tags, s.Cover
 		if !music {
-			tags = Tags{}
+			tags, cover = Tags{}, Image{}
 		}
 		src.items = append(src.items, Item{
 			ID: stableID(src.key + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
 			Container: containerOf(ext),
-			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: tags,
+			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: tags, Cover: cover,
 		})
 	}
 	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })

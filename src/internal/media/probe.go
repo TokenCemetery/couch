@@ -142,6 +142,18 @@ func parseTags(raw map[string]string) Tags {
 	return tags
 }
 
+// coverMIME names the image type of an attached picture's codec; only JPEG
+// and PNG covers are served.
+func coverMIME(codec string) string {
+	switch codec {
+	case "mjpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	}
+	return ""
+}
+
 // profileName normalises ffprobe's profile field, which is a string for most
 // codecs but a numeric identifier for a few.
 func profileName(value any) string {
@@ -233,7 +245,12 @@ func parseProbe(data []byte) (Item, error) {
 			IsInterlaced:      raw.FieldOrder != "" && raw.FieldOrder != "progressive"}
 		switch raw.CodecType {
 		case "video":
+			// An attached picture is a cover, not a video track; an audio
+			// file's first JPEG or PNG one is its cover.
 			if raw.Disposition.AttachedPic != 0 {
+				if mime := coverMIME(raw.CodecName); item.Cover == (Image{}) && mime != "" && raw.Width > 0 && raw.Height > 0 {
+					item.Cover = Image{Width: raw.Width, Height: raw.Height, MIME: mime}
+				}
 				continue
 			}
 			stream.Type, stream.Width, stream.Height = "Video", raw.Width, raw.Height

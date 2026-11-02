@@ -51,6 +51,8 @@ type Server struct {
 
 	// logDir holds the server log files; empty when they are not kept.
 	logDir string
+	// coverDir caches covers read from audio files.
+	coverDir string
 	// refreshRequested is set while a metadata refresh an administrator ran
 	// is pending.
 	refreshRequested atomic.Bool

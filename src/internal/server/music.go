@@ -1,9 +1,13 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/TokenCemetery/couch/internal/media"
 	"github.com/TokenCemetery/couch/internal/metadata"
@@ -224,5 +228,76 @@ func (s *Server) musicRoutes(mux *http.ServeMux) {
 	for _, path := range []string{"/items/{item}/instantmix", "/albums/{item}/instantmix", "/songs/{item}/instantmix", "/playlists/{item}/instantmix",
 		"/artists/instantmix", "/musicgenres/instantmix", "/musicgenres/{name}/instantmix"} {
 		mux.HandleFunc("GET "+path, notYet)
+	}
+}
+
+// maxCovers covers read from audio files are cached; the least recently
+// used goes first.
+const maxCovers = 1000
+
+// SetCoverCache names the directory that caches covers read from audio
+// files. Call it before serving.
+func (s *Server) SetCoverCache(dir string) { s.coverDir = dir }
+
+// embeddedCover opens the cover embedded in item's audio file, or its first
+// track's for an album, from the cache, reading it with FFmpeg the first time.
+func (s *Server) embeddedCover(ctx context.Context, catalog *media.Catalog, item media.Item) (*os.File, media.Image, error) {
+	track, info, found := catalog.EmbeddedCover(item)
+	if !found || s.coverDir == "" {
+		return nil, media.Image{}, os.ErrNotExist
+	}
+	name := filepath.Join(s.coverDir, info.Revision)
+	if file, err := os.Open(name); err == nil { //nolint:gosec // name is a revision hash under the data directory
+		now := time.Now()
+		_ = os.Chtimes(name, now, now)
+		return file, info, nil
+	}
+	data, err := catalog.ExtractCover(ctx, track)
+	if err != nil {
+		return nil, media.Image{}, err
+	}
+	if err := os.MkdirAll(s.coverDir, 0700); err != nil {
+		return nil, media.Image{}, err
+	}
+	temp, err := os.CreateTemp(s.coverDir, ".cover-*")
+	if err != nil {
+		return nil, media.Image{}, err
+	}
+	defer func() { _ = os.Remove(temp.Name()) }()
+	_, err = temp.Write(data)
+	if closeErr := temp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(temp.Name(), name)
+	}
+	if err != nil {
+		return nil, media.Image{}, err
+	}
+	pruneCovers(s.coverDir)
+	file, err := os.Open(name) //nolint:gosec // name is a revision hash under the data directory
+	return file, info, err
+}
+
+// pruneCovers removes the least recently used cached covers beyond
+// maxCovers.
+func pruneCovers(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) <= maxCovers {
+		return
+	}
+	type cached struct {
+		name string
+		used time.Time
+	}
+	files := []cached{}
+	for _, entry := range entries {
+		if info, err := entry.Info(); err == nil && info.Mode().IsRegular() && !strings.HasPrefix(entry.Name(), ".") {
+			files = append(files, cached{entry.Name(), info.ModTime()})
+		}
+	}
+	slices.SortFunc(files, func(a, b cached) int { return b.used.Compare(a.used) })
+	for _, f := range files[min(maxCovers, len(files)):] {
+		_ = os.Remove(filepath.Join(dir, f.name))
 	}
 }

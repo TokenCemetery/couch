@@ -29,17 +29,49 @@ func newSubtitleExtractor(binary string) *subtitleExtractor {
 	return &subtitleExtractor{binary: binary, slots: make(chan struct{}, maxSubtitleJobs)}
 }
 
+// limitedOutput collects at most limit bytes, maxSubtitleBytes when unset,
+// and cancels the job beyond that.
 type limitedOutput struct {
 	buffer bytes.Buffer
 	cancel context.CancelFunc
+	limit  int
 }
 
 func (b *limitedOutput) Write(p []byte) (int, error) {
-	if b.buffer.Len()+len(p) > maxSubtitleBytes {
+	limit := b.limit
+	if limit == 0 {
+		limit = maxSubtitleBytes
+	}
+	if b.buffer.Len()+len(p) > limit {
 		b.cancel()
 		return 0, errors.New(errSubtitleOutput)
 	}
 	return b.buffer.Write(p)
+}
+
+// extractCover copies an audio file's first attached picture, a cover, as
+// the file holds it, up to maxImageBytes. It shares the subtitle jobs' slots.
+func (e *subtitleExtractor) extractCover(ctx context.Context, file *os.File) ([]byte, error) {
+	select {
+	case e.slots <- struct{}{}:
+		defer func() { <-e.slots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(ctx, subtitleJobLimit)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, e.binary, "-v", "error", "-nostdin", "-threads", "1", //nolint:gosec // binary is ffmpeg from PATH; arguments are fixed
+		"-protocol_whitelist", "fd", "-fd", "3", "-i", "fd:",
+		"-map", "0:v:0", "-c", "copy", "-frames:v", "1", "-f", "image2pipe", "pipe:1")
+	cmd.Env = []string{"LC_ALL=C"}
+	cmd.ExtraFiles = []*os.File{file}
+	output := &limitedOutput{cancel: cancel, limit: maxImageBytes}
+	cmd.Stdout = output
+	cmd.WaitDelay = time.Second
+	if err := cmd.Run(); err != nil {
+		return nil, errors.New("ffmpeg failed or exceeded its limits")
+	}
+	return output.buffer.Bytes(), nil
 }
 
 // extract reads the whole file: subtitle packets are spread through it. The

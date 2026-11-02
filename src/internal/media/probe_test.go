@@ -44,13 +44,18 @@ func TestParseProbeAudioTags(t *testing.T) {
 	// MP3 and FLAC keep their tags in the format, in any case.
 	item, err := parseProbe([]byte(`{"format":{"duration":"3","bit_rate":"900000","tags":{"TITLE":"Song","ARTIST":"A; B ;A","album_artist":"A","ALBUM":"Album","GENRE":"Rock/Pop","track":"3/12","DISC":"2/2","date":"2001-05-02"}},
 		"streams":[{"index":0,"codec_type":"audio","codec_name":"flac","channels":2,"sample_rate":"44100","bits_per_sample":16},
-		{"index":1,"codec_type":"video","codec_name":"mjpeg","disposition":{"attached_pic":1}}]}`))
+		{"index":1,"codec_type":"video","codec_name":"mjpeg","width":500,"height":400,"disposition":{"attached_pic":1}},
+		{"index":2,"codec_type":"video","codec_name":"png","width":10,"height":10,"disposition":{"attached_pic":1}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := Tags{Title: "Song", Album: "Album", AlbumArtist: "A", Artists: []string{"A", "B"}, Genres: []string{"Rock", "Pop"}, Track: 3, Disc: 2, Year: 2001}
 	if !reflect.DeepEqual(item.Tags, want) || len(item.Streams) != 1 || item.Streams[0].BitRate != 900000 || item.Streams[0].BitDepth != 16 {
 		t.Fatalf("tags %+v, streams %+v", item.Tags, item.Streams)
+	}
+	// The first attached picture is the cover.
+	if item.Cover != (Image{Width: 500, Height: 400, MIME: "image/jpeg"}) {
+		t.Fatalf("cover %+v", item.Cover)
 	}
 	// Ogg and Opus keep them in the stream.
 	item, err = parseProbe([]byte(`{"format":{"duration":"3"},"streams":[{"index":0,"codec_type":"audio","codec_name":"opus","tags":{"title":"Other","artist":"C","track":"x"}}]}`))

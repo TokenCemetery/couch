@@ -178,6 +178,7 @@ func run() error {
 		return err
 	}
 	api.SetMetadataImages(config.ImageDir)
+	api.SetCoverCache(filepath.Join(*data, "covers"))
 	api.SetRefresher(refresher)
 	api.SetLogDir(logDir)
 	slog.Info("Metadata sources", "nfo", true, "tmdb", config.TMDbKey != "", "tvdb", config.TVDbKey != "", "language", config.Language)

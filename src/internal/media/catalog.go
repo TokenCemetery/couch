@@ -73,6 +73,9 @@ type Item struct {
 	// Tags are an audio file's metadata, completed from its path by
 	// classifyMusic; empty for videos.
 	Tags Tags
+	// Cover is the picture embedded in an audio file, without a Revision;
+	// zero when there is none, and for videos.
+	Cover Image
 	// src is the folder the item was found in.
 	src *source
 }
@@ -404,7 +407,7 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 		var item Item
 		if previous, ok := known[path]; ok && previous.Size == info.Size() && previous.Modified.Equal(modified) {
 			// Sidecars and episode fields are derived again below.
-			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams), Tags: previous.Tags}
+			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams), Tags: previous.Tags, Cover: previous.Cover}
 		} else {
 			item, err = probe(ctx, file)
 			if ctx.Err() != nil {
@@ -418,7 +421,7 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 			}
 		}
 		if !music {
-			item.Tags = Tags{}
+			item.Tags, item.Cover = Tags{}, Image{}
 		}
 		item.ID = stableID(src.key + "\x00" + path)
 		item.Path = path
