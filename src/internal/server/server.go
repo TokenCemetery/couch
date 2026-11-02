@@ -37,6 +37,7 @@ type Server struct {
 	logins   loginLimit
 	media    atomic.Pointer[media.Catalog]
 	metadata atomic.Pointer[metadataIndex]
+	music    atomic.Pointer[musicIndex]
 	// metadataImages is the directory of downloaded provider images.
 	metadataImages string
 	hls            *hls.Manager
@@ -68,6 +69,7 @@ type Server struct {
 func New(store *state.Store, name string, web http.Handler, catalog *media.Catalog) *Server {
 	s := &Server{store: store, name: name, web: web, logins: loginLimit{active: make(chan struct{}, 2)}, connections: make(map[*socket]struct{}),
 		seen: map[string]time.Time{}, playing: map[string]nowPlaying{}}
+	s.music.Store(newMusicIndex(catalog))
 	s.media.Store(catalog)
 	return s
 }
@@ -81,6 +83,7 @@ func (s *Server) catalog() *media.Catalog {
 // SetCatalog publishes a rescanned catalog and sends LibraryChanged when it
 // differs. Requests already running keep the snapshot they took.
 func (s *Server) SetCatalog(catalog *media.Catalog) {
+	s.music.Store(newMusicIndex(catalog))
 	s.publishLibraryChange(s.media.Swap(catalog), catalog)
 }
 
@@ -371,6 +374,7 @@ func (s *Server) Handler() http.Handler {
 	s.dashboardRoutes(mux)
 	s.identifyRoutes(mux)
 	s.filterRoutes(mux)
+	s.musicRoutes(mux)
 	s.homeRoutes(mux)
 	s.playbackRoutes(mux)
 	s.hlsRoutes(mux)

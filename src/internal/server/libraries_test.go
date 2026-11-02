@@ -60,7 +60,7 @@ func TestLibrarySetup(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, kind, path, want string }{
 		{"Films", "tvshows", shows, "already exists"},
-		{"Music", "music", shows, "only movies and TV shows"},
+		{"Photos", "photos", shows, "only movies, TV shows and music"},
 		{"Out", "movies", outside, "not inside a media root"},
 		{"Escape", "movies", filepath.Join(root, "escape"), "not inside a media root"},
 		{"Dots", "movies", root + "/shows/../films", "without . or .."},

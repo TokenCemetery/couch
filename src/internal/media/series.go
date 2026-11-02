@@ -25,8 +25,10 @@ func (i Item) Type() string {
 	return i.Kind
 }
 
-// IsFolder reports whether the item is a series or season.
-func (i Item) IsFolder() bool { return i.Kind == "Series" || i.Kind == "Season" }
+// IsFolder reports whether the item is a series, season or music album.
+func (i Item) IsFolder() bool {
+	return i.Kind == "Series" || i.Kind == "Season" || i.Kind == "MusicAlbum"
+}
 
 // Parent returns the parent item ID: the library for a movie or series.
 func (c *Catalog) Parent(item Item) string {
@@ -37,7 +39,7 @@ func (c *Catalog) Parent(item Item) string {
 }
 
 // classify marks the episodes of the folder and builds their series and
-// seasons; every other video stays a movie. Series IDs derive from the folder
+// seasons, and the tracks with their albums; every other video stays a movie. Series IDs derive from the folder
 // as the TV Shows library of a one-directory catalogue did, so they do not
 // change; assemble sets their parent library.
 func (s *source) classify() {
@@ -46,6 +48,9 @@ func (s *source) classify() {
 	for n := range s.items {
 		item := &s.items[n]
 		item.src = s
+		if isAudio(strings.ToLower(path.Ext(item.Path))) {
+			continue
+		}
 		seasonPath := path.Dir(item.Path)
 		seriesPath := path.Dir(seasonPath)
 		seasonMatch := seasonDirectory.FindStringSubmatch(path.Base(seasonPath))
@@ -85,5 +90,6 @@ func (s *source) classify() {
 	for _, folder := range folders {
 		s.folders = append(s.folders, folder)
 	}
+	s.classifyMusic()
 	slices.SortFunc(s.folders, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
 }

@@ -62,16 +62,14 @@ func streamValues(kind string, value func(media.Stream) string) func(media.Item)
 }
 
 // filterValues returns the values item offers for an Items filter; a series
-// or season offers those of its episodes.
+// or season offers those of its episodes, an album those of its tracks.
 func filterValues(catalog *media.Catalog, item *media.Item, values func(media.Item) []string) []string {
 	if !item.IsFolder() {
 		return values(*item)
 	}
 	result := []string{}
-	for _, episode := range catalog.Items {
-		if episode.SeriesID == item.ID || episode.SeasonID == item.ID {
-			result = append(result, values(episode)...)
-		}
+	for _, episode := range catalog.Episodes(item.ID) {
+		result = append(result, values(episode)...)
 	}
 	return result
 }
@@ -300,9 +298,6 @@ func (s *Server) filterRoutes(mux *http.ServeMux) {
 		"/officialratings": "OfficialRating", "/years": "Year", "/persons": "Person"} {
 		mux.HandleFunc("GET "+path, s.protect(s.metadataValueList(kind)))
 	}
-	// Every video is of the plain type, and without music libraries Couch
-	// has no artists; the home Favorites tab asks for them (#80).
-	for _, path := range []string{"/extendedvideotypes", "/artists"} {
-		mux.HandleFunc("GET "+path, s.protect(s.filterValueList(nil)))
-	}
+	// Every video is of the plain type.
+	mux.HandleFunc("GET /extendedvideotypes", s.protect(s.filterValueList(nil)))
 }

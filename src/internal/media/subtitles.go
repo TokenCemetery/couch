@@ -51,7 +51,7 @@ func attachSidecars(items []Item, subtitles []string) {
 		// ignored, as media folders often mix it.
 		matches, bestLen := []int{}, 0
 		for i := range items {
-			if path.Dir(items[i].Path) != dir {
+			if path.Dir(items[i].Path) != dir || isAudio(strings.ToLower(path.Ext(items[i].Path))) {
 				continue
 			}
 			base := path.Base(items[i].Path)

@@ -3,6 +3,8 @@ package media
 import (
 	"context"
 	"os"
+	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -25,9 +27,9 @@ func TestParseProbe(t *testing.T) {
 	if item.Streams[0].Width != 1920 || item.Streams[0].Rotation != 270 || !item.Streams[0].IsDefault || item.Streams[1].Language != "rus" || item.Streams[1].SampleRate != 48000 || item.Streams[1].BitRate != 128000 || !item.Streams[2].IsForced {
 		t.Fatal("incorrect stream metadata")
 	}
-	for _, raw := range []string{"{", "null", `{}`, `{"streams":[{"codec_type":"audio"}]}`, `{"streams":[{"codec_type":"video","disposition":{"attached_pic":1}}]}`} {
+	for _, raw := range []string{"{", "null", `{}`, `{"streams":[{"codec_type":"data"}]}`, `{"streams":[{"codec_type":"video","disposition":{"attached_pic":1}}]}`} {
 		if _, err := parseProbe([]byte(raw)); err == nil {
-			t.Fatal("invalid/nonvideo probe accepted")
+			t.Fatal("invalid/streamless probe accepted")
 		}
 	}
 	for _, duration := range []string{"N/A", "NaN", "+Inf", "-1", "1e30"} {
@@ -35,6 +37,25 @@ func TestParseProbe(t *testing.T) {
 		if err != nil || item.RunTimeTicks != 0 {
 			t.Fatal("invalid duration became ticks")
 		}
+	}
+}
+
+func TestParseProbeAudioTags(t *testing.T) {
+	// MP3 and FLAC keep their tags in the format, in any case.
+	item, err := parseProbe([]byte(`{"format":{"duration":"3","bit_rate":"900000","tags":{"TITLE":"Song","ARTIST":"A; B ;A","album_artist":"A","ALBUM":"Album","GENRE":"Rock/Pop","track":"3/12","DISC":"2/2","date":"2001-05-02"}},
+		"streams":[{"index":0,"codec_type":"audio","codec_name":"flac","channels":2,"sample_rate":"44100","bits_per_sample":16},
+		{"index":1,"codec_type":"video","codec_name":"mjpeg","disposition":{"attached_pic":1}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Tags{Title: "Song", Album: "Album", AlbumArtist: "A", Artists: []string{"A", "B"}, Genres: []string{"Rock", "Pop"}, Track: 3, Disc: 2, Year: 2001}
+	if !reflect.DeepEqual(item.Tags, want) || len(item.Streams) != 1 || item.Streams[0].BitRate != 900000 || item.Streams[0].BitDepth != 16 {
+		t.Fatalf("tags %+v, streams %+v", item.Tags, item.Streams)
+	}
+	// Ogg and Opus keep them in the stream.
+	item, err = parseProbe([]byte(`{"format":{"duration":"3"},"streams":[{"index":0,"codec_type":"audio","codec_name":"opus","tags":{"title":"Other","artist":"C","track":"x"}}]}`))
+	if err != nil || item.Tags.Title != "Other" || !slices.Equal(item.Tags.Artists, []string{"C"}) || item.Tags.Track != 0 || item.Streams[0].Title != "Other" {
+		t.Fatalf("stream tags %+v, %v", item.Tags, err)
 	}
 }
 

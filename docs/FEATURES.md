@@ -23,7 +23,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 
 | Feature | Status | Notes |
 |---|---|---|
-| Home screen: My Media, Continue Watching (with Next Up), Latest | Supported | Row titles localized for ru, de, fr, es, it; English otherwise (#18) |
+| Home screen: My Media, Continue Watching (with Next Up), Continue Listening, Latest | Supported | Row titles localized for ru, de, fr, es, it; English otherwise (#18); Continue Listening only with a music library (#104) |
 | Movie and TV Shows libraries, item pages, seasons, episodes | Supported | Series need `Show/Season NN/Show.SNNENN.ext` naming; a movies library holds the other files |
 | Search, recent searches | Supported | By title, original title or file name |
 | Customizing home sections in Settings → Home Screen | Unsupported | Adding, removing or reordering a section shows "Couch's home screen sections are fixed for now" in Emby Web's error dialog (#100) |
@@ -35,9 +35,11 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Metadata from `.nfo` files: title, overview, year, genres, studios, tags, ratings, people, provider IDs | Supported | Re-read when the file changes; checked in Emby Web (#101) |
 | Metadata and poster/backdrop from TMDb and TheTVDB | Supported | On only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; checked against the live services in English and Russian (#101) |
 | Collections: create, add and remove items, rename, delete, play; Collections library and tabs, "Included In" row | Supported | Administrators edit them; other users see those with an item they can see. No collection images, no `.nfo` `<set>`, missing items always empty (#40) |
-| Playlists: create, add (with or without duplicates), reorder, remove, rename, delete, play; Playlists library and menu section | Supported | Private to their user; video only, no playlist images, no Instant Mix (#103) |
+| Playlists: create, add (with or without duplicates), reorder, remove, rename, delete, play; Playlists library and menu section | Supported | Private to their user; movies, episodes and tracks, an album adds its tracks (#103, #104); no playlist images |
+| Music libraries: albums, album artists, artists, songs, genres, folders; album and artist pages; Latest Music; favorite artists | Supported | Album, artists, track and disc numbers, year and genres from the file tags, else from `Artist/Album/NN Title` folders; local `cover.jpg` or `folder.jpg` album art. No embedded cover art, composers, lyrics or online music metadata (#104) |
+| Instant Mix | Unsupported | Emby Web's error dialog says "Instant Mix is not available in Couch yet." (#104) |
 | Missing and upcoming episodes, recommendations | Unsupported | Empty lists (#34) |
-| Music, photos, books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
+| Photos, books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
 
 ## Watching
 
@@ -53,6 +55,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Quality switch in the player | Supported | Keeps the position |
 | Saved position, resume, played and favorite marks, remove from Continue Watching | Supported | Survive restart and forced stop |
 | Auto-advance to the next episode, play a whole series | Supported | |
+| Music playback: tracks, albums, playlists, with seek and saved position | Supported | MP3, FLAC, AAC in M4A, Ogg Vorbis, Opus and WAV play as they are; WMA, ALAC and AIFF are encoded to AAC in M4A (192 kbit/s, at most stereo) once per track, at most 2 at a time (#104) |
 | Hardware-accelerated transcoding | Supported on the target | `-hwaccel vaapi` on the target AMD GPU (radeonsi), with the image built with `VAAPI=1`: every transcode file of the agreed set passes; `qsv`, `nvenc`, `amf` unverified on hardware; decoding stays on the CPU (#28) |
 | Casting, play on another device, remote control | Unsupported | Casting not checked; session control routes not implemented (#34) |
 | Offline sync and downloads to the client | Unsupported | #34 |
@@ -72,7 +75,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 
 | Feature | Status | Notes |
 |---|---|---|
-| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies and TV shows only; library options are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
+| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies, TV shows and music (#104); library options are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
 | Rescan from the library page, the "Scan media library" task, `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; a folder that cannot be read or comes back empty keeps its videos, and the others are updated (#39, #112) |
 | Catalog kept across restarts | Supported | Saved to `catalog.json`; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
 | Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; on a first start without one, an unreadable folder stays empty and is reported until a rescan reaches it (#31, #39, #112) |

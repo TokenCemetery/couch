@@ -129,7 +129,7 @@ func rootFolderDTO(serverID string, libraries int) object {
 	return dto
 }
 
-// collectionDTO is the CollectionFolder of a movies or TV shows library.
+// collectionDTO is the CollectionFolder of a movies, TV shows or music library.
 //
 // detail selects the richer body Emby returns from /Users/{id}/Items/{id}. Only
 // that response carries Subviews, and Emby Web's library screen dereferences it
@@ -137,9 +137,12 @@ func rootFolderDTO(serverID string, libraries int) object {
 // served without Subviews breaks the screen outright.
 func (s *Server) collectionDTO(id, serverID string, detail bool) object {
 	library, _ := s.catalog().Library(id)
-	collectionType, subview := library.Type, "movies"
-	if library.Type == media.TVShows {
-		subview = "series"
+	collectionType, subviews := library.Type, []string{"movies", "collections"}
+	switch library.Type {
+	case media.TVShows:
+		subviews = []string{"series", "collections"}
+	case media.Music:
+		subviews = []string{"albums", "artists", "playlists", "songs", "genres"}
 	}
 	dto := baseFields(id, library.Name, "CollectionFolder", serverID)
 	dto["DateCreated"] = zeroDate
@@ -151,7 +154,7 @@ func (s *Server) collectionDTO(id, serverID string, detail bool) object {
 	if detail {
 		dto["ChildCount"] = s.childCount(id)
 		// Only the subviews Couch can actually serve are advertised.
-		dto["Subviews"] = []string{subview, "collections"}
+		dto["Subviews"] = subviews
 	}
 	return dto
 }
@@ -244,13 +247,24 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 		dto["SeasonId"], dto["SeasonName"] = item.SeasonID, s.seasonName(item)
 	}
 	addMetadata(dto, s.info(item.ID))
+	music := isMusic(item)
+	if music {
+		s.addMusic(dto, catalog, item, token)
+	}
 	if item.IsFolder() {
 		dto["ChildCount"] = s.childCount(item.ID)
 		dto["UserData"] = s.folderPlayedData(item, items)
 		return dto
 	}
-	dto["MediaType"] = "Video"
-	dto["VideoType"] = "VideoFile"
+	if music {
+		dto["MediaType"] = "Audio"
+		if rate := bitrate(item); rate > 0 {
+			dto["Bitrate"] = rate
+		}
+	} else {
+		dto["MediaType"] = "Video"
+		dto["VideoType"] = "VideoFile"
+	}
 	dto["Container"] = item.Container
 	dto["Size"] = item.Size
 	dto["PartCount"] = 1
@@ -288,6 +302,22 @@ func videoSize(item media.Item) (int, int) {
 // yields no MimeType rather than a guess the client would act on.
 func containerMIME(container string) string {
 	switch strings.ToLower(container) {
+	case "mp3":
+		return "audio/mpeg"
+	case "flac":
+		return "audio/flac"
+	case "m4a":
+		return "audio/mp4"
+	case "aac":
+		return "audio/aac"
+	case "ogg", "opus":
+		return "audio/ogg"
+	case "wav":
+		return "audio/wav"
+	case "wma":
+		return "audio/x-ms-wma"
+	case "aiff":
+		return "audio/aiff"
 	case "mp4", "m4v":
 		return "video/mp4"
 	case "mkv":

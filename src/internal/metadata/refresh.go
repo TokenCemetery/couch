@@ -246,7 +246,7 @@ func (r *Refresher) Run(ctx context.Context) {
 		go func(catalog *media.Catalog) {
 			start := time.Now().UTC()
 			r.setStatus(true, nil)
-			complete := r.refresh(run, slices.Concat(catalog.Folders, catalog.Items), catalog)
+			complete := r.refresh(run, described(catalog), catalog)
 			r.setStatus(false, &Result{Start: start, End: time.Now().UTC(), Complete: complete})
 			done <- complete
 		}(current)
@@ -277,6 +277,15 @@ func (r *Refresher) Run(ctx context.Context) {
 			backoff = min(2*backoff, retryMax)
 		}
 	}
+}
+
+// described lists the catalogue's movies, series, seasons and episodes: the
+// items .nfo files and the providers describe. Music is described by its
+// tags alone.
+func described(catalog *media.Catalog) []media.Item {
+	return slices.DeleteFunc(slices.Concat(catalog.Folders, catalog.Items), func(item media.Item) bool {
+		return item.Type() == "Audio" || item.Type() == "MusicAlbum"
+	})
 }
 
 // sameItems reports whether two catalogues hold the same items and folders.

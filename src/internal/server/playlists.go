@@ -1,9 +1,11 @@
 package server
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -86,6 +88,19 @@ func playlistUserData(p playlistView, items map[string]state.ItemState) object {
 		"IsFavorite": items[p.ID].IsFavorite, "Played": len(videos) > 0 && unplayed == 0}
 }
 
+// mediaType is Audio for a playlist of tracks only, else Video.
+func (p playlistView) mediaType() string {
+	for _, e := range p.entries {
+		if e.item.Type() != "Audio" {
+			return "Video"
+		}
+	}
+	if len(p.entries) == 0 {
+		return "Video"
+	}
+	return "Audio"
+}
+
 // playlistDTO is the playlist as a Playlist. Its owner may reorder, rename
 // and delete it, which Emby Web decides by CanEditItems and CanDelete.
 func playlistDTO(p playlistView, serverID string, items map[string]state.ItemState) object {
@@ -93,7 +108,7 @@ func playlistDTO(p playlistView, serverID string, items map[string]state.ItemSta
 	dto["DateCreated"] = embyDate(p.Added)
 	dto["DateModified"] = embyDate(p.Modified)
 	dto["IsFolder"] = true
-	dto["MediaType"] = "Video"
+	dto["MediaType"] = p.mediaType()
 	dto["ParentId"] = playlistsViewID
 	dto["ChildCount"] = len(p.entries)
 	var ticks int64
@@ -178,28 +193,36 @@ func splitIDs(list []string) []string {
 	return ids
 }
 
-// playlistMedia resolves the IDs of a request to the videos they add, as Emby
-// does: a series or season adds its episodes. On failure the response has
-// been written.
+// playlistMedia resolves the IDs of a request to the videos and tracks they
+// add, as Emby does: a series or season adds its episodes, an album its
+// tracks. On failure the response has been written.
 func (s *Server) playlistMedia(w http.ResponseWriter, session state.Session, ids []string) ([]string, bool) {
 	catalog := s.catalogFor(session)
 	videos := []string{}
 	for _, id := range ids {
 		if catalog == nil {
-			failText(w, 400, "Only movies, series, seasons and episodes can be added to a playlist.")
+			failText(w, 400, "Only movies, series, seasons, episodes, albums and tracks can be added to a playlist.")
 			return nil, false
 		}
 		item, found := catalog.Lookup(id)
 		if !found {
-			failText(w, 400, "Only movies, series, seasons and episodes can be added to a playlist.")
+			failText(w, 400, "Only movies, series, seasons, episodes, albums and tracks can be added to a playlist.")
 			return nil, false
 		}
 		if !item.IsFolder() {
 			videos = append(videos, item.ID)
 			continue
 		}
-		for _, episode := range catalog.Episodes(item.ID) {
-			videos = append(videos, episode.ID)
+		children := catalog.Episodes(item.ID)
+		// An album adds its tracks in disc and track order; a track
+		// without a disc number is on the first disc.
+		if item.Type() == "MusicAlbum" {
+			slices.SortStableFunc(children, func(a, b media.Item) int {
+				return cmp.Or(cmp.Compare(max(a.Tags.Disc, 1), max(b.Tags.Disc, 1)), cmp.Compare(a.Tags.Track, b.Tags.Track), strings.Compare(a.Name, b.Name))
+			})
+		}
+		for _, child := range children {
+			videos = append(videos, child.ID)
 		}
 	}
 	return videos, true
@@ -207,8 +230,8 @@ func (s *Server) playlistMedia(w http.ResponseWriter, session state.Session, ids
 
 func (s *Server) playlistRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /playlists", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if t := value(r, "MediaType"); t != "" && !strings.EqualFold(t, "Video") {
-			failText(w, 400, "Couch has only video playlists.")
+		if t := value(r, "MediaType"); t != "" && !strings.EqualFold(t, "Video") && !strings.EqualFold(t, "Audio") {
+			failText(w, 400, "Couch has only video and audio playlists.")
 			return
 		}
 		videos, ok := s.playlistMedia(w, session, splitIDs(values(r, "Ids")))

@@ -98,8 +98,9 @@ func (s Source) Key() string {
 	return fmt.Sprintf("%s/%d/%t/%d/%dx%d/%d/%t/%d/%d", s.ItemID, s.VideoStream, s.VideoEncode, s.VideoBitrate, s.MaxWidth, s.MaxHeight, s.AudioStream, s.AudioEncode, s.AudioChannels, subtitle)
 }
 
-// Manager owns HLS sessions and their FFmpeg jobs. Segments live in
-// per-session directories under dir, which is emptied at start and on Close.
+// Manager owns HLS sessions and their FFmpeg jobs, and the audio encodes.
+// Segments live in per-session directories under dir and encoded tracks in
+// its audio directory; dir is emptied at start and on Close.
 type Manager struct {
 	ffmpeg, ffprobe, dir string
 
@@ -114,6 +115,7 @@ type Manager struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	cache    map[string]*keyframeEntry
+	audio    audioJobs
 	closed   bool
 	stop     chan struct{}
 	reaped   chan struct{}

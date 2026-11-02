@@ -13,12 +13,13 @@ import (
 const (
 	Movies  = "movies"
 	TVShows = "tvshows"
+	Music   = "music"
 )
 
 // Library is a set of folders cataloged as one content type. A movies
 // library holds the videos that are not recognized episodes; a TV shows
-// library holds the episodes with their series and seasons. Paths are
-// absolute and clean.
+// library holds the episodes with their series and seasons; a music library
+// holds the audio files with their albums. Paths are absolute and clean.
 type Library struct {
 	ID    string
 	Name  string
@@ -78,6 +79,21 @@ func folderPaths(libraries []Library) []string {
 	}
 	slices.Sort(paths)
 	return slices.Compact(paths)
+}
+
+// folderKinds reports whether the libraries that use folder catalog its
+// videos, its audio files or both.
+func folderKinds(libraries []Library, folder string) (video, audio bool) {
+	for _, library := range libraries {
+		if slices.Contains(library.Paths, folder) {
+			if library.Type == Music {
+				audio = true
+			} else {
+				video = true
+			}
+		}
+	}
+	return video, audio
 }
 
 // Libraries returns the catalogue's libraries in their configured order. A
@@ -143,7 +159,12 @@ func (c *Catalog) LibraryOf(item Item) string {
 	switch item.Type() {
 	case "Movie":
 		return c.Parent(item)
-	case "Series":
+	case "Series", "MusicAlbum":
+		return item.ParentID
+	case "Audio":
+		if album, ok := c.Folder(item.ParentID); ok {
+			return album.ParentID
+		}
 		return item.ParentID
 	}
 	if series, ok := c.Folder(item.SeriesID); ok {
@@ -154,7 +175,8 @@ func (c *Catalog) LibraryOf(item Item) string {
 
 // assemble fills Items and Folders from the scanned folders: each library
 // takes its type's share of its folders, and its ID becomes the parent of its
-// movies or series. A file reached twice is kept once.
+// movies, series, albums and tracks without an album. A file reached twice is
+// kept once.
 func (c *Catalog) assemble() {
 	items, folders := []Item{}, []Item{}
 	seen := map[string]bool{}
@@ -177,13 +199,22 @@ func (c *Catalog) assemble() {
 					add(&items, item)
 				case library.Type == TVShows && item.Kind == "Episode":
 					add(&items, item)
+				case library.Type == Music && item.Kind == "Audio":
+					if item.ParentID == "" {
+						item.ParentID = library.ID
+					}
+					add(&items, item)
 				}
 			}
-			if library.Type == TVShows {
-				for _, folder := range src.folders {
-					if folder.Kind == "Series" {
-						folder.ParentID = library.ID
-					}
+			for _, folder := range src.folders {
+				switch {
+				case library.Type == TVShows && folder.Kind == "Series":
+					folder.ParentID = library.ID
+					add(&folders, folder)
+				case library.Type == TVShows && folder.Kind == "Season":
+					add(&folders, folder)
+				case library.Type == Music && folder.Kind == "MusicAlbum":
+					folder.ParentID = library.ID
 					add(&folders, folder)
 				}
 			}

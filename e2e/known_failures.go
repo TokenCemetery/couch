@@ -34,8 +34,7 @@ var (
 var knownFailures = map[string]knownFailure{
 	// Behavior checks
 	// ArtistsService
-	"getArtistsAlbumartists": unranked,
-	"getArtistsByName":       unranked,
+	"getArtistsByName": unranked,
 	// BackupApi
 	"getBackuprestoreBackupinfo":   backup,
 	"postBackuprestoreRestore":     backup,

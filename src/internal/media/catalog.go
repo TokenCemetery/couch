@@ -1,5 +1,5 @@
-// Package media builds a read-only video catalogue from the folders of the
-// configured libraries.
+// Package media builds a read-only video and music catalogue from the folders
+// of the configured libraries.
 package media
 
 import (
@@ -22,6 +22,7 @@ import (
 
 const maxEntries = 100000
 const maxMovies = 10000
+const maxTracks = 10000
 
 // Catalog and its items are immutable after a scan returns. Each folder's
 // root stays open so playback can reopen a file later without re-resolving
@@ -47,7 +48,8 @@ type Catalog struct {
 	imageDirs  imageDirCache
 }
 
-// Item is a movie, series, season, or episode in the catalogue.
+// Item is a movie, series, season, episode, music album or audio track in
+// the catalogue.
 type Item struct {
 	ID            string
 	Name          string
@@ -68,8 +70,24 @@ type Item struct {
 	Added        time.Time
 	RunTimeTicks int64
 	Streams      []Stream
+	// Tags are an audio file's metadata, completed from its path by
+	// classifyMusic; empty for videos.
+	Tags Tags
 	// src is the folder the item was found in.
 	src *source
+}
+
+// Tags are an audio file's metadata, as probed. Track and Disc are 0 and
+// strings empty when the file does not say.
+type Tags struct {
+	Title       string   `json:",omitempty"`
+	Album       string   `json:",omitempty"`
+	AlbumArtist string   `json:",omitempty"`
+	Artists     []string `json:",omitempty"`
+	Genres      []string `json:",omitempty"`
+	Track       int      `json:",omitempty"`
+	Disc        int      `json:",omitempty"`
+	Year        int      `json:",omitempty"`
 }
 
 // source is one library folder, walked once however many libraries share it.
@@ -81,6 +99,8 @@ type source struct {
 	items   []Item
 	folders []Item
 	skipped int
+	// video and audio say which files the folder's libraries catalog.
+	video, audio bool
 }
 
 // sourceOf returns item's folder. An item built without one, as tests do,
@@ -247,7 +267,7 @@ var errLimit = errors.New("scan limit exceeded")
 
 // budget counts what a scan has used across all folders.
 type budget struct {
-	entries, videos int
+	entries, videos, tracks int
 }
 
 // Rescan walks the libraries' folders again and returns a new catalog; c is
@@ -269,7 +289,8 @@ func (c *Catalog) Rescan(ctx context.Context, libraries []Library) (*Catalog, er
 	opened := []*os.Root{}
 	for _, path := range folderPaths(libraries) {
 		previous := c.sources[path]
-		src, err := c.walkSource(ctx, path, previous, used)
+		video, audio := folderKinds(libraries, path)
+		src, err := c.walkSource(ctx, path, previous, used, video, audio)
 		if err != nil {
 			if errors.Is(err, errLimit) || ctx.Err() != nil {
 				for _, root := range opened {
@@ -311,10 +332,10 @@ func (c *Catalog) Reassign(libraries []Library) *Catalog {
 	return next
 }
 
-// walkSource scans the folder at path into a new source. previous is the
-// folder's last scan, or nil.
-func (c *Catalog) walkSource(ctx context.Context, folder string, previous *source, used *budget) (*source, error) {
-	src := &source{path: folder, key: stableID("movies\x00" + folder), items: []Item{}}
+// walkSource scans the folder at path into a new source, with its videos,
+// its audio files or both. previous is the folder's last scan, or nil.
+func (c *Catalog) walkSource(ctx context.Context, folder string, previous *source, used *budget, video, audio bool) (*source, error) {
+	src := &source{path: folder, key: stableID("movies\x00" + folder), items: []Item{}, video: video, audio: audio}
 	known := map[string]Item{}
 	var now time.Time
 	if previous != nil {
@@ -337,7 +358,7 @@ func (c *Catalog) walkSource(ctx context.Context, folder string, previous *sourc
 		return nil, err
 	}
 	if previous != nil && len(src.items) == 0 && len(previous.items) > 0 {
-		return nil, errors.New("media folder has no videos")
+		return nil, errors.New("media folder has no media files")
 	}
 	return src, nil
 }
@@ -354,13 +375,18 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 			subtitles = append(subtitles, path)
 			return nil
 		}
-		switch ext {
-		case ".mp4", ".m4v", ".mkv", ".webm", ".avi", ".mov", ".mpg", ".mpeg", ".ts", ".m2ts", ".wmv", ".ogv":
+		music := isAudio(ext)
+		switch {
+		case music && src.audio:
+			if used.tracks >= maxTracks {
+				return fmt.Errorf("libraries exceed the audio file limit: %w", errLimit)
+			}
+		case isVideo(ext) && src.video:
+			if used.videos >= maxMovies {
+				return fmt.Errorf("libraries exceed the video limit: %w", errLimit)
+			}
 		default:
 			return nil
-		}
-		if used.videos >= maxMovies {
-			return fmt.Errorf("libraries exceed the video limit: %w", errLimit)
 		}
 		// Root confines symlink races; NONBLOCK prevents a swapped-in FIFO from hanging.
 		file, err := root.OpenFile(filepath.FromSlash(path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
@@ -378,16 +404,21 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 		var item Item
 		if previous, ok := known[path]; ok && previous.Size == info.Size() && previous.Modified.Equal(modified) {
 			// Sidecars and episode fields are derived again below.
-			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams)}
+			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams), Tags: previous.Tags}
 		} else {
 			item, err = probe(ctx, file)
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if err != nil {
+			// An audio file needs an audio track; a video file is refused
+			// when its tracks are known and none is video.
+			if err != nil || (music && !hasStream(item, "Audio")) || (!music && len(item.Streams) > 0 && !hasStream(item, "Video")) {
 				src.skipped++
 				return nil
 			}
+		}
+		if !music {
+			item.Tags = Tags{}
 		}
 		item.ID = stableID(src.key + "\x00" + path)
 		item.Path = path
@@ -401,9 +432,13 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 		default:
 			item.Added = now
 		}
-		item.Container = strings.TrimPrefix(ext, ".")
+		item.Container = containerOf(ext)
 		src.items = append(src.items, item)
-		used.videos++
+		if music {
+			used.tracks++
+		} else {
+			used.videos++
+		}
 		return nil
 	}
 	var walkDir func(string, int) error
@@ -456,6 +491,40 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 	attachSidecars(src.items, subtitles)
 	src.classify()
 	return nil
+}
+
+// isVideo reports whether a file extension, in lower case, is a video's.
+func isVideo(ext string) bool {
+	switch ext {
+	case ".mp4", ".m4v", ".mkv", ".webm", ".avi", ".mov", ".mpg", ".mpeg", ".ts", ".m2ts", ".wmv", ".ogv":
+		return true
+	}
+	return false
+}
+
+// isAudio reports whether a file extension, in lower case, is an audio file's.
+func isAudio(ext string) bool {
+	switch ext {
+	case ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".wav", ".wma", ".aiff", ".aif":
+		return true
+	}
+	return false
+}
+
+// containerOf names the container of a file extension, in lower case, as
+// Emby clients match it in their direct play profiles.
+func containerOf(ext string) string {
+	switch ext {
+	case ".oga":
+		return "ogg"
+	case ".aif":
+		return "aiff"
+	}
+	return strings.TrimPrefix(ext, ".")
+}
+
+func hasStream(item Item, kind string) bool {
+	return slices.ContainsFunc(item.Streams, func(s Stream) bool { return s.Type == kind })
 }
 
 // ReadSidecar reads a small file next to item's media, such as a .nfo,

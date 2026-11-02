@@ -141,7 +141,7 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 				return nil, "", false
 			}
 			created := media.Library{ID: media.NewLibraryID(), Name: name, Type: strings.ToLower(value(r, "collectionType")), Paths: []string{}}
-			if created.Type != media.Movies && created.Type != media.TVShows {
+			if created.Type != media.Movies && created.Type != media.TVShows && created.Type != media.Music {
 				libraryFailure(w, library.ErrType)
 				return nil, "", false
 			}
@@ -265,7 +265,7 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 	})
 	route("GET /libraries/availableoptions", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		typeOptions := []object{}
-		for _, kind := range []string{media.Movies, media.TVShows} {
+		for _, kind := range []string{media.Movies, media.TVShows, media.Music} {
 			typeOptions = append(typeOptions, object{"Type": kind, "MetadataFetchers": []any{}, "ImageFetchers": []any{},
 				"SupportedImageTypes": []string{}, "DefaultImageOptions": []any{}})
 		}

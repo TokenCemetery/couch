@@ -33,21 +33,27 @@ func homeSection(id, name, sectionType string, monitor []string, cardSizeOffset 
 }
 
 // homeSections describes the home screen Couch can actually populate: the
-// library tiles, the resume row, and one latest row per library. Titles come
+// library tiles, the resume rows, and one latest row per library. Titles come
 // from locales/*.yaml by X-Emby-Language (#18). Sections for
-// media Couch does not serve yet (audio, Live TV) are not advertised.
+// media Couch does not serve (Live TV) are not advertised, nor Continue
+// Listening without a music library.
 func (s *Server) homeSections(catalog *media.Catalog, serverID, language string) []object {
 	sections := []object{
 		homeSection("smalllibrarytiles", translate(language, "HeaderMyMedia"), "userviews", []string{}, -1),
 		homeSection("resume", translate(language, "HeaderContinueWatching"), "resume", []string{"videoplayback", "markplayed"}, 0),
 	}
+	if slices.ContainsFunc(catalog.Libraries(), func(l media.Library) bool { return l.Type == media.Music }) {
+		sections = append(sections, homeSection("resumeaudio", translate(language, "HeaderContinueListening"), "resumeaudio", []string{"audioplayback", "markplayed"}, 0))
+	}
 	for _, id := range libraryIDs(catalog) {
-		name, collectionType := translate(language, "HeaderLatestMovies"), media.Movies
-		if library, _ := catalog.Library(id); library.Type == media.TVShows {
+		name, collectionType, monitor := translate(language, "HeaderLatestMovies"), media.Movies, []string{"markplayed", "videoplayback"}
+		switch library, _ := catalog.Library(id); library.Type {
+		case media.TVShows:
 			name, collectionType = translate(language, "HeaderLatestEpisodes"), media.TVShows
+		case media.Music:
+			name, collectionType, monitor = translate(language, "HeaderLatestMusic"), media.Music, []string{"markplayed", "audioplayback"}
 		}
-		latest := homeSection("latestmedia_"+id, name, "latestmedia",
-			[]string{"markplayed", "videoplayback"}, 0)
+		latest := homeSection("latestmedia_"+id, name, "latestmedia", monitor, 0)
 		latest["CollectionType"] = collectionType
 		latest["ParentItem"] = s.collectionDTO(id, serverID, false)
 		latest["ParentId"] = id
@@ -95,15 +101,27 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 			items = append(items, playlistsViewDTO(serverID, len(lists), false))
 		}
 	case section == "resume":
-		items = s.resumeItems(limit, token, session)
+		items = s.resumeItems(limit, token, session, false)
 	case section == "resumeaudio":
-		// Couch serves no audio library, so this row is always empty.
+		items = s.resumeItems(limit, token, session, true)
 	case strings.HasPrefix(section, "latestmedia_") && slices.Contains(libraryIDs(catalog), strings.TrimPrefix(section, "latestmedia_")):
 		library := strings.TrimPrefix(section, "latestmedia_")
 		latest := make([]*media.Item, 0, len(catalog.Items))
+		// New tracks are shown as their albums, dated by the newest one.
+		albums := map[string]*media.Item{}
 		for i := range catalog.Items {
-			if !userOf(snapshot, session).Items[catalog.Items[i].ID].Played && catalog.LibraryOf(catalog.Items[i]) == library {
-				latest = append(latest, &catalog.Items[i])
+			item := &catalog.Items[i]
+			if userOf(snapshot, session).Items[item.ID].Played || catalog.LibraryOf(*item) != library {
+				continue
+			}
+			album, ok := catalog.Lookup(item.ParentID)
+			if !ok || album.Type() != "MusicAlbum" {
+				latest = append(latest, item)
+				continue
+			}
+			if albums[album.ID] == nil {
+				albums[album.ID] = album
+				latest = append(latest, album)
 			}
 		}
 		slices.SortFunc(latest, func(a, b *media.Item) int {

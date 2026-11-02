@@ -82,7 +82,7 @@ func TestPlaylists(t *testing.T) {
 		t.Fatalf("create: %s", w.Body)
 	}
 	id := created.Id
-	for _, path := range []string{"/Playlists?Name=Bad&Ids=nothing", "/Playlists?Name=%20&Ids=movie", "/Playlists?Name=Songs&Ids=movie&MediaType=Audio"} {
+	for _, path := range []string{"/Playlists?Name=Bad&Ids=nothing", "/Playlists?Name=%20&Ids=movie", "/Playlists?Name=Books&Ids=movie&MediaType=Book"} {
 		expectStatus(t, request(h, "POST", path, "", "", token), 400)
 	}
 	if got := ids(list(dialog, token)); got != id {

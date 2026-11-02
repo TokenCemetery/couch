@@ -49,10 +49,16 @@ func (s *Server) SetMetadataImages(dir string) { s.metadataImages = dir }
 
 var noInfo = &metadata.Info{}
 
-// info returns the item's metadata; it is empty, never nil, when unknown.
+// info returns the item's metadata, a track's or album's from its tags; it
+// is empty, never nil, when unknown.
 func (s *Server) info(id string) *metadata.Info {
 	if index := s.metadata.Load(); index != nil {
 		if info := index.library[id]; info != nil {
+			return info
+		}
+	}
+	if music := s.music.Load(); music != nil {
+		if info := music.info[id]; info != nil {
 			return info
 		}
 	}
@@ -60,12 +66,17 @@ func (s *Server) info(id string) *metadata.Info {
 }
 
 func (s *Server) entity(id string) (entity, bool) {
-	index := s.metadata.Load()
-	if index == nil {
-		return entity{}, false
+	if index := s.metadata.Load(); index != nil {
+		if e, found := index.entities[id]; found {
+			return e, true
+		}
 	}
-	e, found := index.entities[id]
-	return e, found
+	if music := s.music.Load(); music != nil {
+		if e, found := music.entities[id]; found {
+			return e, true
+		}
+	}
+	return entity{}, false
 }
 
 // displayName is the item's title: from its metadata, else its file or
@@ -204,7 +215,7 @@ func addMetadata(dto object, info *metadata.Info) {
 	dto["ExternalUrls"] = urls
 }
 
-// entityDTO is the item page of a genre, studio, tag or person.
+// entityDTO is the item page of a genre, studio, tag, person or artist.
 func entityDTO(id string, e entity, serverID string) object {
 	dto := baseFields(id, e.Name, e.Type, serverID)
 	dto["DateCreated"] = zeroDate

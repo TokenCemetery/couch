@@ -82,9 +82,11 @@ func TestMovieCatalog(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &latest); err != nil || len(latest) != 1 || latest[0].Id != "b" {
 		t.Fatal("latest response is incorrect")
 	}
-	for _, query := range []string{"Limit=-1", "Limit=1001", "StartIndex=bad", "StartIndex=999999999999999999999", "Limit=1&limit=2", "Recursive=yes", "SortBy=Studio", "SortOrder=oops", "Filters=IsResumable"} {
+	for _, query := range []string{"Limit=-1", "StartIndex=bad", "StartIndex=999999999999999999999", "Limit=1&limit=2", "Recursive=yes", "SortBy=Studio", "SortOrder=oops", "Filters=IsResumable"} {
 		expectStatus(t, request(h, "GET", "/Items?"+query, "", "", token), 400)
 	}
+	// "Play from here" on a song asks for more than a page holds.
+	expectStatus(t, request(h, "GET", "/Items?Recursive=true&Limit=5003", "", "", token), 200)
 	// Without metadata a genre filter is accepted and matches nothing,
 	// rather than returning the unfiltered catalogue (#78).
 	w = request(h, "GET", "/Items?Recursive=true&Genres=Comedy", "", "", token)

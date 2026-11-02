@@ -16,8 +16,9 @@ import (
 
 // savedVersion changes whenever the saved form or what a probe records does;
 // an index of another version is rejected and the libraries scanned again.
-// Version 1 held one directory and is still read.
-const savedVersion = 2
+// Version 1 held one directory and version 2 no audio files; both are still
+// read.
+const savedVersion = 3
 
 const maxSavedBytes = 256 << 20
 
@@ -44,6 +45,7 @@ type savedItem struct {
 	Added        time.Time
 	RunTimeTicks int64
 	Streams      []Stream
+	Tags         Tags `json:",omitzero"`
 }
 
 // Save writes the catalog to file atomically, so a crash leaves either the
@@ -55,7 +57,7 @@ func (c *Catalog) Save(file string) error {
 		f := savedFolder{Path: folder, Items: make([]savedItem, len(src.items))}
 		for n, item := range src.items {
 			f.Items[n] = savedItem{Path: item.Path, Size: item.Size, Modified: item.Modified, Added: item.Added,
-				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams}
+				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags}
 		}
 		saved.Folders = append(saved.Folders, f)
 	}
@@ -137,7 +139,7 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 				folders[folder] = saved.Items
 			}
 		}
-	case savedVersion:
+	case 2, savedVersion:
 		for _, folder := range saved.Folders {
 			if _, duplicate := folders[folder.Path]; duplicate {
 				return nil, errors.New("media index has a folder twice")
@@ -148,18 +150,25 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 		return nil, errors.New("media index is for another version")
 	}
 	catalog := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: probe}
-	total := 0
+	videos, tracks := 0, 0
 	for _, folder := range folderPaths(libraries) {
 		items, found := folders[folder]
 		if !found {
 			continue
 		}
-		total += len(items)
-		if total > maxMovies {
-			_ = catalog.Close()
-			return nil, errors.New("media index has too many videos")
+		for _, item := range items {
+			if isAudio(strings.ToLower(path.Ext(item.Path))) {
+				tracks++
+			} else {
+				videos++
+			}
 		}
-		src, err := loadSource(folder, items)
+		if videos > maxMovies || tracks > maxTracks {
+			_ = catalog.Close()
+			return nil, errors.New("media index has too many media files")
+		}
+		video, audio := folderKinds(libraries, folder)
+		src, err := loadSource(folder, items, video, audio)
 		if err != nil {
 			_ = catalog.Close()
 			return nil, err
@@ -179,9 +188,10 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 }
 
 // loadSource rebuilds a folder's items from the index, rejecting paths that
-// could leave the folder.
-func loadSource(folder string, saved []savedItem) (*source, error) {
-	src := &source{path: folder, key: stableID("movies\x00" + folder), items: make([]Item, 0, len(saved))}
+// could leave the folder. Files of a kind the folder's libraries no longer
+// catalog are left for the next rescan.
+func loadSource(folder string, saved []savedItem, video, audio bool) (*source, error) {
+	src := &source{path: folder, key: stableID("movies\x00" + folder), items: make([]Item, 0, len(saved)), video: video, audio: audio}
 	seen := make(map[string]bool, len(saved))
 	for _, s := range saved {
 		if !filepath.IsLocal(s.Path) || path.Clean(s.Path) != s.Path || seen[s.Path] {
@@ -189,10 +199,19 @@ func loadSource(folder string, saved []savedItem) (*source, error) {
 		}
 		seen[s.Path] = true
 		name := path.Base(s.Path)
+		ext := strings.ToLower(path.Ext(name))
+		music := isAudio(ext)
+		if (music && !audio) || (!music && !video) {
+			continue
+		}
+		tags := s.Tags
+		if !music {
+			tags = Tags{}
+		}
 		src.items = append(src.items, Item{
 			ID: stableID(src.key + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
-			Container: strings.ToLower(strings.TrimPrefix(path.Ext(name), ".")),
-			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams,
+			Container: containerOf(ext),
+			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: tags,
 		})
 	}
 	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })

@@ -537,6 +537,16 @@ func (s *Server) setItemFlag(favorite, value bool) authenticated {
 			s.setPlaylistFlag(w, token, session, list, favorite, value)
 			return
 		}
+		// An artist can be a favorite, which the Favorites tab lists.
+		if e, ok := s.entityIn(s.catalogFor(session), r.PathValue("item")); !found && ok && e.Type == "MusicArtist" && favorite {
+			data, err := s.updateItem(token, media.Item{ID: r.PathValue("item")}, func(st *state.ItemState) { st.IsFavorite = value })
+			if err != nil {
+				s.changed(w, err)
+				return
+			}
+			respond(w, 200, data)
+			return
+		}
 		if !found {
 			fail(w, 404, "NotFound")
 			return
@@ -629,17 +639,21 @@ func (s *Server) hideFromResume(w http.ResponseWriter, r *http.Request, token st
 	respond(w, 200, data)
 }
 
-// resumeItems fills the home Continue Watching row: items with meaningful
+// resumeItems fills the home Continue Watching row: videos with meaningful
 // stored progress plus, because the section advertises IncludeNextUpInResume,
 // each started series' next episode dated by the series' last watch. Most
-// recent first.
-func (s *Server) resumeItems(limit int, token string, session state.Session) []object {
+// recent first. With audio it fills Continue Listening: tracks with progress.
+func (s *Server) resumeItems(limit int, token string, session state.Session, audio bool) []object {
 	catalog := s.catalogFor(session)
 	snapshot := s.store.Snapshot()
 	serverID := snapshot.ServerID
 	candidates := []*media.Item{}
 	played := map[string]time.Time{}
-	for _, c := range s.nextUpEpisodes(catalog, userOf(snapshot, session).Items, "", "") {
+	episodes := s.nextUpEpisodes(catalog, userOf(snapshot, session).Items, "", "")
+	if audio {
+		episodes = nil
+	}
+	for _, c := range episodes {
 		if userOf(snapshot, session).Items[c.next.ID].HiddenFromResume {
 			continue
 		}
@@ -650,7 +664,7 @@ func (s *Server) resumeItems(limit int, token string, session state.Session) []o
 		for i := range catalog.Items {
 			item := &catalog.Items[i]
 			st := userOf(snapshot, session).Items[item.ID]
-			if !resumable(st, item.RunTimeTicks) {
+			if !resumable(st, item.RunTimeTicks) || (item.Type() == "Audio") != audio {
 				continue
 			}
 			if _, listed := played[item.ID]; !listed {
@@ -705,6 +719,7 @@ func (s *Server) playbackRoutes(mux *http.ServeMux) {
 		// A GET pattern also serves HEAD.
 		mux.HandleFunc("GET "+prefix+"/{item}/{stream}", s.protect(s.streamVideo))
 	}
+	mux.HandleFunc("GET /audio/{item}/universal", s.protect(s.universalAudio))
 }
 
 // streamRoute rejects anything but the direct stream endpoint; HLS has its

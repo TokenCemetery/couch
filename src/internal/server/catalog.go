@@ -110,7 +110,11 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 					return
 				}
 				if e, found := s.entityIn(catalog, id); found {
-					respond(w, 200, entityDTO(id, e, snapshot.ServerID))
+					dto := entityDTO(id, e, snapshot.ServerID)
+					if e.Type == "MusicArtist" {
+						dto["UserData"] = itemUserData(userOf(snapshot, session).Items[id], 0)
+					}
+					respond(w, 200, dto)
 					return
 				}
 			}
@@ -252,7 +256,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			"userid", "api_key", "x-mediabrowser-token", "reqformat", "listitemids", "wassearched", "minpremieredate", "isunaired", "includenextup", "isspecialepisode", "ismissing", "isvirtualunaired", "collectiontypes", "canedititems",
 			"containers", "videocodecs", "audiocodecs", "audiolayouts", "subtitlecodecs", "audiolanguages", "subtitlelanguages", "extendedvideotypes",
 			"genres", "studios", "tags", "officialratings", "years", "genreids", "studioids", "tagids", "personids", "persontypes",
-			"namestartswithorgreater", "groupitemsintocollections", "projecttomedia":
+			"namestartswithorgreater", "groupitemsintocollections", "projecttomedia",
+			"artistids", "albumartistids", "contributingartistids", "composerartistids", "albumids":
 		default:
 			if !strings.HasPrefix(key, "x-emby-") {
 				fail(w, 400, "UnsupportedQuery")
@@ -291,16 +296,19 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	if typesOnly {
 		query["recursive"] = "true"
 	}
+	// A page holds at most 1000 items: a larger Limit, as Emby Web's "play
+	// from here" on a song asks for, is reduced, not rejected.
 	for key, target := range map[string]*int{"startindex": &start, "limit": &limit} {
 		if text, exists := query[key]; exists {
 			v, err := strconv.Atoi(text)
-			if err != nil || v < 0 || (key == "limit" && v > 1000) {
+			if err != nil || v < 0 {
 				fail(w, 400, "InvalidPagination")
 				return
 			}
 			*target = v
 		}
 	}
+	limit = min(limit, 1000)
 	var minPremiere time.Time
 	if text, exists := query["minpremieredate"]; exists {
 		if minPremiere, err = time.Parse(time.RFC3339, text); err != nil {
@@ -322,7 +330,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	for _, key := range sortKeys {
 		if !member("sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber,"+
 			"totalbitrate,videocodec,container,size,resolution,framerate,playcount,random,seriesdateplayed,datelastcontentadded,"+
-			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder,listitemorder,datemodified", key) {
+			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder,listitemorder,datemodified,"+
+			"album,albumartist,artist,bitrate,composer", key) {
 			fail(w, 400, "UnsupportedSort")
 			return
 		}
@@ -375,8 +384,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		_, ok := catalog.Library(item.ID)
 		return (catalog != nil && ok) || item == view || item == listsView
 	}
-	// collectionType names the library an item belongs to, for CollectionTypes;
-	// Couch has only movie and TV libraries (#76).
+	// collectionType names the library an item belongs to, for CollectionTypes
+	// (#76).
 	collectionType := func(item *media.Item) string {
 		if library, ok := catalog.Library(item.ID); ok {
 			return library.Type
@@ -387,8 +396,11 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		if item == listsView || isPlaylist(item) {
 			return "playlists"
 		}
-		if item.Type() == "Movie" {
+		switch item.Type() {
+		case "Movie":
 			return media.Movies
+		case "Audio", "MusicAlbum":
+			return media.Music
 		}
 		return media.TVShows
 	}
@@ -450,6 +462,8 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			items = append(items, libraries()...)
 		default:
 			items = make([]*media.Item, 0, len(catalog.Items)+1)
+			// Latest lists the albums of new tracks, as Emby groups them.
+			latestAlbums := map[string]bool{}
 			for _, candidates := range [][]media.Item{catalog.Items, catalog.Folders} {
 				for i := range candidates {
 					item := &candidates[i]
@@ -457,6 +471,13 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 						continue
 					}
 					if root || catalog.Parent(*item) == parent || ((query["recursive"] == "true" || latest || resume) && (item.SeriesID == parent || catalog.LibraryOf(*item) == parent)) {
+						if album, ok := catalog.Lookup(item.ParentID); latest && ok && album.Type() == "MusicAlbum" {
+							if !latestAlbums[album.ID] {
+								latestAlbums[album.ID] = true
+								items = append(items, album)
+							}
+							continue
+						}
 						items = append(items, item)
 					}
 				}
@@ -520,7 +541,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			(query["includeitemtypes"] != "" && !member(query["includeitemtypes"], kind) && !grouped[id]) || member(query["excludeitemtypes"], kind) ||
 			(query["listitemids"] != "" && ((!isBoxSet(item) && !isPlaylist(item)) || !holds(query["listitemids"]))) ||
 			(query["namestartswithorgreater"] != "" && strings.ToLower(s.sortName(*item)) < strings.ToLower(query["namestartswithorgreater"])) ||
-			(query["mediatypes"] != "" && (folder || !member(query["mediatypes"], "Video"))) ||
+			(query["mediatypes"] != "" && (folder || !member(query["mediatypes"], mediaType(item)))) ||
 			(query["isfolder"] != "" && (query["isfolder"] == "true") != folder) ||
 			!matchesSearch(query["searchterm"], item.Name, s.displayName(*item), info.OriginalTitle) ||
 			// Undated items never satisfy a premiere bound and are never
@@ -543,7 +564,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			// Only an administrator edits items, and no one a library (#77);
 			// every user edits their own playlists.
 			(query["canedititems"] == "true" && !isPlaylist(item) && (!user.Policy.IsAdministrator || isCollection(item))) ||
-			failsMediaFilters(catalog, item, query, info) ||
+			failsMediaFilters(catalog, item, query, info) || failsMusicFilters(catalog, item, query) ||
 			// The series page lists specials (Season 00 episodes) in their own row.
 			(query["isspecialepisode"] != "" && (query["isspecialepisode"] == "true") != (kind == "Episode" && item.SeasonNumber == 0))
 	})
@@ -629,9 +650,15 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			case "runtime":
 				comparison = cmp.Compare(a.RunTimeTicks, b.RunTimeTicks)
 			case "parentindexnumber", "sortparentindexnumber":
-				comparison = cmp.Compare(a.SeasonNumber, b.SeasonNumber)
+				comparison = cmp.Compare(parentIndexNumber(a), parentIndexNumber(b))
 			case "indexnumber", "sortindexnumber":
-				comparison = cmp.Compare(a.EpisodeNumber, b.EpisodeNumber)
+				comparison = cmp.Compare(indexNumber(a), indexNumber(b))
+			case "album":
+				comparison = strings.Compare(strings.ToLower(albumName(catalog, a)), strings.ToLower(albumName(catalog, b)))
+			case "albumartist":
+				comparison = strings.Compare(strings.ToLower(albumArtist(catalog, *a)), strings.ToLower(albumArtist(catalog, *b)))
+			case "artist":
+				comparison = strings.Compare(strings.ToLower(firstOf(artistsOf(catalog, *a, "Artist"))), strings.ToLower(firstOf(artistsOf(catalog, *b, "Artist"))))
 			case "isfolder":
 				// Folders first, as in a file browser.
 				comparison = -cmp.Compare(boolRank(a.IsFolder() || isCollection(a) || isBoxSet(a) || isPlaylist(a)), boolRank(b.IsFolder() || isCollection(b) || isBoxSet(b) || isPlaylist(b)))
@@ -663,7 +690,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 				comparison = a.Modified.Compare(b.Modified)
 			case "lastcontentpremieredate":
 				comparison = newestPremiere[a.ID].Compare(newestPremiere[b.ID])
-			case "totalbitrate":
+			case "totalbitrate", "bitrate":
 				comparison = cmp.Compare(bitrate(*a), bitrate(*b))
 			case "videocodec":
 				comparison = strings.Compare(video(a).Codec, video(b).Codec)
@@ -686,9 +713,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 				if key == sortKeys[0] {
 					return 0
 				}
-			case "channelnumber":
-				// Couch has no channels: every item compares equal and the
-				// next key decides (#79).
+			case "channelnumber", "composer":
+				// Couch has no channels and reads no composer tag: every item
+				// compares equal and the next key decides (#79).
 				comparison = 0
 			default:
 				comparison = strings.Compare(s.sortKey(*a), s.sortKey(*b))
@@ -739,6 +766,48 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	} else {
 		respond(w, 200, object{"Items": result, "TotalRecordCount": total})
 	}
+}
+
+// mediaType is the Emby media type of a video or track.
+func mediaType(item *media.Item) string {
+	if item.Type() == "Audio" {
+		return "Audio"
+	}
+	return "Video"
+}
+
+// indexNumber is an episode's or track's number, parentIndexNumber its
+// season's or disc's.
+func indexNumber(item *media.Item) int {
+	if item.Type() == "Audio" {
+		return item.Tags.Track
+	}
+	return item.EpisodeNumber
+}
+
+func parentIndexNumber(item *media.Item) int {
+	if item.Type() == "Audio" {
+		return item.Tags.Disc
+	}
+	return item.SeasonNumber
+}
+
+// albumName is an album's name, or a track's album's.
+func albumName(catalog *media.Catalog, item *media.Item) string {
+	if item.Type() == "MusicAlbum" {
+		return item.Name
+	}
+	if album, ok := catalog.Folder(item.ParentID); ok && item.Type() == "Audio" {
+		return album.Name
+	}
+	return ""
+}
+
+func firstOf(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 // matchesSearch reports whether any of names contains term, ignoring case.

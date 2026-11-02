@@ -53,7 +53,8 @@ func (s *Server) entityIn(catalog *media.Catalog, id string) (entity, bool) {
 	}
 	for _, items := range [][]media.Item{catalog.Items, catalog.Folders} {
 		for _, item := range items {
-			if slices.Contains(metadataNames(s.info(item.ID), e.Type), e.Name) {
+			if slices.Contains(metadataNames(s.info(item.ID), e.Type), e.Name) ||
+				(e.Type == "MusicArtist" && slices.Contains(artistsOf(catalog, item, "Artist,AlbumArtist"), e.Name)) {
 				return e, true
 			}
 		}

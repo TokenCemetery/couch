@@ -28,7 +28,7 @@ var ImageTypes = []string{"Primary", "Backdrop", "Logo", "Thumb"}
 // imageNames holds, by lowercase image type, the suffixes added to a video's
 // name and the names shared by its folder, in search order.
 var imageNames = map[string]struct{ own, shared []string }{
-	"primary":  {[]string{"-poster", ""}, []string{"poster", "folder"}},
+	"primary":  {[]string{"-poster", ""}, []string{"poster", "folder", "cover"}},
 	"backdrop": {[]string{"-fanart", "-backdrop"}, []string{"backdrop", "fanart"}},
 	"logo":     {[]string{"-clearlogo", "-logo"}, []string{"clearlogo", "logo"}},
 	"thumb":    {[]string{"-landscape"}, []string{"landscape", "thumb"}},

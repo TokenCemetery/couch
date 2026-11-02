@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -87,12 +88,58 @@ func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error
 			"-max_streams", "64", "-blocksize", "65536", "-fd", "3", "-i", "fd:", "-of", "json",
 			// Clients decide direct play from codec profile, level and pixel
 			// format, so those are probed alongside the basic descriptors.
-			"-show_entries", "format=duration:stream=index,codec_type,codec_name,codec_tag_string,profile,level,width,height,channels,channel_layout,sample_rate,bit_rate,pix_fmt,bits_per_raw_sample,refs,avg_frame_rate,r_frame_rate,time_base,field_order:stream_tags=language,title:stream_disposition=default,forced,attached_pic,hearing_impaired:stream_side_data=rotation")
+			// Audio files keep their tags in the format, or in the stream
+			// for Ogg and Opus.
+			"-show_entries", "format=duration,bit_rate:format_tags="+audioTags+":stream=index,codec_type,codec_name,codec_tag_string,profile,level,width,height,channels,channel_layout,sample_rate,bit_rate,pix_fmt,bits_per_raw_sample,bits_per_sample,refs,avg_frame_rate,r_frame_rate,time_base,field_order:stream_tags=language,"+audioTags+":stream_disposition=default,forced,attached_pic,hearing_impaired:stream_side_data=rotation")
 		if err != nil {
 			return Item{}, err
 		}
 		return parseProbe(data)
 	}, stats, nil
+}
+
+// audioTags are the tags read from audio files; FFprobe matches them
+// ignoring case.
+const audioTags = "title,artist,album_artist,album,genre,track,disc,date"
+
+// parseTags reads an audio file's tags, whose keys may be in any case.
+// Artists are separated by ";" and genres by ";" or "/".
+func parseTags(raw map[string]string) Tags {
+	get := func(key string) string {
+		for k, v := range raw {
+			if strings.EqualFold(k, key) {
+				return strings.TrimSpace(v)
+			}
+		}
+		return ""
+	}
+	number := func(text string) int {
+		text, _, _ = strings.Cut(text, "/")
+		n, err := strconv.Atoi(strings.TrimSpace(text))
+		if err != nil || n < 0 || n > 9999 {
+			return 0
+		}
+		return n
+	}
+	split := func(text, separators string) []string {
+		values := []string{}
+		for _, v := range strings.FieldsFunc(text, func(r rune) bool { return strings.ContainsRune(separators, r) }) {
+			if v = strings.TrimSpace(v); v != "" && !slices.Contains(values, v) {
+				values = append(values, v)
+			}
+		}
+		if len(values) == 0 {
+			return nil
+		}
+		return values
+	}
+	tags := Tags{Title: get("title"), Album: get("album"), AlbumArtist: get("album_artist"),
+		Artists: split(get("artist"), ";"), Genres: split(get("genre"), ";/"),
+		Track: number(get("track")), Disc: number(get("disc"))}
+	if date := get("date"); len(date) >= 4 {
+		tags.Year = number(date[:4])
+	}
+	return tags
 }
 
 // profileName normalises ffprobe's profile field, which is a string for most
@@ -123,7 +170,11 @@ func frameRate(value string) float64 {
 
 func parseProbe(data []byte) (Item, error) {
 	var result struct {
-		Format  struct{ Duration string }
+		Format struct {
+			Duration string
+			BitRate  string `json:"bit_rate"`
+			Tags     map[string]string
+		}
 		Streams []struct {
 			Index         int
 			CodecType     string  `json:"codec_type"`
@@ -139,17 +190,15 @@ func parseProbe(data []byte) (Item, error) {
 			BitRate       string `json:"bit_rate"`
 			PixelFormat   string `json:"pix_fmt"`
 			BitDepth      string `json:"bits_per_raw_sample"`
+			SampleBits    int    `json:"bits_per_sample"`
 			RefFrames     int    `json:"refs"`
 			AvgFrameRate  string `json:"avg_frame_rate"`
 			RFrameRate    string `json:"r_frame_rate"`
 			TimeBase      string `json:"time_base"`
 			FieldOrder    string `json:"field_order"`
-			Tags          struct {
-				Language string
-				Title    string
-			}
-			SideData    []struct{ Rotation float64 } `json:"side_data_list"`
-			Disposition struct {
+			Tags          map[string]string
+			SideData      []struct{ Rotation float64 } `json:"side_data_list"`
+			Disposition   struct {
 				Default         int
 				Forced          int
 				AttachedPic     int `json:"attached_pic"`
@@ -164,10 +213,20 @@ func parseProbe(data []byte) (Item, error) {
 	if seconds, err := strconv.ParseFloat(result.Format.Duration, 64); err == nil && seconds > 0 && seconds < float64(math.MaxInt64)/10000000 {
 		item.RunTimeTicks = int64(seconds * 10000000)
 	}
-	video := false
+	item.Tags = parseTags(result.Format.Tags)
 	for _, raw := range result.Streams {
-		stream := Stream{Index: raw.Index, Codec: raw.CodecName, Language: raw.Tags.Language,
-			Title: raw.Tags.Title, CodecTag: raw.CodecTag, TimeBase: raw.TimeBase,
+		tags := parseTags(raw.Tags)
+		if raw.CodecType == "audio" && item.Tags.Title == "" && item.Tags.Album == "" && len(item.Tags.Artists) == 0 {
+			item.Tags = tags
+		}
+		language := ""
+		for k, v := range raw.Tags {
+			if strings.EqualFold(k, "language") {
+				language = v
+			}
+		}
+		stream := Stream{Index: raw.Index, Codec: raw.CodecName, Language: language,
+			Title: tags.Title, CodecTag: raw.CodecTag, TimeBase: raw.TimeBase,
 			Profile: profileName(raw.Profile), Level: raw.Level,
 			IsDefault: raw.Disposition.Default != 0, IsForced: raw.Disposition.Forced != 0,
 			IsHearingImpaired: raw.Disposition.HearingImpaired != 0,
@@ -177,7 +236,6 @@ func parseProbe(data []byte) (Item, error) {
 			if raw.Disposition.AttachedPic != 0 {
 				continue
 			}
-			video = true
 			stream.Type, stream.Width, stream.Height = "Video", raw.Width, raw.Height
 			stream.PixelFormat, stream.RefFrames = raw.PixelFormat, raw.RefFrames
 			stream.BitDepth, _ = strconv.Atoi(raw.BitDepth)
@@ -192,6 +250,7 @@ func parseProbe(data []byte) (Item, error) {
 			stream.Type, stream.Channels = "Audio", raw.Channels
 			stream.ChannelLayout = raw.ChannelLayout
 			stream.SampleRate, _ = strconv.Atoi(raw.SampleRate)
+			stream.BitDepth = raw.SampleBits
 		case "subtitle":
 			stream.Type = "Subtitle"
 		default:
@@ -200,8 +259,13 @@ func parseProbe(data []byte) (Item, error) {
 		stream.BitRate, _ = strconv.ParseInt(raw.BitRate, 10, 64)
 		item.Streams = append(item.Streams, stream)
 	}
-	if !video {
-		return Item{}, errors.New("no video stream")
+	if len(item.Streams) == 0 {
+		return Item{}, errors.New("no video or audio stream")
+	}
+	// FLAC and other lossless streams report no bit rate of their own: an
+	// audio file's only stream takes the file's.
+	if only := &item.Streams[0]; len(item.Streams) == 1 && only.Type == "Audio" && only.BitRate == 0 {
+		only.BitRate, _ = strconv.ParseInt(result.Format.BitRate, 10, 64)
 	}
 	return item, nil
 }

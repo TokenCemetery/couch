@@ -63,7 +63,7 @@ func TestFolder(t *testing.T) {
 		{movies, "shows", ErrPath},
 		{movies, filepath.Join(root, "missing"), ErrNotFolder},
 		{movies, filepath.Join(root, "file.mp4"), ErrNotFolder},
-		{media.Library{ID: "x", Type: "music"}, filepath.Join(root, "shows"), ErrType},
+		{media.Library{ID: "x", Type: "photos"}, filepath.Join(root, "shows"), ErrType},
 	} {
 		got, err := m.Folder(existing, tc.library, tc.path)
 		if !errors.Is(err, tc.want) {

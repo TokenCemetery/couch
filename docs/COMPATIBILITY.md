@@ -89,6 +89,24 @@ The rows above that transcode, again on the target hardware with `-hwaccel vaapi
 
 R09 plays in real time on the GPU, where `libx264` stalls (#97). Under a CPU quota the [BASELINE](BASELINE.md) run ("VA-API") encodes its 18 s of 4K in 13.3 s on 2 CPUs and 8.6 s on 4, faster than real time, but in 26.7 s on 1 CPU, slower. Chromium dropped no frames on any row in the first 10 s.
 
+## Music, Emby Web 4.10.0.40, Chromium 152, Linux (#104)
+
+Synthetic tagged tracks made with FFmpeg 8.0 (stereo sine tones of 3 s, one WMA of 60 s) in a music library, played from Emby Web's album cards, Songs tab and a playlist. Emby Web requests every track from `Audio/{id}/universal` with the Chromium Container list (`opus`, `mp3|mp3`, `aac|aac`, `m4a|aac`, `mp4|aac`, `flac`, `webma`, `webm`, `wav|PCM_S16LE`, `wav|PCM_S24LE`, `ogg`, among others) and `TranscodingProtocol=hls`.
+
+| File | Codec | Delivery | Played | Status |
+|---|---|---|---|---|
+| `.mp3` | MP3 | the file (206) | yes, then the next album track | verified 2026-11-02 |
+| `.flac` | FLAC | the file (206) | yes | verified 2026-11-02 |
+| `.ogg` | Vorbis | the file (206) | yes | verified 2026-11-02 |
+| `.opus` | Opus | the file (206) | yes | verified 2026-11-02 |
+| `.m4a` | AAC | the file (206) | yes | verified 2026-11-02 |
+| `.wav` | PCM 16-bit | the file (206) | yes | verified 2026-11-02 |
+| `.m4a` | ALAC | encoded to AAC in M4A (about 0.1 s of CPU per 3 s track) | yes | verified 2026-11-02 |
+| `.wma` | WMA v2 | encoded to AAC in M4A | yes; the 60 s track reports its full duration and is seekable from 0 to 60 s, a click in the middle of the progress bar went on from 30 s | verified 2026-11-02 |
+| `.aiff` | PCM big-endian | encoded to AAC in M4A | yes | verified 2026-11-02 |
+
+Not checked: real music files, long tracks played to the end, gapless playback, and multichannel sources (encoded to stereo).
+
 ## Tracks and subtitles (Emby Web, Chromium)
 
 Quality switching was verified 2026-10-07 on the set above, the other rows earlier on other synthetic files; details in [VALIDATION](VALIDATION.md).
