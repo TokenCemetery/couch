@@ -295,14 +295,6 @@ var knownFailures = map[string]knownFailure{
 	// PersonsService
 	"getPersonsByIdCredits": unranked,
 	"getPersonsByName":      unranked,
-	// PlaylistService
-	"deletePlaylistsByIdItems":                     unranked,
-	"getPlaylistsByIdAddtoplaylistinfo":            unranked,
-	"getPlaylistsByIdItems":                        unranked,
-	"postPlaylists":                                unranked,
-	"postPlaylistsByIdItems":                       unranked,
-	"postPlaylistsByIdItemsByItemidMoveByNewindex": unranked,
-	"postPlaylistsByIdItemsDelete":                 unranked,
 	// PlaystateService
 	"deleteUsersByUseridPlayingitemsById":       notCalledByWeb,
 	"postSessionsPlayingPing":                   notCalledByWeb,

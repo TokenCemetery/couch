@@ -60,12 +60,18 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 		if sets := s.sessionBoxSets(session); len(sets) > 0 {
 			items = append(items, collectionsViewDTO(serverID, len(sets), false))
 		}
+		if lists := s.sessionPlaylists(session); len(lists) > 0 {
+			items = append(items, playlistsViewDTO(serverID, len(lists), false))
+		}
 		respond(w, 200, object{"Items": items, "TotalRecordCount": len(items)})
 	}))
 	for _, path := range []string{"/items/root", "/users/{user}/items/root"} {
 		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 			views := len(libraryIDs(s.catalogFor(session)))
 			if len(s.sessionBoxSets(session)) > 0 {
+				views++
+			}
+			if len(s.sessionPlaylists(session)) > 0 {
 				views++
 			}
 			respond(w, 200, rootFolderDTO(s.store.Snapshot().ServerID, views))
@@ -82,6 +88,15 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 			}
 			if id == collectionsViewID && len(sets) > 0 {
 				respond(w, 200, collectionsViewDTO(snapshot.ServerID, len(sets), true))
+				return
+			}
+			lists := s.sessionPlaylists(session)
+			if p, ok := lists[id]; ok {
+				respond(w, 200, playlistDTO(p, snapshot.ServerID, userOf(snapshot, session).Items))
+				return
+			}
+			if id == playlistsViewID && len(lists) > 0 {
+				respond(w, 200, playlistsViewDTO(snapshot.ServerID, len(lists), true))
 				return
 			}
 			// A rescan replaces the catalog, so each request reads it (#75).
@@ -140,7 +155,10 @@ func (s *Server) extrasRoutes(mux *http.ServeMux) {
 		_, isEntity := s.entityIn(catalog, id)
 		sets := s.sessionBoxSets(session)
 		_, isBoxSet := sets[id]
-		return found || isEntity || isBoxSet || (id == collectionsViewID && len(sets) > 0) || slices.Contains(libraryIDs(catalog), id)
+		lists := s.sessionPlaylists(session)
+		_, isPlaylist := lists[id]
+		return found || isEntity || isBoxSet || isPlaylist || (id == collectionsViewID && len(sets) > 0) || (id == playlistsViewID && len(lists) > 0) ||
+			slices.Contains(libraryIDs(catalog), id)
 	}
 	emptyPage := func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		if !known(r, session) {
@@ -304,7 +322,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	for _, key := range sortKeys {
 		if !member("sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber,"+
 			"totalbitrate,videocodec,container,size,resolution,framerate,playcount,random,seriesdateplayed,datelastcontentadded,"+
-			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder", key) {
+			"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder,listitemorder,datemodified", key) {
 			fail(w, 400, "UnsupportedSort")
 			return
 		}
@@ -345,10 +363,17 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 	sets := boxSets(catalog, user, snapshot)
 	view := &media.Item{ID: collectionsViewID, Name: "Collections", Kind: "CollectionFolder"}
 	isBoxSet := func(item *media.Item) bool { return item.Kind == "BoxSet" }
-	// isCollection reports a library folder, including the Collections one.
+	lists := playlists(catalog, user, snapshot)
+	listsView := &media.Item{ID: playlistsViewID, Name: "Playlists", Kind: "CollectionFolder"}
+	isPlaylist := func(item *media.Item) bool { return item.Kind == "Playlist" }
+	// In a playlist's listing each item is one entry: entryOf holds its
+	// PlaylistItemId and listOrder its position.
+	entryOf, listOrder := map[*media.Item]string{}, map[*media.Item]int{}
+	// isCollection reports a library folder, including the Collections and
+	// Playlists ones.
 	isCollection := func(item *media.Item) bool {
 		_, ok := catalog.Library(item.ID)
-		return (catalog != nil && ok) || item == view
+		return (catalog != nil && ok) || item == view || item == listsView
 	}
 	// collectionType names the library an item belongs to, for CollectionTypes;
 	// Couch has only movie and TV libraries (#76).
@@ -358,6 +383,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		}
 		if item == view || isBoxSet(item) {
 			return "boxsets"
+		}
+		if item == listsView || isPlaylist(item) {
+			return "playlists"
 		}
 		if item.Type() == "Movie" {
 			return media.Movies
@@ -372,6 +400,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		if len(sets) > 0 {
 			folders = append(folders, view)
 		}
+		if len(lists) > 0 {
+			folders = append(folders, listsView)
+		}
 		return folders
 	}
 	// grouped holds the collections that stand in for their members when a
@@ -381,10 +412,21 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		parent := query["parentid"]
 		root := parent == "" || parent == "root"
 		set, inSet := sets[parent]
+		list, inList := lists[parent]
 		switch {
 		case parent == collectionsViewID:
 			for _, set := range sets {
 				items = append(items, set.item())
+			}
+		case parent == playlistsViewID:
+			for _, list := range lists {
+				items = append(items, list.item())
+			}
+		case inList:
+			for n, e := range list.entries {
+				entry := *e.item
+				entryOf[&entry], listOrder[&entry] = e.id, n
+				items = append(items, &entry)
 			}
 		case inSet:
 			items = append(items, set.members...)
@@ -436,13 +478,21 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 					}
 				}
 			}
+			// Playlists join a listing that asks for them by type or by ID, as
+			// the add-to-playlist dialog and the navigation menu do.
+			for _, list := range lists {
+				if !latest && !resume && (member(query["includeitemtypes"], "Playlist") || member(query["ids"], list.ID)) &&
+					(root || slices.ContainsFunc(list.entries, func(e playlistEntry) bool { return catalog.LibraryOf(*e.item) == parent })) {
+					items = append(items, list.item())
+				}
+			}
 			if query["groupitemsintocollections"] == "true" && !latest && !resume {
 				items = groupIntoCollections(items, sets, grouped)
 			}
 		}
 	}
 	items = slices.DeleteFunc(items, func(item *media.Item) bool {
-		id, kind, folder := item.ID, item.Type(), item.IsFolder() || isCollection(item) || isBoxSet(item)
+		id, kind, folder := item.ID, item.Type(), item.IsFolder() || isCollection(item) || isBoxSet(item) || isPlaylist(item)
 		st := user.Items[id]
 		info := s.info(id)
 		if item.IsFolder() {
@@ -451,18 +501,24 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		if isBoxSet(item) {
 			st.Played = s.boxSetUserData(sets[id], user.Items)["Played"].(bool)
 		}
+		if isPlaylist(item) {
+			st.Played = playlistUserData(lists[id], user.Items)["Played"].(bool)
+		}
 		if isCollection(item) {
 			kind = "CollectionFolder"
 		}
-		// ListItemIds asks for the collections that hold an item.
+		// ListItemIds asks for the collections and playlists that hold an item.
 		holds := func(ids string) bool {
+			if isPlaylist(item) {
+				return slices.ContainsFunc(lists[id].entries, func(e playlistEntry) bool { return member(ids, e.item.ID) })
+			}
 			return slices.ContainsFunc(sets[id].members, func(m *media.Item) bool { return member(ids, m.ID) })
 		}
 		return (query["ids"] != "" && !member(query["ids"], id)) || member(query["excludeitemids"], id) ||
 			(query["collectiontypes"] != "" && !member(query["collectiontypes"], collectionType(item))) ||
 			(resume && !resumable(st, item.RunTimeTicks) && nextUp[id].IsZero()) ||
 			(query["includeitemtypes"] != "" && !member(query["includeitemtypes"], kind) && !grouped[id]) || member(query["excludeitemtypes"], kind) ||
-			(query["listitemids"] != "" && (!isBoxSet(item) || !holds(query["listitemids"]))) ||
+			(query["listitemids"] != "" && ((!isBoxSet(item) && !isPlaylist(item)) || !holds(query["listitemids"]))) ||
 			(query["namestartswithorgreater"] != "" && strings.ToLower(s.sortName(*item)) < strings.ToLower(query["namestartswithorgreater"])) ||
 			(query["mediatypes"] != "" && (folder || !member(query["mediatypes"], "Video"))) ||
 			(query["isfolder"] != "" && (query["isfolder"] == "true") != folder) ||
@@ -484,8 +540,9 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 			// Every catalogued item is a file on disk: none is missing or a
 			// virtual unaired episode. Playing an episode sends both as false.
 			query["ismissing"] == "true" || query["isvirtualunaired"] == "true" ||
-			// Only an administrator edits items, and no one a library (#77).
-			(query["canedititems"] == "true" && (!user.Policy.IsAdministrator || isCollection(item))) ||
+			// Only an administrator edits items, and no one a library (#77);
+			// every user edits their own playlists.
+			(query["canedititems"] == "true" && !isPlaylist(item) && (!user.Policy.IsAdministrator || isCollection(item))) ||
 			failsMediaFilters(catalog, item, query, info) ||
 			// The series page lists specials (Season 00 episodes) in their own row.
 			(query["isspecialepisode"] != "" && (query["isspecialepisode"] == "true") != (kind == "Episode" && item.SeasonNumber == 0))
@@ -577,7 +634,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 				comparison = cmp.Compare(a.EpisodeNumber, b.EpisodeNumber)
 			case "isfolder":
 				// Folders first, as in a file browser.
-				comparison = -cmp.Compare(boolRank(a.IsFolder() || isCollection(a) || isBoxSet(a)), boolRank(b.IsFolder() || isCollection(b) || isBoxSet(b)))
+				comparison = -cmp.Compare(boolRank(a.IsFolder() || isCollection(a) || isBoxSet(a) || isPlaylist(a)), boolRank(b.IsFolder() || isCollection(b) || isBoxSet(b) || isPlaylist(b)))
 			case "filename":
 				comparison = strings.Compare(strings.ToLower(path.Base(a.Path)), strings.ToLower(path.Base(b.Path)))
 			case "seriessortname":
@@ -600,6 +657,10 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 				if comparison == 0 {
 					comparison = strings.Compare(s.sortKey(*a), s.sortKey(*b))
 				}
+			case "listitemorder":
+				comparison = cmp.Compare(listOrder[a], listOrder[b])
+			case "datemodified":
+				comparison = a.Modified.Compare(b.Modified)
 			case "lastcontentpremieredate":
 				comparison = newestPremiere[a.ID].Compare(newestPremiere[b.ID])
 			case "totalbitrate":
@@ -636,7 +697,11 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 				break
 			}
 		}
-		// Ties fall back to the ID, in the order of the last key.
+		// Ties fall back to the playlist order, then the ID, in the order of
+		// the last key.
+		if comparison == 0 {
+			comparison = cmp.Compare(listOrder[a], listOrder[b])
+		}
 		if comparison == 0 {
 			comparison = strings.Compare(a.ID, b.ID)
 		}
@@ -653,12 +718,20 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 		switch {
 		case item == view:
 			result = append(result, collectionsViewDTO(serverID, len(sets), false))
+		case item == listsView:
+			result = append(result, playlistsViewDTO(serverID, len(lists), false))
+		case isPlaylist(item):
+			result = append(result, playlistDTO(lists[item.ID], serverID, user.Items))
 		case isBoxSet(item):
 			result = append(result, s.boxSetDTO(sets[item.ID], serverID, user.Items, user.Policy.IsAdministrator))
 		case isCollection(item):
 			result = append(result, s.collectionDTO(item.ID, serverID, false))
 		default:
-			result = append(result, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token))
+			dto := s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token)
+			if entry, ok := entryOf[item]; ok {
+				dto["PlaylistItemId"] = entry
+			}
+			result = append(result, dto)
 		}
 	}
 	if latest {

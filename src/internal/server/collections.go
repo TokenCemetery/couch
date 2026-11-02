@@ -204,20 +204,38 @@ func (s *Server) collectionRoutes(mux *http.ServeMux) {
 	}))
 	mux.HandleFunc("POST /collections/{id}/items/delete", remove)
 	mux.HandleFunc("DELETE /collections/{id}/items", remove)
-	// Couch deletes only collections, never media files: a media item reports
-	// CanDelete false, so Emby Web offers deletion for collections alone.
-	mux.HandleFunc("GET /items/{item}/deleteinfo", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	// Couch deletes only collections and playlists, never media files: a media
+	// item reports CanDelete false, so Emby Web offers deletion for those alone.
+	// A user deletes their own playlists; only an administrator collections.
+	mux.HandleFunc("GET /items/{item}/deleteinfo", s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		if s.ownsPlaylist(r, session) {
+			respond(w, 200, object{"Paths": []string{}})
+			return
+		}
 		if _, ok := s.store.Snapshot().Collection(r.PathValue("item")); !ok {
 			fail(w, 404, "NotFound")
 			return
 		}
 		respond(w, 200, object{"Paths": []string{}})
 	}))
-	deleteCollections := func(w http.ResponseWriter, ids []string, session state.Session) {
+	deleteItems := func(w http.ResponseWriter, ids []string, session state.Session) {
 		snapshot := s.store.Snapshot()
+		notOwned := func(id string) bool { _, ok := snapshot.UserPlaylist(session.UserID, id); return !ok }
+		if !slices.ContainsFunc(ids, notOwned) {
+			if err := s.store.DeletePlaylists(session.UserID, ids); err != nil {
+				s.playlistChanged(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if !userOf(snapshot, session).Policy.IsAdministrator {
+			fail(w, 403, "Forbidden")
+			return
+		}
 		for _, id := range ids {
 			if _, ok := snapshot.Collection(id); !ok {
-				failText(w, 400, "Couch deletes only collections, not media files.")
+				failText(w, 400, "Couch deletes only collections and playlists, not media files.")
 				return
 			}
 		}
@@ -231,7 +249,7 @@ func (s *Server) collectionRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-	mux.HandleFunc("POST /items/delete", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	mux.HandleFunc("POST /items/delete", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		ids, ok := collectionIDs(w, r)
 		if !ok {
 			return
@@ -240,10 +258,10 @@ func (s *Server) collectionRoutes(mux *http.ServeMux) {
 			fail(w, 400, "InvalidRequest")
 			return
 		}
-		deleteCollections(w, ids, session)
+		deleteItems(w, ids, session)
 	}))
-	mux.HandleFunc("DELETE /items/{item}", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		deleteCollections(w, []string{r.PathValue("item")}, session)
+	mux.HandleFunc("DELETE /items/{item}", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		deleteItems(w, []string{r.PathValue("item")}, session)
 	}))
 }
 

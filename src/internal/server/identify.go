@@ -186,9 +186,10 @@ func (s *Server) identifyRoutes(mux *http.ServeMux) {
 	}))
 	// The Metadata Manager and the item editor show an item's fields; the
 	// library is read-only, so a save is refused with the way to change them.
-	// Saving a collection renames it.
-	mux.HandleFunc("GET /items/{item}/metadataeditor", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if _, ok := s.store.Snapshot().Collection(r.PathValue("item")); ok {
+	// Saving a collection or playlist renames it; the owner of a playlist
+	// may edit it too.
+	mux.HandleFunc("GET /items/{item}/metadataeditor", s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		if _, ok := s.store.Snapshot().Collection(r.PathValue("item")); ok || s.ownsPlaylist(r, session) {
 			respond(w, 200, object{"ParentalRatingOptions": []any{}, "Countries": []any{}, "Cultures": []any{},
 				"ExternalIdInfos": []any{}, "PersonExternalIdInfos": []any{}})
 			return
@@ -201,7 +202,11 @@ func (s *Server) identifyRoutes(mux *http.ServeMux) {
 		respond(w, 200, object{"ParentalRatingOptions": []any{}, "Countries": []any{}, "Cultures": []any{},
 			"ExternalIdInfos": identifiers(item), "PersonExternalIdInfos": []any{}})
 	}))
-	mux.HandleFunc("POST /items/{item}", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	mux.HandleFunc("POST /items/{item}", s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+		if s.ownsPlaylist(r, session) {
+			s.renamePlaylist(w, r, session, r.PathValue("item"))
+			return
+		}
 		if _, ok := s.store.Snapshot().Collection(r.PathValue("item")); ok {
 			s.renameCollection(w, r, r.PathValue("item"))
 			return
@@ -258,10 +263,21 @@ func (s *Server) refreshScope(id string) ([]string, bool) {
 		}
 		return ids, true
 	}
-	// A collection refreshes its items.
-	if c, ok := s.store.Snapshot().Collection(id); ok {
+	// A collection or a playlist refreshes its items.
+	snapshot := s.store.Snapshot()
+	members, ok := []string(nil), false
+	if c, found := snapshot.Collection(id); found {
+		members, ok = c.Items, true
+	}
+	if p, found := snapshot.Playlist(id); found {
+		ok = true
+		for _, e := range p.Entries {
+			members = append(members, e.ItemID)
+		}
+	}
+	if ok {
 		ids := []string{}
-		for _, member := range c.Items {
+		for _, member := range members {
 			if scope, found := s.refreshScope(member); found {
 				ids = append(ids, scope...)
 			}

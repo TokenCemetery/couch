@@ -533,6 +533,10 @@ func (s *Server) setItemFlag(favorite, value bool) authenticated {
 			s.setBoxSetFlag(w, token, session, set, favorite, value)
 			return
 		}
+		if list, ok := s.sessionPlaylists(session)[r.PathValue("item")]; ok {
+			s.setPlaylistFlag(w, token, session, list, favorite, value)
+			return
+		}
 		if !found {
 			fail(w, 404, "NotFound")
 			return

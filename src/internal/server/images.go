@@ -15,10 +15,10 @@ func (s *Server) imageRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("GET "+route, s.itemImage)
 	}
 	// The image editor lists an item's images; Couch has no image search
-	// and changes no image.
-	mux.HandleFunc("GET /items/{item}/images", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	// and changes no image. The owner of a playlist may open it too.
+	mux.HandleFunc("GET /items/{item}/images", s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		id := r.PathValue("item")
-		if _, ok := s.store.Snapshot().Collection(id); ok {
+		if _, ok := s.store.Snapshot().Collection(id); ok || s.ownsPlaylist(r, session) {
 			respond(w, 200, []object{})
 			return
 		}
@@ -43,10 +43,10 @@ func (s *Server) imageRoutes(mux *http.ServeMux) {
 		}
 		respond(w, 200, infos)
 	}))
-	mux.HandleFunc("GET /items/{item}/remoteimages/providers", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	mux.HandleFunc("GET /items/{item}/remoteimages/providers", s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		respond(w, 200, []object{})
 	}))
-	refuse := s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	refuse := s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		failText(w, 400, "Couch does not change images: replace the image file next to the video, or use Identify, then Refresh Metadata.")
 	})
 	mux.HandleFunc("POST /items/{item}/images/{rest...}", refuse)

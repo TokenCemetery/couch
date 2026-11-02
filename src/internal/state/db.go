@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 8
+const dbSchemaVersion = 9
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,8 +57,22 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + `
-PRAGMA user_version = 8;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + `
+PRAGMA user_version = 9;
+`
+
+// playlistsSchema was added in version 9; entries is a JSON array of
+// {ID, ItemID} objects.
+const playlistsSchema = `
+CREATE TABLE playlists (
+	id TEXT PRIMARY KEY,
+	position INTEGER NOT NULL,
+	user_id TEXT NOT NULL,
+	name TEXT NOT NULL,
+	added TEXT NOT NULL,
+	modified TEXT NOT NULL,
+	entries TEXT NOT NULL
+) STRICT;
 `
 
 // collectionsSchema was added in version 8; items is a JSON array of item IDs.
@@ -137,6 +151,8 @@ var migrations = map[int]string{
 	6: identifiedColumn + "PRAGMA user_version = 7;",
 	// Version 8 stores collections.
 	7: collectionsSchema + "PRAGMA user_version = 8;",
+	// Version 9 stores playlists.
+	8: playlistsSchema + "PRAGMA user_version = 9;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -188,6 +204,9 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 	}
 	d.Libraries = libraries
 	if d.Collections, err = loadCollections(ctx, db); err != nil {
+		return Data{}, err
+	}
+	if d.Playlists, err = loadPlaylists(ctx, db); err != nil {
 		return Data{}, err
 	}
 	users, err := loadUsers(ctx, db)
@@ -319,12 +338,18 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 		if err := writeCollections(ctx, tx, Data{}, next); err != nil {
 			return err
 		}
+		if err := writePlaylists(ctx, tx, Data{}, next); err != nil {
+			return err
+		}
 		return writeSessions(ctx, tx, prev.Sessions, next.Sessions)
 	}
 	if err := writeLibraries(ctx, tx, prev, next); err != nil {
 		return err
 	}
 	if err := writeCollections(ctx, tx, prev, next); err != nil {
+		return err
+	}
+	if err := writePlaylists(ctx, tx, prev, next); err != nil {
 		return err
 	}
 	if prev.ServerName != next.ServerName {
@@ -618,6 +643,72 @@ func writeCollections(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 		}
 		if _, err := tx.ExecContext(ctx, "INSERT INTO collections (id, position, name, added, items) VALUES (?, ?, ?, ?, ?)",
 			c.ID, n, c.Name, added, string(items)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadPlaylists(ctx context.Context, db *sql.DB) ([]Playlist, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, user_id, name, added, modified, entries FROM playlists ORDER BY position")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var playlists []Playlist
+	for rows.Next() {
+		var p Playlist
+		var added, modified, entries string
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &added, &modified, &entries); err != nil {
+			return nil, err
+		}
+		if err := p.Added.UnmarshalText([]byte(added)); err != nil {
+			return nil, err
+		}
+		if err := p.Modified.UnmarshalText([]byte(modified)); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(entries), &p.Entries); err != nil {
+			return nil, err
+		}
+		playlists = append(playlists, p)
+	}
+	return playlists, rows.Err()
+}
+
+// writePlaylists writes the playlists that changed and deletes the removed
+// ones: users edit them as often as they watch.
+func writePlaylists(ctx context.Context, tx *sql.Tx, prev, next Data) error {
+	if reflect.DeepEqual(prev.Playlists, next.Playlists) {
+		return nil
+	}
+	for _, p := range prev.Playlists {
+		if _, ok := next.Playlist(p.ID); !ok {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM playlists WHERE id = ?", p.ID); err != nil {
+				return err
+			}
+		}
+	}
+	for n, p := range next.Playlists {
+		// A playlist at the same position and unchanged keeps its row.
+		if n < len(prev.Playlists) && reflect.DeepEqual(prev.Playlists[n], p) {
+			continue
+		}
+		entries, err := json.Marshal(p.Entries)
+		if err != nil {
+			return err
+		}
+		added, err := timeText(p.Added)
+		if err != nil {
+			return err
+		}
+		modified, err := timeText(p.Modified)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO playlists (id, position, user_id, name, added, modified, entries) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (id) DO UPDATE SET position = excluded.position, name = excluded.name, modified = excluded.modified, entries = excluded.entries`,
+			p.ID, n, p.UserID, p.Name, added, modified, string(entries)); err != nil {
 			return err
 		}
 	}

@@ -144,6 +144,8 @@ type Data struct {
 	ServerName string
 	// Collections are the collections in creation order.
 	Collections []Collection
+	// Playlists are every user's playlists in creation order.
+	Playlists []Playlist
 }
 
 // Library is a media library: a name, a content type and absolute folders.
@@ -842,6 +844,7 @@ func (s *Store) DeleteUser(id string) ([]string, error) {
 			return ErrLastAdministrator
 		}
 		revoked = revokeSessions(d, id, "")
+		d.Playlists = slices.DeleteFunc(slices.Clone(d.Playlists), func(p Playlist) bool { return p.UserID == id })
 		return nil
 	})
 	s.removeUnreferencedImages(image)

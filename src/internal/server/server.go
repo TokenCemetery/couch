@@ -366,6 +366,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /embywebsocket", s.protect(s.websocket))
 	s.catalogRoutes(mux)
 	s.collectionRoutes(mux)
+	s.playlistRoutes(mux)
 	s.libraryRoutes(mux)
 	s.dashboardRoutes(mux)
 	s.identifyRoutes(mux)

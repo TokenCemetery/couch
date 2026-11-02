@@ -420,7 +420,7 @@ func TestOwnerBecomesAdministrator(t *testing.T) {
 const dropPolicyColumns = `ALTER TABLE users DROP COLUMN is_administrator; ALTER TABLE users DROP COLUMN is_disabled;
 	ALTER TABLE users DROP COLUMN is_hidden; ALTER TABLE users DROP COLUMN enable_all_folders;
 	ALTER TABLE users DROP COLUMN enabled_folders; ALTER TABLE server DROP COLUMN libraries_configured; DROP TABLE libraries;
-	ALTER TABLE server DROP COLUMN server_name; DROP TABLE activity; DROP TABLE collections;`
+	ALTER TABLE server DROP COLUMN server_name; DROP TABLE activity; DROP TABLE collections; DROP TABLE playlists;`
 
 // TestLibrariesPersist stores libraries in order and reads them back, and
 // checks that an upgraded database has none configured yet.

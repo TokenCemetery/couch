@@ -721,3 +721,19 @@ Emby Web 4.10.0.40 (`-web-dir`) in Chromium against Couch with the 18-file real 
 - **Delete:** confirmed with "Are you sure you wish to delete …?", which lists no file paths. It sent `POST Items/Delete`, and Emby Web went back to the previous page.
 
 Other users, "Group into collections", "Mark Played" and favorites are covered by `TestCollections` but were not clicked through. `make e2e` passes the collection operations, `Items/{id}/DeleteInfo`, `Items/Delete`, `DELETE Items/{id}`, `Items/{id}/Images` and `RemoteImages/Providers` against a collection made at startup.
+
+## Playlists (2026-11-02, #103)
+
+Emby Web 4.10.0.40 (`-web-dir`) in Chromium against Couch with the 18-file real set, signed in as the administrator, who owns the playlist:
+
+- **Create:** a movie's "…" menu offers "Add to Playlist". Before any playlist, the dialog listed only "New Playlist". "New Playlist" sent `POST Playlists?Name=…&Ids=…&userId=…` (200).
+- **Duplicates:** adding the same movie again listed the playlist under "Recent" and "All Playlists", sent `GET Playlists/{id}/AddToPlaylistInfo`, and asked "This item is already in your playlist." with Add Again, Skip and Cancel. Add Again posted the IDs as JSON in a `text/plain` body (200).
+- **Series:** "Add to Playlist" on a series showed "2 items added to …": its two episodes.
+- **Show:** after a reload, My Media got a "Playlists" tile, which opens as a list of playlists, and the sidebar got a Playlists section. The playlist page showed "4 Tracks" with drag handles: R16 twice, then S1:E1 and S1:E2. A movie's page shows the playlist under "Included In".
+- **Reorder:** dragging S1:E2 to the top sent `POST Playlists/{id}/Items/{entry}/Move/0` (204).
+- **Remove:** "Remove from Playlist" on one R16 entry sent `POST Playlists/{id}/Items/Delete?EntryIds=…` (204). After a reload the page showed "3 Tracks": S1:E2, R16, S1:E1.
+- **Play:** "Play" sent `Items?ParentId=<playlist>&SortBy=ListItemOrder&SortOrder=Ascending&…` and played S1:E2 first through HLS.
+- **Rename:** Edit Metadata on the playlist saved a new title ("Item saved."), and the sidebar showed it.
+- **Delete:** confirmed with "Are you sure you wish to delete …?". It sent `Items/{id}/DeleteInfo` (200) and `POST Items/Delete` (204), and the sidebar section disappeared. Emby Web then reloaded the deleted playlist and showed "The requested item was not found."
+
+No server errors were logged. A playlist of a user who is not an administrator, its privacy from an administrator, and a hidden entry whose file is gone are covered by `TestPlaylists` but were not clicked through. `make e2e` passes the seven `Playlists` operations against a playlist made at startup.

@@ -52,7 +52,7 @@ func TestCollections(t *testing.T) {
 	if err := s.DeleteCollections([]string{other.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE collections; PRAGMA user_version = 7"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE collections; DROP TABLE playlists; PRAGMA user_version = 7"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

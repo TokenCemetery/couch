@@ -50,6 +50,9 @@ type Fixtures struct {
 	SeasonID      string
 	EpisodeID     string
 	CollectionID  string
+	PlaylistID    string
+	// PlaylistEntry is the playlist's only entry: the movie.
+	PlaylistEntry string
 }
 
 // Instance is one running couch process with a logged-in session.
@@ -125,6 +128,9 @@ func (s *Suite) Start() (*Instance, error) {
 		}
 		if err == nil {
 			err = inst.createCollection()
+		}
+		if err == nil {
+			err = inst.createPlaylist()
 		}
 		if err != nil {
 			inst.Stop()
@@ -337,6 +343,31 @@ func (inst *Instance) createCollection() error {
 		return fmt.Errorf("create collection: status %d: %s", resp.Status, snippet(resp.Body))
 	}
 	inst.IDs.CollectionID = created.Id
+	return nil
+}
+
+// createPlaylist puts the movie in a playlist of the test user, so the
+// playlist operations have one to change.
+func (inst *Instance) createPlaylist() error {
+	resp, err := inst.Send(Request{Method: "POST", Path: "/Playlists", Query: url.Values{"Name": {"e2e"}, "Ids": {inst.IDs.MovieID}}}, true)
+	if err != nil {
+		return err
+	}
+	var created struct{ Id string }
+	if resp.Status != http.StatusOK || json.Unmarshal(resp.Body, &created) != nil || created.Id == "" {
+		return fmt.Errorf("create playlist: status %d: %s", resp.Status, snippet(resp.Body))
+	}
+	resp, err = inst.Send(Request{Method: "GET", Path: "/Playlists/" + url.PathEscape(created.Id) + "/Items", Query: url.Values{}}, true)
+	if err != nil {
+		return err
+	}
+	var page struct {
+		Items []struct{ PlaylistItemId string }
+	}
+	if resp.Status != http.StatusOK || json.Unmarshal(resp.Body, &page) != nil || len(page.Items) != 1 || page.Items[0].PlaylistItemId == "" {
+		return fmt.Errorf("list playlist: status %d: %s", resp.Status, snippet(resp.Body))
+	}
+	inst.IDs.PlaylistID, inst.IDs.PlaylistEntry = created.Id, page.Items[0].PlaylistItemId
 	return nil
 }
 

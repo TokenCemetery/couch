@@ -53,6 +53,11 @@ var requestOverrides = map[string]func(*Request, Fixtures){
 		r.Query.Set("Name", "e2e")
 		r.Query.Set("Ids", ids.MovieID)
 	},
+	// Emby Web names the new playlist and the items it starts with.
+	"postPlaylists": func(r *Request, ids Fixtures) {
+		r.Query.Set("Name", "e2e")
+		r.Query.Set("Ids", ids.MovieID)
+	},
 	// Couch deletes collections only, never media files.
 	"getItemsByIdDeleteinfo": collectionPath,
 	"deleteItemsById":        collectionPath,
@@ -115,6 +120,15 @@ func (c *Contract) value(p Param, path string, ids Fixtures) string {
 		// A collection is changed by its ID; its items are the movie.
 		if p.Name == "Id" && strings.HasPrefix(path, "/Collections/") {
 			return ids.CollectionID
+		}
+		// A playlist is changed by its ID, its entries by their entry ID.
+		if strings.HasPrefix(path, "/Playlists/") {
+			switch p.Name {
+			case "Id":
+				return ids.PlaylistID
+			case "EntryIds", "ItemId":
+				return ids.PlaylistEntry
+			}
 		}
 		return entityFor(path, ids)
 	case "MediaSourceId":

@@ -91,6 +91,9 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 		if sets := s.sessionBoxSets(session); len(sets) > 0 {
 			items = append(items, collectionsViewDTO(serverID, len(sets), false))
 		}
+		if lists := s.sessionPlaylists(session); len(lists) > 0 {
+			items = append(items, playlistsViewDTO(serverID, len(lists), false))
+		}
 	case section == "resume":
 		items = s.resumeItems(limit, token, session)
 	case section == "resumeaudio":
