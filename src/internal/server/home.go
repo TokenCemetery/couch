@@ -207,6 +207,9 @@ func (s *Server) latestSection(row homeRow, catalog *media.Catalog, serverID, la
 		name, collectionType = translate(language, "HeaderLatestEpisodes"), media.TVShows
 	case media.Music:
 		name, collectionType, monitor = translate(language, "HeaderLatestMusic"), media.Music, []string{"markplayed", "audioplayback"}
+	case media.HomeVideos:
+		// Emby Web has no heading of its own for this type.
+		name, collectionType = strings.Replace(translate(language, "HeaderLatestFrom"), "{0}", library.Name, 1), media.HomeVideos
 	}
 	latest := homeSection(row.id, name, "latestmedia", monitor, 0)
 	if row.section.ScrollDirection != "" {

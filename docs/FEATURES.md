@@ -35,11 +35,12 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Metadata from `.nfo` files: title, overview, year, genres, studios, tags, ratings, people, provider IDs | Supported | Re-read when the file changes; checked in Emby Web (#101) |
 | Metadata and poster/backdrop from TMDb and TheTVDB | Supported | On only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; checked against the live services in English and Russian (#101) |
 | Collections: create, add and remove items, rename, delete, play; Collections library and tabs, "Included In" row | Supported | Administrators edit them; other users see those with an item they can see. No collection images, no `.nfo` `<set>`, missing items always empty (#40) |
-| Playlists: create, add (with or without duplicates), reorder, remove, rename, delete, play; Playlists library and menu section | Supported | Private to their user; movies, episodes and tracks, an album adds its tracks (#103, #104); no playlist images |
+| Playlists: create, add (with or without duplicates), reorder, remove, rename, delete, play; Playlists library and menu section | Supported | Private to their user; movies, episodes, tracks, home videos and photos, an album adds its tracks (#103, #104, #105); no playlist images |
 | Music libraries: albums, album artists, artists, songs, genres, folders; album and artist pages; Latest Music; favorite artists | Supported | Album, artists, track and disc numbers, year and genres from the file tags, else from `Artist/Album/NN Title` folders; local `cover.jpg` or `folder.jpg` album art, else the cover embedded in the files (#120). No composers, lyrics or online music metadata (#104) |
+| Home videos & photos libraries: Videos, Photos and Folders tabs, photo albums, slideshow; Latest | Supported | jpg, png, gif, webp, bmp, served as the original file; EXIF date and orientation from JPEG; folders are photo albums. The "Enable photos" switch is not stored. No HEIC, RAW or resized thumbnails (#105) |
 | Instant Mix from a track, album, artist, genre or playlist | Supported | The seed's tracks, then those sharing an artist or genre; at most 200, shuffled after the first seed track (#119) |
 | Missing and upcoming episodes, recommendations | Unsupported | Empty lists (#34) |
-| Photos, books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
+| Books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
 
 ## Watching
 
@@ -75,7 +76,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 
 | Feature | Status | Notes |
 |---|---|---|
-| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies, TV shows and music (#104); library options are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
+| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies, TV shows, music (#104) and home videos & photos (#105); library options are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
 | Rescan from the library page, the "Scan media library" task, `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; a folder that cannot be read or comes back empty keeps its videos, and the others are updated (#39, #112) |
 | Catalog kept across restarts | Supported | Saved to `catalog.json`; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
 | Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; on a first start without one, an unreadable folder stays empty and is reported until a rescan reaches it (#31, #39, #112) |

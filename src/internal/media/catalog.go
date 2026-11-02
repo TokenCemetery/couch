@@ -1,5 +1,5 @@
-// Package media builds a read-only video and music catalogue from the folders
-// of the configured libraries.
+// Package media builds a read-only video, music and photo catalogue from the
+// folders of the configured libraries.
 package media
 
 import (
@@ -23,6 +23,9 @@ import (
 const maxEntries = 100000
 const maxMovies = 10000
 const maxTracks = 10000
+
+// maxDepth bounds the folders walked below a library folder.
+const maxDepth = 64
 
 // Catalog and its items are immutable after a scan returns. Each folder's
 // root stays open so playback can reopen a file later without re-resolving
@@ -48,8 +51,8 @@ type Catalog struct {
 	imageDirs  imageDirCache
 }
 
-// Item is a movie, series, season, episode, music album or audio track in
-// the catalogue.
+// Item is a movie, series, season, episode, music album, audio track, photo,
+// home video or photo album in the catalogue.
 type Item struct {
 	ID            string
 	Name          string
@@ -76,6 +79,8 @@ type Item struct {
 	// Cover is the picture embedded in an audio file, without a Revision;
 	// zero when there is none, and for videos.
 	Cover Image
+	// Photo is a picture's size and date; zero for other files.
+	Photo Photo
 	// src is the folder the item was found in.
 	src *source
 }
@@ -102,8 +107,8 @@ type source struct {
 	items   []Item
 	folders []Item
 	skipped int
-	// video and audio say which files the folder's libraries catalog.
-	video, audio bool
+	// video, audio and photo say which files the folder's libraries catalog.
+	video, audio, photo bool
 }
 
 // sourceOf returns item's folder. An item built without one, as tests do,
@@ -270,7 +275,7 @@ var errLimit = errors.New("scan limit exceeded")
 
 // budget counts what a scan has used across all folders.
 type budget struct {
-	entries, videos, tracks int
+	entries, videos, tracks, photos int
 }
 
 // Rescan walks the libraries' folders again and returns a new catalog; c is
@@ -292,8 +297,8 @@ func (c *Catalog) Rescan(ctx context.Context, libraries []Library) (*Catalog, er
 	opened := []*os.Root{}
 	for _, path := range folderPaths(libraries) {
 		previous := c.sources[path]
-		video, audio := folderKinds(libraries, path)
-		src, err := c.walkSource(ctx, path, previous, used, video, audio)
+		video, audio, photo := folderKinds(libraries, path)
+		src, err := c.walkSource(ctx, path, previous, used, video, audio, photo)
 		if err != nil {
 			if errors.Is(err, errLimit) || ctx.Err() != nil {
 				for _, root := range opened {
@@ -335,10 +340,10 @@ func (c *Catalog) Reassign(libraries []Library) *Catalog {
 	return next
 }
 
-// walkSource scans the folder at path into a new source, with its videos,
-// its audio files or both. previous is the folder's last scan, or nil.
-func (c *Catalog) walkSource(ctx context.Context, folder string, previous *source, used *budget, video, audio bool) (*source, error) {
-	src := &source{path: folder, key: stableID("movies\x00" + folder), items: []Item{}, video: video, audio: audio}
+// walkSource scans the folder at path into a new source, with the kinds of
+// files its libraries catalog. previous is the folder's last scan, or nil.
+func (c *Catalog) walkSource(ctx context.Context, folder string, previous *source, used *budget, video, audio, photo bool) (*source, error) {
+	src := &source{path: folder, key: stableID("movies\x00" + folder), items: []Item{}, video: video, audio: audio, photo: photo}
 	known := map[string]Item{}
 	var now time.Time
 	if previous != nil {
@@ -378,7 +383,7 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 			subtitles = append(subtitles, path)
 			return nil
 		}
-		music := isAudio(ext)
+		music, picture := isAudio(ext), isPhoto(ext)
 		switch {
 		case music && src.audio:
 			if used.tracks >= maxTracks {
@@ -387,6 +392,10 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 		case isVideo(ext) && src.video:
 			if used.videos >= maxMovies {
 				return fmt.Errorf("libraries exceed the video limit: %w", errLimit)
+			}
+		case picture && src.photo && !isImageSidecar(path):
+			if used.photos >= maxPhotos {
+				return fmt.Errorf("libraries exceed the photo limit: %w", errLimit)
 			}
 		default:
 			return nil
@@ -407,7 +416,14 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 		var item Item
 		if previous, ok := known[path]; ok && previous.Size == info.Size() && previous.Modified.Equal(modified) {
 			// Sidecars and episode fields are derived again below.
-			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams), Tags: previous.Tags, Cover: previous.Cover}
+			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams), Tags: previous.Tags, Cover: previous.Cover, Photo: previous.Photo}
+		} else if picture {
+			// A picture is read by its header, without FFprobe.
+			item.Photo, err = readPhoto(file)
+			if err != nil {
+				src.skipped++
+				return nil
+			}
 		} else {
 			item, err = probe(ctx, file)
 			if ctx.Err() != nil {
@@ -437,16 +453,19 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 		}
 		item.Container = containerOf(ext)
 		src.items = append(src.items, item)
-		if music {
+		switch {
+		case music:
 			used.tracks++
-		} else {
+		case picture:
+			used.photos++
+		default:
 			used.videos++
 		}
 		return nil
 	}
 	var walkDir func(string, int) error
 	walkDir = func(relative string, depth int) error {
-		if depth > 64 {
+		if depth > maxDepth {
 			return errors.New("media folder exceeds scan depth")
 		}
 		directory, err := root.OpenFile(filepath.FromSlash(relative), os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_DIRECTORY, 0)
@@ -490,6 +509,7 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 	if err := walkDir(".", 0); err != nil {
 		return err
 	}
+	src.items = dropVideoImages(src.items)
 	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
 	attachSidecars(src.items, subtitles)
 	src.classify()

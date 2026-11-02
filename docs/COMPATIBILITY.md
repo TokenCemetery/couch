@@ -107,6 +107,21 @@ Synthetic tagged tracks made with FFmpeg 8.0 (stereo sine tones of 3 s, one WMA 
 
 Not checked: real music files, long tracks played to the end, gapless playback, and multichannel sources (encoded to stereo).
 
+## Photos, Emby Web 4.10.0.40, Chromium, Linux (#105)
+
+Synthetic pictures made with FFmpeg 8.0 in a home videos & photos library, shown on the Photos and Folders tabs and in the slideshow. Emby Web asks every photo from `Items/{id}/Images/Primary` with `maxWidth`, `maxHeight` and `quality`; Couch sends the original file.
+
+| File | Size | Shown | Status |
+|---|---|---|---|
+| `.jpg` with EXIF orientation 6 and `DateTimeOriginal` | 1600×1200, reported 1200×1600 | card and slideshow upright, dated 2024 | verified 2026-11-03 |
+| `.jpg` without EXIF | 1600×1200 | card and slideshow, dated by its mtime | verified 2026-11-03 |
+| `.png` | 1200×800 | card and slideshow | verified 2026-11-03 |
+| `.webp` (VP8) | 800×600 | card and slideshow | verified 2026-11-03 |
+| `.gif`, animated | 320×240 | card and slideshow, animated | verified 2026-11-03 |
+| `.bmp` | 640×480 | card and slideshow | verified 2026-11-03 |
+
+A 5 s H.264/AAC MP4 in the same library played as it is (`stream.mp4`, 206) from the Videos tab. Not checked: real camera photos, HEIC and RAW (not cataloged), very large panoramas, and other clients.
+
 ## Tracks and subtitles (Emby Web, Chromium)
 
 Quality switching was verified 2026-10-07 on the set above, the other rows earlier on other synthetic files; details in [VALIDATION](VALIDATION.md).

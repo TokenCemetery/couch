@@ -14,12 +14,19 @@ const (
 	Movies  = "movies"
 	TVShows = "tvshows"
 	Music   = "music"
+	// HomeVideos is Emby's "Home videos & photos" type.
+	HomeVideos = "homevideos"
 )
+
+// LibraryTypes lists the content types a library can have.
+var LibraryTypes = []string{Movies, TVShows, Music, HomeVideos}
 
 // Library is a set of folders cataloged as one content type. A movies
 // library holds the videos that are not recognized episodes; a TV shows
 // library holds the episodes with their series and seasons; a music library
-// holds the audio files with their albums. Paths are absolute and clean.
+// holds the audio files with their albums; a home videos library holds the
+// photos and videos with their folders as photo albums. Paths are absolute
+// and clean.
 type Library struct {
 	ID    string
 	Name  string
@@ -81,19 +88,22 @@ func folderPaths(libraries []Library) []string {
 	return slices.Compact(paths)
 }
 
-// folderKinds reports whether the libraries that use folder catalog its
-// videos, its audio files or both.
-func folderKinds(libraries []Library, folder string) (video, audio bool) {
+// folderKinds reports which files of folder its libraries catalog: videos,
+// audio files, photos or several of them.
+func folderKinds(libraries []Library, folder string) (video, audio, photo bool) {
 	for _, library := range libraries {
 		if slices.Contains(library.Paths, folder) {
-			if library.Type == Music {
+			switch library.Type {
+			case Music:
 				audio = true
-			} else {
+			case HomeVideos:
+				video, photo = true, true
+			default:
 				video = true
 			}
 		}
 	}
-	return video, audio
+	return video, audio, photo
 }
 
 // Libraries returns the catalogue's libraries in their configured order. A
@@ -161,6 +171,16 @@ func (c *Catalog) LibraryOf(item Item) string {
 		return c.Parent(item)
 	case "Series", "MusicAlbum":
 		return item.ParentID
+	case "Photo", "Video", "PhotoAlbum":
+		// Photo albums nest like the folders they are.
+		for range maxDepth {
+			album, ok := c.Folder(item.ParentID)
+			if !ok || album.Type() != "PhotoAlbum" {
+				break
+			}
+			item = album
+		}
+		return item.ParentID
 	case "Audio":
 		if album, ok := c.Folder(item.ParentID); ok {
 			return album.ParentID
@@ -173,10 +193,27 @@ func (c *Catalog) LibraryOf(item Item) string {
 	return c.SeriesLibraryID()
 }
 
+// Within reports whether item lies in the photo album folderID, directly or
+// in an album inside it.
+func (c *Catalog) Within(item Item, folderID string) bool {
+	for range maxDepth {
+		if item.ParentID == folderID {
+			return true
+		}
+		album, ok := c.Folder(item.ParentID)
+		if !ok || album.Type() != "PhotoAlbum" {
+			return false
+		}
+		item = album
+	}
+	return false
+}
+
 // assemble fills Items and Folders from the scanned folders: each library
 // takes its type's share of its folders, and its ID becomes the parent of its
-// movies, series, albums and tracks without an album. A file reached twice is
-// kept once.
+// movies, series, albums, tracks without an album and top photo albums. A
+// home videos library takes every video of its folders, episodes included,
+// as a plain video. A file reached twice is kept once.
 func (c *Catalog) assemble() {
 	items, folders := []Item{}, []Item{}
 	seen := map[string]bool{}
@@ -204,6 +241,13 @@ func (c *Catalog) assemble() {
 						item.ParentID = library.ID
 					}
 					add(&items, item)
+				case library.Type == HomeVideos && item.Kind == "Photo":
+					if item.ParentID == "" {
+						item.ParentID = library.ID
+					}
+					add(&items, item)
+				case library.Type == HomeVideos && (item.Kind == "" || item.Kind == "Episode"):
+					add(&items, homeVideo(item, library.ID))
 				}
 			}
 			for _, folder := range src.folders {
@@ -215,6 +259,11 @@ func (c *Catalog) assemble() {
 					add(&folders, folder)
 				case library.Type == Music && folder.Kind == "MusicAlbum":
 					folder.ParentID = library.ID
+					add(&folders, folder)
+				case library.Type == HomeVideos && folder.Kind == "PhotoAlbum":
+					if folder.ParentID == "" {
+						folder.ParentID = library.ID
+					}
 					add(&folders, folder)
 				}
 			}

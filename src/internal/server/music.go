@@ -19,7 +19,8 @@ import (
 
 // musicIndex is what a catalogue's tracks and albums tell beyond their
 // files: their year and genres from the tags, and the artists and genres
-// they name, by their derived IDs.
+// they name, by their derived IDs. It also holds each photo's date, which
+// sorts and dates it like a premiere.
 type musicIndex struct {
 	info     map[string]*metadata.Info
 	entities map[string]entity
@@ -33,6 +34,10 @@ func newMusicIndex(catalog *media.Catalog) *musicIndex {
 	}
 	for _, items := range [][]media.Item{catalog.Items, catalog.Folders} {
 		for _, item := range items {
+			if item.Type() == "Photo" {
+				index.info[item.ID] = &metadata.Info{Year: item.Date().Year(), Premiere: item.Date()}
+				continue
+			}
 			if !isMusic(item) {
 				continue
 			}

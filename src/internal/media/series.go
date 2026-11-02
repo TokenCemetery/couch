@@ -25,9 +25,10 @@ func (i Item) Type() string {
 	return i.Kind
 }
 
-// IsFolder reports whether the item is a series, season or music album.
+// IsFolder reports whether the item is a series, season, music album or
+// photo album.
 func (i Item) IsFolder() bool {
-	return i.Kind == "Series" || i.Kind == "Season" || i.Kind == "MusicAlbum"
+	return i.Kind == "Series" || i.Kind == "Season" || i.Kind == "MusicAlbum" || i.Kind == "PhotoAlbum"
 }
 
 // Parent returns the parent item ID: the library for a movie or series.
@@ -48,7 +49,7 @@ func (s *source) classify() {
 	for n := range s.items {
 		item := &s.items[n]
 		item.src = s
-		if isAudio(strings.ToLower(path.Ext(item.Path))) {
+		if ext := strings.ToLower(path.Ext(item.Path)); isAudio(ext) || isPhoto(ext) {
 			continue
 		}
 		seasonPath := path.Dir(item.Path)
@@ -91,5 +92,6 @@ func (s *source) classify() {
 		s.folders = append(s.folders, folder)
 	}
 	s.classifyMusic()
+	s.classifyPhotos()
 	slices.SortFunc(s.folders, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
 }

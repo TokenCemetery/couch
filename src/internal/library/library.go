@@ -32,7 +32,7 @@ var (
 	ErrOutsideRoot = errors.New("the folder is not inside a media root")
 	ErrNotFolder   = errors.New("the folder does not exist or is not a directory")
 	ErrOverlap     = errors.New("the folder overlaps a folder of another library of the same type")
-	ErrType        = errors.New("only movies, TV shows and music libraries are supported")
+	ErrType        = errors.New("only movies, TV shows, music and home videos & photos libraries are supported")
 )
 
 // Result is the outcome of the last scan.
@@ -123,8 +123,8 @@ func (m *Manager) Open(ctx context.Context, mediaDir string) (loaded bool, err e
 	catalog, err := media.Load(ctx, libraries, m.index)
 	switch {
 	case err == nil:
-		videos, tracks := counts(catalog)
-		slog.Info("Media index loaded; rescanning in the background", "videos", videos, "tracks", tracks, "folders", len(catalog.Folders))
+		videos, tracks, photos := counts(catalog)
+		slog.Info("Media index loaded; rescanning in the background", "videos", videos, "tracks", tracks, "photos", photos, "folders", len(catalog.Folders))
 		m.set(catalog)
 		return true, nil
 	case errors.Is(err, fs.ErrNotExist):
@@ -246,7 +246,7 @@ func (m *Manager) Folder(libraries []media.Library, library media.Library, path 
 	if len(m.roots) == 0 {
 		return "", ErrNoRoots
 	}
-	if library.Type != media.Movies && library.Type != media.TVShows && library.Type != media.Music {
+	if !slices.Contains(media.LibraryTypes, library.Type) {
 		return "", ErrType
 	}
 	if len(path) > 1 {
@@ -333,8 +333,8 @@ func (m *Manager) save(catalog *media.Catalog) {
 }
 
 func logScan(message string, catalog *media.Catalog, err error) {
-	videos, tracks := counts(catalog)
-	attrs := []any{"videos", videos, "tracks", tracks, "folders", len(catalog.Folders), "skipped", catalog.Skipped,
+	videos, tracks, photos := counts(catalog)
+	attrs := []any{"videos", videos, "tracks", tracks, "photos", photos, "folders", len(catalog.Folders), "skipped", catalog.Skipped,
 		"probes", catalog.Probes.Runs, "probe_cpu", catalog.Probes.CPU.Round(time.Millisecond), "probe_peak_rss_kib", catalog.Probes.PeakKiB}
 	if err != nil {
 		attrs = append(attrs, "failed_folders", fmt.Sprint(err))
@@ -342,16 +342,20 @@ func logScan(message string, catalog *media.Catalog, err error) {
 	slog.Info(message, attrs...)
 }
 
-// counts returns how many videos and audio tracks the catalogue holds.
-func counts(catalog *media.Catalog) (videos, tracks int) {
+// counts returns how many videos, audio tracks and photos the catalogue
+// holds.
+func counts(catalog *media.Catalog) (videos, tracks, photos int) {
 	for _, item := range catalog.Items {
-		if item.Type() == "Audio" {
+		switch item.Type() {
+		case "Audio":
 			tracks++
-		} else {
+		case "Photo":
+			photos++
+		default:
 			videos++
 		}
 	}
-	return videos, tracks
+	return videos, tracks, photos
 }
 
 func toMedia(libraries []state.Library) []media.Library {

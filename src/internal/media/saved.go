@@ -16,9 +16,10 @@ import (
 
 // savedVersion changes whenever the saved form or what a probe records does;
 // an index of another version is rejected and the libraries scanned again.
-// Version 1 held one directory and version 2 no audio files; both are still
-// read. Version 3 lacked embedded covers and is scanned again.
-const savedVersion = 4
+// Version 1 held one directory, version 2 no audio files and version 4 no
+// photos; they are still read. Version 3 lacked embedded covers and is
+// scanned again.
+const savedVersion = 5
 
 const maxSavedBytes = 256 << 20
 
@@ -47,6 +48,7 @@ type savedItem struct {
 	Streams      []Stream
 	Tags         Tags  `json:",omitzero"`
 	Cover        Image `json:",omitzero"`
+	Photo        Photo `json:",omitzero"`
 }
 
 // Save writes the catalog to file atomically, so a crash leaves either the
@@ -58,7 +60,7 @@ func (c *Catalog) Save(file string) error {
 		f := savedFolder{Path: folder, Items: make([]savedItem, len(src.items))}
 		for n, item := range src.items {
 			f.Items[n] = savedItem{Path: item.Path, Size: item.Size, Modified: item.Modified, Added: item.Added,
-				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags, Cover: item.Cover}
+				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags, Cover: item.Cover, Photo: item.Photo}
 		}
 		saved.Folders = append(saved.Folders, f)
 	}
@@ -140,7 +142,7 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 				folders[folder] = saved.Items
 			}
 		}
-	case 2, savedVersion:
+	case 2, 4, savedVersion:
 		for _, folder := range saved.Folders {
 			if _, duplicate := folders[folder.Path]; duplicate {
 				return nil, errors.New("media index has a folder twice")
@@ -151,25 +153,28 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 		return nil, errors.New("media index is for another version")
 	}
 	catalog := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: probe}
-	videos, tracks := 0, 0
+	videos, tracks, photos := 0, 0, 0
 	for _, folder := range folderPaths(libraries) {
 		items, found := folders[folder]
 		if !found {
 			continue
 		}
 		for _, item := range items {
-			if isAudio(strings.ToLower(path.Ext(item.Path))) {
+			switch ext := strings.ToLower(path.Ext(item.Path)); {
+			case isAudio(ext):
 				tracks++
-			} else {
+			case isPhoto(ext):
+				photos++
+			default:
 				videos++
 			}
 		}
-		if videos > maxMovies || tracks > maxTracks {
+		if videos > maxMovies || tracks > maxTracks || photos > maxPhotos {
 			_ = catalog.Close()
 			return nil, errors.New("media index has too many media files")
 		}
-		video, audio := folderKinds(libraries, folder)
-		src, err := loadSource(folder, items, video, audio)
+		video, audio, photo := folderKinds(libraries, folder)
+		src, err := loadSource(folder, items, video, audio, photo)
 		if err != nil {
 			_ = catalog.Close()
 			return nil, err
@@ -191,8 +196,8 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 // loadSource rebuilds a folder's items from the index, rejecting paths that
 // could leave the folder. Files of a kind the folder's libraries no longer
 // catalog are left for the next rescan.
-func loadSource(folder string, saved []savedItem, video, audio bool) (*source, error) {
-	src := &source{path: folder, key: stableID("movies\x00" + folder), items: make([]Item, 0, len(saved)), video: video, audio: audio}
+func loadSource(folder string, saved []savedItem, video, audio, photo bool) (*source, error) {
+	src := &source{path: folder, key: stableID("movies\x00" + folder), items: make([]Item, 0, len(saved)), video: video, audio: audio, photo: photo}
 	seen := make(map[string]bool, len(saved))
 	for _, s := range saved {
 		if !filepath.IsLocal(s.Path) || path.Clean(s.Path) != s.Path || seen[s.Path] {
@@ -201,18 +206,21 @@ func loadSource(folder string, saved []savedItem, video, audio bool) (*source, e
 		seen[s.Path] = true
 		name := path.Base(s.Path)
 		ext := strings.ToLower(path.Ext(name))
-		music := isAudio(ext)
-		if (music && !audio) || (!music && !video) {
+		music, picture := isAudio(ext), isPhoto(ext)
+		if (music && !audio) || (picture && !photo) || (!music && !picture && !video) {
 			continue
 		}
-		tags, cover := s.Tags, s.Cover
+		tags, cover, pictured := s.Tags, s.Cover, s.Photo
 		if !music {
 			tags, cover = Tags{}, Image{}
+		}
+		if !picture {
+			pictured = Photo{}
 		}
 		src.items = append(src.items, Item{
 			ID: stableID(src.key + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
 			Container: containerOf(ext),
-			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: tags, Cover: cover,
+			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: tags, Cover: cover, Photo: pictured,
 		})
 	}
 	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })

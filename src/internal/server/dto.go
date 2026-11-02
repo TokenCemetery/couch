@@ -129,7 +129,7 @@ func rootFolderDTO(serverID string, libraries int) object {
 	return dto
 }
 
-// collectionDTO is the CollectionFolder of a movies, TV shows or music library.
+// collectionDTO is the CollectionFolder of a library.
 //
 // detail selects the richer body Emby returns from /Users/{id}/Items/{id}. Only
 // that response carries Subviews, and Emby Web's library screen dereferences it
@@ -143,6 +143,8 @@ func (s *Server) collectionDTO(id, serverID string, detail bool) object {
 		subviews = []string{"series", "collections"}
 	case media.Music:
 		subviews = []string{"albums", "artists", "playlists", "songs", "genres"}
+	case media.HomeVideos:
+		subviews = []string{"videos", "photos"}
 	}
 	dto := baseFields(id, library.Name, "CollectionFolder", serverID)
 	dto["DateCreated"] = zeroDate
@@ -254,6 +256,18 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 	if item.IsFolder() {
 		dto["ChildCount"] = s.childCount(item.ID)
 		dto["UserData"] = s.folderPlayedData(item, items)
+		return dto
+	}
+	if item.Type() == "Photo" {
+		// A photo is shown as its Primary image; it has no media sources.
+		dto["MediaType"] = "Photo"
+		dto["Container"] = item.Container
+		dto["Size"] = item.Size
+		dto["UserData"] = itemUserData(items[item.ID], 0)
+		dto["CanDownload"] = true
+		if item.Photo.Width > 0 && item.Photo.Height > 0 {
+			dto["Width"], dto["Height"] = item.Photo.Width, item.Photo.Height
+		}
 		return dto
 	}
 	if music {

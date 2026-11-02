@@ -50,7 +50,70 @@ func (c *Catalog) OpenImage(item Item, kind string) (*os.File, Image, error) {
 	if c == nil || c.rootOf(item) == nil {
 		return nil, Image{}, os.ErrNotExist
 	}
-	return c.openImage(item, names.own, names.shared, c.imageFiles(item))
+	primary := strings.EqualFold(kind, "Primary")
+	if item.Type() == "Photo" {
+		if !primary {
+			return nil, Image{}, os.ErrNotExist
+		}
+		return c.openPhoto(item)
+	}
+	file, info, err := c.openImage(item, names.own, names.shared, c.imageFiles(item))
+	if err != nil && primary && item.Type() == "PhotoAlbum" {
+		if photo, found := c.firstPhoto(item); found {
+			return c.openPhoto(photo)
+		}
+	}
+	return file, info, err
+}
+
+// openPhoto opens a photo as its own Primary image, checking that the file
+// is still a picture within the limits.
+func (c *Catalog) openPhoto(item Item) (*os.File, Image, error) {
+	file, err := c.Open(item)
+	if err != nil {
+		return nil, Image{}, err
+	}
+	info, err := file.Stat()
+	if err != nil || info.Size() <= 0 || info.Size() > maxPhotoBytes {
+		_ = file.Close()
+		return nil, Image{}, os.ErrNotExist
+	}
+	_, format, err := image.DecodeConfig(io.LimitReader(file, 1<<20))
+	if err != nil || !isPhoto("."+format) {
+		_ = file.Close()
+		return nil, Image{}, os.ErrNotExist
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return nil, Image{}, err
+	}
+	return file, Image{Revision: photoRevision(item.Path, info.Size(), info.ModTime()), Width: item.Photo.Width, Height: item.Photo.Height, MIME: "image/" + format}, nil
+}
+
+// photoImage describes a photo's Primary image from its scan, without
+// opening the file; openPhoto refuses it if the file has changed since.
+func photoImage(item Item) Image {
+	mime := "image/" + strings.TrimPrefix(strings.ToLower(path.Ext(item.Path)), ".")
+	if mime == "image/jpg" {
+		mime = "image/jpeg"
+	}
+	return Image{Revision: photoRevision(item.Path, item.Size, item.Modified), Width: item.Photo.Width, Height: item.Photo.Height, MIME: mime}
+}
+
+func photoRevision(file string, size int64, modified time.Time) string {
+	return stableID(fmt.Sprintf("photo\x00%s\x00%d\x00%d", file, size, modified.UnixNano()))
+}
+
+// firstPhoto returns the first photo directly in a photo album, by path,
+// which stands in for an album without an image of its own.
+func (c *Catalog) firstPhoto(album Item) (Item, bool) {
+	var first Item
+	for _, item := range c.Episodes(album.ID) {
+		if item.Type() == "Photo" && (first.Path == "" || item.Path < first.Path) {
+			first = item
+		}
+	}
+	return first, first.Path != ""
 }
 
 // imageDirOf is the folder searched for an item's images.
@@ -113,10 +176,16 @@ func (c *Catalog) ImageInfo(item Item, kind string) (Image, bool) {
 
 // ImageInfos reports the item's valid images by type, as ImageInfo does for
 // each of ImageTypes, but checks its folder once. A track or album without a
-// local Primary image has its embedded cover's, if any (EmbeddedCover).
+// local Primary image has its embedded cover's, if any (EmbeddedCover). A
+// photo is its own Primary image, and a photo album without one has its
+// first photo's.
 func (c *Catalog) ImageInfos(item Item) map[string]Image {
 	infos := map[string]Image{}
 	if c == nil || c.rootOf(item) == nil {
+		return infos
+	}
+	if item.Type() == "Photo" {
+		infos["Primary"] = photoImage(item)
 		return infos
 	}
 	if present := c.imageFiles(item); len(present) > 0 {
@@ -130,6 +199,11 @@ func (c *Catalog) ImageInfos(item Item) map[string]Image {
 	if _, local := infos["Primary"]; !local {
 		if _, cover, found := c.EmbeddedCover(item); found {
 			infos["Primary"] = cover
+		}
+		if item.Type() == "PhotoAlbum" {
+			if photo, found := c.firstPhoto(item); found {
+				infos["Primary"] = photoImage(photo)
+			}
 		}
 	}
 	return infos

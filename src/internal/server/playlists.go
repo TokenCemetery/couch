@@ -88,17 +88,19 @@ func playlistUserData(p playlistView, items map[string]state.ItemState) object {
 		"IsFavorite": items[p.ID].IsFavorite, "Played": len(videos) > 0 && unplayed == 0}
 }
 
-// mediaType is Audio for a playlist of tracks only, else Video.
+// mediaType is Audio for a playlist of tracks only, Photo for one of photos
+// only, else Video.
 func (p playlistView) mediaType() string {
-	for _, e := range p.entries {
-		if e.item.Type() != "Audio" {
-			return "Video"
-		}
-	}
 	if len(p.entries) == 0 {
 		return "Video"
 	}
-	return "Audio"
+	kind := mediaType(p.entries[0].item)
+	for _, e := range p.entries {
+		if mediaType(e.item) != kind {
+			return "Video"
+		}
+	}
+	return kind
 }
 
 // playlistDTO is the playlist as a Playlist. Its owner may reorder, rename
@@ -230,8 +232,8 @@ func (s *Server) playlistMedia(w http.ResponseWriter, session state.Session, ids
 
 func (s *Server) playlistRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /playlists", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		if t := value(r, "MediaType"); t != "" && !strings.EqualFold(t, "Video") && !strings.EqualFold(t, "Audio") {
-			failText(w, 400, "Couch has only video and audio playlists.")
+		if t := value(r, "MediaType"); t != "" && !strings.EqualFold(t, "Video") && !strings.EqualFold(t, "Audio") && !strings.EqualFold(t, "Photo") {
+			failText(w, 400, "Couch has only video, audio and photo playlists.")
 			return
 		}
 		videos, ok := s.playlistMedia(w, session, splitIDs(values(r, "Ids")))

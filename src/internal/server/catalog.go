@@ -409,6 +409,8 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 			return media.Movies
 		case "Audio", "MusicAlbum":
 			return media.Music
+		case "Photo", "Video", "PhotoAlbum":
+			return media.HomeVideos
 		}
 		return media.TVShows
 	}
@@ -478,7 +480,7 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 					if (latest || resume) && item.IsFolder() {
 						continue
 					}
-					if root || catalog.Parent(*item) == parent || ((query["recursive"] == "true" || latest || resume) && (item.SeriesID == parent || catalog.LibraryOf(*item) == parent)) {
+					if root || catalog.Parent(*item) == parent || ((query["recursive"] == "true" || latest || resume) && (item.SeriesID == parent || catalog.LibraryOf(*item) == parent || catalog.Within(*item, parent))) {
 						if album, ok := catalog.Lookup(item.ParentID); latest && ok && album.Type() == "MusicAlbum" {
 							if !latestAlbums[album.ID] {
 								latestAlbums[album.ID] = true
@@ -776,10 +778,13 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 	}
 }
 
-// mediaType is the Emby media type of a video or track.
+// mediaType is the Emby media type of a video, track or photo.
 func mediaType(item *media.Item) string {
-	if item.Type() == "Audio" {
+	switch item.Type() {
+	case "Audio":
 		return "Audio"
+	case "Photo":
+		return "Photo"
 	}
 	return "Video"
 }

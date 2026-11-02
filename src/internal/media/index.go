@@ -7,7 +7,7 @@ import "sync"
 // on first use.
 type catalogIndex struct {
 	once     sync.Once
-	episodes map[string][]int // series, season or album ID → positions in Items
+	episodes map[string][]int // series, season, album or photo album ID → positions in Items
 	children map[string]int   // parent ID → number of direct children
 	folders  map[string]int   // folder ID → position in Folders
 	items    map[string]int   // video ID → position in Items
@@ -31,7 +31,7 @@ func (c *Catalog) built() *catalogIndex {
 			if item.SeasonID != "" && item.SeasonID != item.SeriesID {
 				c.index.episodes[item.SeasonID] = append(c.index.episodes[item.SeasonID], n)
 			}
-			if _, album := c.index.folders[item.ParentID]; album && item.Type() == "Audio" {
+			if f, album := c.index.folders[item.ParentID]; album && (item.Type() == "Audio" || c.Folders[f].Type() == "PhotoAlbum") {
 				c.index.episodes[item.ParentID] = append(c.index.episodes[item.ParentID], n)
 			}
 			c.index.children[c.Parent(item)]++
@@ -40,8 +40,8 @@ func (c *Catalog) built() *catalogIndex {
 	return &c.index
 }
 
-// Episodes lists the episodes of a series or season, or the tracks of an
-// album, in catalogue order.
+// Episodes lists the episodes of a series or season, the tracks of an album,
+// or the photos and videos directly in a photo album, in catalogue order.
 func (c *Catalog) Episodes(folderID string) []Item {
 	positions := c.built().episodes[folderID]
 	episodes := make([]Item, len(positions))

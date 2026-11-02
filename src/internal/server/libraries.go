@@ -66,7 +66,7 @@ func (s *Server) virtualFolderDTO(l media.Library) object {
 	}
 	return object{"Name": l.Name, "Locations": l.Paths, "CollectionType": l.Type, "ItemId": l.ID, "Id": l.ID,
 		"Guid": derive("guid", l.ID), "RefreshStatus": status,
-		"LibraryOptions": object{"PathInfos": paths, "EnableRealtimeMonitor": false, "EnablePhotos": false}}
+		"LibraryOptions": object{"PathInfos": paths, "EnableRealtimeMonitor": false, "EnablePhotos": l.Type == media.HomeVideos}}
 }
 
 // libraryByID finds the library named by the Id parameter or field.
@@ -141,7 +141,7 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 				return nil, "", false
 			}
 			created := media.Library{ID: media.NewLibraryID(), Name: name, Type: strings.ToLower(value(r, "collectionType")), Paths: []string{}}
-			if created.Type != media.Movies && created.Type != media.TVShows && created.Type != media.Music {
+			if !slices.Contains(media.LibraryTypes, created.Type) {
 				libraryFailure(w, library.ErrType)
 				return nil, "", false
 			}
@@ -265,12 +265,12 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 	})
 	route("GET /libraries/availableoptions", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		typeOptions := []object{}
-		for _, kind := range []string{media.Movies, media.TVShows, media.Music} {
+		for _, kind := range media.LibraryTypes {
 			typeOptions = append(typeOptions, object{"Type": kind, "MetadataFetchers": []any{}, "ImageFetchers": []any{},
 				"SupportedImageTypes": []string{}, "DefaultImageOptions": []any{}})
 		}
 		respond(w, 200, object{"MetadataSavers": []any{}, "MetadataReaders": []any{}, "SubtitleFetchers": []any{},
-			"LyricsFetchers": []any{}, "TypeOptions": typeOptions, "DefaultLibraryOptions": object{"PathInfos": []any{}}})
+			"LyricsFetchers": []any{}, "TypeOptions": typeOptions, "DefaultLibraryOptions": object{"PathInfos": []any{}, "EnablePhotos": true}})
 	})
 
 	// The folder browser of the library dialogs sees only the media roots.

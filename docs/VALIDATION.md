@@ -797,3 +797,18 @@ Emby Web 4.10.0.40 (`-web-dir`) in Chromium against Couch with `-media-dir` on t
 - **Refusal:** saving an On Now section answered 400 "Couch has no Live TV, so this section would always be empty."
 
 No server errors were logged. The other section types, the display-mode choice, the play-state filter of Latest Media, edits of a missing section and the stored layout across a database upgrade are covered by `TestHomeSectionsCanBeEdited` and `TestHomeSections`.
+
+## Home videos and photos (2026-11-03, #105)
+
+Emby Web 4.10.0.40 (`-web-dir`) in Chromium against Couch with only `-media-root`, signed in as the `-init` administrator. The media root held a `photos` folder: `Trip 2024/Beach.jpg` (EXIF orientation 6, taken 2024-07-01 10:30 +02:00), `Trip 2024/Sunset.webp`, `Trip 2024/Wave.gif` (animated), `Trip 2024/Clip.mp4` (5 s H.264/AAC), `Trip 2024/Day 2/Hill.png` with a red `folder.jpg`, and `Loose.jpg` and `Old.bmp` at the top. Formats are in [COMPATIBILITY](COMPATIBILITY.md), "Photos".
+
+- **Library setup:** New Library offered "Home videos & photos"; with the `photos` folder it was created, and the scan logged `videos=1 photos=6 folders=2 probes=1`: `folder.jpg` was not taken for a photo, and only the clip went through FFprobe. The "Enable photos" switch was off in the dialog until `DefaultLibraryOptions` set it on.
+- **Home:** My Media showed Family, and "Latest from Family" the photos and the clip, Beach upright.
+- **Tabs:** Videos listed Clip; Photos the six photos, every format drawn; Folders the Trip 2024 album with Beach as its image, Loose (2025, its mtime) and Old. Every request answered 200, 204 or 206.
+- **Slideshow:** a photo on the Photos tab opened the slideshow at that photo, and the arrow key went on to the next. The Trip 2024 album card played its photos (Beach, Sunset, Wave) from `Items?ParentId=<album>&Filters=IsNotFolder&MediaTypes=Photo,Video`, as Emby Web's playback manager does for every photo album; the slideshow passed over the clip.
+- **Video:** Play on the Videos tab played Clip directly (`stream.mp4`, 206) and reported its progress and stop.
+- **Playlist:** the photo menu (titled "Beach 2024", the EXIF year) offered Add to Playlist; New Playlist "Best shots" was created (`POST Playlists`, 200, without a `MediaType`), showed in My Media → Playlists with `MediaType: Photo`, and its card played Beach as a slideshow. Before, Couch reported every non-audio playlist as `Video` and refused `MediaType=Photo`.
+- **Restart:** the saved index (version 5) loaded with `photos=6`, and the background rescan probed nothing.
+- **500 photos:** a library on one folder of 500 noisy 3000×2000 JPEGs (1.8 GiB) made with FFmpeg, on the host without a container. The scan read their headers within the same second, without FFprobe. Fetching every photo's Primary image as the Photos tab asks for it (`maxWidth=375`), 16 at a time with curl, answered 500 × 200 with the 1.8 GiB of originals in 0.55 s from the page cache. Couch peaked at 23 MiB RSS and 0.45 s of CPU, and at 28 MiB in the run that also scanned them, against Emby's idle 201–205 MiB in the M0 budgets ([ROADMAP](ROADMAP.md)). Emby itself was not measured on photos, and a browser gets each original, about 3.6 MiB here, where Emby would send a scaled image.
+
+No server errors were logged; the console showed only the blocked Premiere check (#89). Nested albums, a file in both a TV shows and a home videos library, the EXIF parser, a video's own images, the saved index and the server's answers are covered by `TestHomeVideosLibrary`, `TestJpegExifRejectsBadSegments` (media) and `TestPhotos` (server). Real camera photos, large folders and other clients were not checked.

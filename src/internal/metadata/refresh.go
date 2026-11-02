@@ -281,10 +281,14 @@ func (r *Refresher) Run(ctx context.Context) {
 
 // described lists the catalogue's movies, series, seasons and episodes: the
 // items .nfo files and the providers describe. Music is described by its
-// tags alone.
+// tags alone, and home videos and photos by their files.
 func described(catalog *media.Catalog) []media.Item {
 	return slices.DeleteFunc(slices.Concat(catalog.Folders, catalog.Items), func(item media.Item) bool {
-		return item.Type() == "Audio" || item.Type() == "MusicAlbum"
+		switch item.Type() {
+		case "Audio", "MusicAlbum", "Photo", "PhotoAlbum", "Video":
+			return true
+		}
+		return false
 	})
 }
 
