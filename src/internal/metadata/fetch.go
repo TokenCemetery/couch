@@ -189,13 +189,31 @@ func download(ctx context.Context, dir, url string, pace *throttle) (Image, erro
 		_ = f.Close()
 		return Image{}, err
 	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return Image{}, err
+	}
 	if err := f.Close(); err != nil {
 		return Image{}, err
 	}
 	if err := os.Rename(f.Name(), filepath.Join(dir, name+ext)); err != nil {
 		return Image{}, err
 	}
+	if err := syncDir(dir); err != nil {
+		return Image{}, err
+	}
 	return Image{URL: url, File: name + ext, Width: config.Width, Height: config.Height, MIME: "image/" + format}, nil
+}
+
+// syncDir flushes a rename in dir, so the saved metadata never refers to an
+// image a power loss took back.
+func syncDir(dir string) error {
+	d, err := os.Open(dir) //nolint:gosec // dir is the image directory under -data
+	if err != nil {
+		return err
+	}
+	defer func() { _ = d.Close() }()
+	return d.Sync()
 }
 
 // Downloaded images are kept at most this wide, landscape and portrait, and

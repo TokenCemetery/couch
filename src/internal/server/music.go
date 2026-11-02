@@ -369,6 +369,9 @@ func (s *Server) embeddedCover(ctx context.Context, catalog *media.Catalog, item
 	}
 	defer func() { _ = os.Remove(temp.Name()) }()
 	_, err = temp.Write(data)
+	if err == nil {
+		err = temp.Sync()
+	}
 	if closeErr := temp.Close(); err == nil {
 		err = closeErr
 	}

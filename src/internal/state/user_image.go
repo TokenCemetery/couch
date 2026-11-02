@@ -19,8 +19,8 @@ func (s *Store) userImagePath(revision string) string {
 	return filepath.Join(s.dir, "user-image-"+revision)
 }
 
-// SetUserImage stores an already validated avatar for the user of token. The file is written and
-// synced before the state refers to it. Afterwards, whether or not the change
+// SetUserImage stores an already validated avatar for the user of token. The file and its
+// directory are synced before the state refers to it. Afterwards, whether or not the change
 // was committed, only files the committed state no longer references are
 // removed.
 func (s *Store) SetUserImage(token string, content []byte, mime string) error {
@@ -102,5 +102,8 @@ func writeFileSynced(name string, content []byte) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), name)
+	if err = os.Rename(f.Name(), name); err != nil {
+		return err
+	}
+	return syncFile(filepath.Dir(name))
 }

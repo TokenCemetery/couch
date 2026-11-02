@@ -139,11 +139,25 @@ func (m *Manager) encodeAudio(ctx context.Context, slots chan struct{}, dir, fil
 		slog.Warn("Audio encode failed", "item", source.ItemID, "error", err)
 		return ErrSegment
 	}
+	if err := syncFile(partial); err != nil {
+		return err
+	}
 	if err := os.Rename(partial, file); err != nil {
 		return err
 	}
 	pruneAudio(dir)
 	return nil
+}
+
+// syncFile flushes FFmpeg's output before it is renamed into the cache, so a
+// power loss cannot leave an empty track under the final name.
+func syncFile(name string) error {
+	f, err := os.Open(name) //nolint:gosec // name is under the transcode directory
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	return f.Sync()
 }
 
 // pruneAudio removes the least recently used encoded tracks beyond
