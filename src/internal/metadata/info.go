@@ -4,9 +4,11 @@ package metadata
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -50,10 +52,18 @@ type Image struct {
 }
 
 // Revision changes whenever the image does.
-func (i Image) Revision() string { return ID("image", i.URL) }
+func (i Image) Revision() string { return hexID("image", i.URL) }
 
-// ID derives the stable ID of a genre, studio, tag or person from its name.
+// ID derives the stable ID of a genre, studio, tag, person or music artist
+// from its name: a decimal number, as Emby's IDs of these are, below 2^63
+// so that it fits the int64 Emby clients read it as.
 func ID(kind, name string) string {
+	sum := sha256.Sum256([]byte(kind + "\x00" + strings.ToLower(strings.TrimSpace(name))))
+	return strconv.FormatUint(binary.BigEndian.Uint64(sum[:8])>>1, 10)
+}
+
+// hexID derives a stable hex name, for image revisions and file names.
+func hexID(kind, name string) string {
 	sum := sha256.Sum256([]byte(kind + "\x00" + strings.ToLower(strings.TrimSpace(name))))
 	return hex.EncodeToString(sum[:16])
 }

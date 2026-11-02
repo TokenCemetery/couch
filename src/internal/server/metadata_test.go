@@ -54,11 +54,15 @@ func TestItemMetadata(t *testing.T) {
 		Taglines, Genres                                                      []string
 		ProductionYear                                                        int
 		CommunityRating, CriticRating                                         float64
-		GenreItems, Studios, TagItems                                         []struct{ Name, Id string }
-		People                                                                []struct{ Name, Id, Role, Type string }
-		ProviderIds                                                           map[string]string
-		ExternalUrls                                                          []struct{ Name, Url string }
-		ImageTags                                                             map[string]string
+		// Emby's NameLongIdPair: the ID is a JSON integer (#121).
+		GenreItems, Studios, TagItems []struct {
+			Name string
+			Id   json.Number
+		}
+		People       []struct{ Name, Id, Role, Type string }
+		ProviderIds  map[string]string
+		ExternalUrls []struct{ Name, Url string }
+		ImageTags    map[string]string
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &dto); err != nil {
 		t.Fatal(err)
@@ -67,7 +71,7 @@ func TestItemMetadata(t *testing.T) {
 	personID := metadata.ID("Person", "Ann Actor")
 	if dto.Name != "Zulu" || dto.SortName != "Zulu" || dto.OriginalTitle != "Zoulou" || dto.Overview != "About a." || dto.Taglines[0] != "Tag." ||
 		dto.ProductionYear != 2010 || dto.PremiereDate != "2010-05-01T00:00:00.0000000Z" || dto.CommunityRating != 7.5 || dto.CriticRating != 80 ||
-		dto.OfficialRating != "PG-13" || strings.Join(dto.Genres, "|") != "Drama|Crime, Noir" || dto.GenreItems[0].Id != genreID ||
+		dto.OfficialRating != "PG-13" || strings.Join(dto.Genres, "|") != "Drama|Crime, Noir" || dto.GenreItems[0].Id.String() != genreID ||
 		dto.Studios[0].Name != "Studio A" || dto.TagItems[0].Name != "heist" || len(dto.People) != 2 || dto.People[0].Id != personID ||
 		dto.People[0].Role != "Hero" || dto.ProviderIds["Tmdb"] != "1" || len(dto.ExternalUrls) != 2 || dto.ImageTags["Primary"] == "" {
 		t.Fatalf("%s", w.Body.String())

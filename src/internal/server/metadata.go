@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -173,10 +174,11 @@ func addMetadata(dto object, info *metadata.Info) {
 	if info.OfficialRating != "" {
 		dto["OfficialRating"] = info.OfficialRating
 	}
+	// Emby sends these IDs as integers (NameLongIdPair, #121).
 	named := func(kind string, values []string) []object {
 		items := make([]object, 0, len(values))
 		for _, v := range values {
-			items = append(items, object{"Name": v, "Id": metadata.ID(kind, v)})
+			items = append(items, object{"Name": v, "Id": json.Number(metadata.ID(kind, v))})
 		}
 		return items
 	}

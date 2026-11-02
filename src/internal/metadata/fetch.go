@@ -156,7 +156,7 @@ func download(ctx context.Context, dir, url string, pace *throttle) (Image, erro
 	if !strings.HasPrefix(url, "https://") {
 		return Image{}, errNotFound
 	}
-	name := ID("file", url)
+	name := hexID("file", url)
 	for _, ext := range []string{".jpg", ".png"} {
 		if img, err := readImage(dir, name+ext); err == nil {
 			img.URL = url

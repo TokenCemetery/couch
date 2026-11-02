@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -82,5 +83,18 @@ func TestLookupName(t *testing.T) {
 		if title != tc.title || year != tc.year {
 			t.Errorf("%q: %q %d, want %q %d", tc.name, title, year, tc.title, tc.year)
 		}
+	}
+}
+
+// TestIDIsAnInt64 checks that derived IDs are decimal numbers that fit the
+// int64 Emby clients read genre, studio and tag IDs as (#121), and ignore
+// case and surrounding spaces.
+func TestIDIsAnInt64(t *testing.T) {
+	id := ID("Genre", "Rock")
+	if n, err := strconv.ParseInt(id, 10, 64); err != nil || n < 0 || strconv.FormatInt(n, 10) != id {
+		t.Fatalf("ID %q is not a decimal int64: %v", id, err)
+	}
+	if ID("Genre", " rock ") != id || ID("Studio", "Rock") == id {
+		t.Fatal("IDs differ by case or agree across kinds")
 	}
 }
