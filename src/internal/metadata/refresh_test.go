@@ -194,7 +194,6 @@ func newRefreshTest(t *testing.T) (*state.Store, *fakeProviders) {
 	}
 	fake := &fakeProviders{}
 	server := httptest.NewTLSServer(fake)
-	t.Cleanup(server.Close)
 	saved := []any{tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, audioDBAPI, httpClient, spacing.audiodb}
 	tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, httpClient = server.URL+"/tmdb", server.URL+"/t/p/", server.URL+"/tvdb", server.URL, server.Client()
 	audioDBAPI, spacing.audiodb = server.URL+"/audiodb/", time.Millisecond
@@ -202,6 +201,8 @@ func newRefreshTest(t *testing.T) (*state.Store, *fakeProviders) {
 		tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, audioDBAPI = saved[0].(string), saved[1].(string), saved[2].(string), saved[3].(string), saved[4].(string)
 		httpClient, spacing.audiodb = saved[5].(*http.Client), saved[6].(time.Duration)
 	})
+	// Cleanups run last first: in-flight handlers read the variables above.
+	t.Cleanup(server.Close)
 	return store, fake
 }
 
