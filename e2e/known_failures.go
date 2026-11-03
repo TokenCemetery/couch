@@ -14,6 +14,7 @@ func (k knownFailure) Link() string { return strconv.Itoa(k.Issue) }
 var (
 	administration  = knownFailure{33, "administration is not implemented"}
 	identifyInputs  = knownFailure{115, "refused on purpose: the contract run has no provider image URL or provider IDs to identify with"}
+	readOnlyItems   = knownFailure{115, "refused on purpose: the library is read-only, so Couch saves no item metadata or tags"}
 	refusedLibrary  = knownFailure{112, "implemented; the generated request names no library, folder or task Couch has, or a folder outside the media roots, which Couch refuses"}
 	parentPathText  = knownFailure{112, "implemented as text/plain, which Emby Web reads as text; the contract says JSON"}
 	scanNotStopped  = knownFailure{112, "implemented; Couch cannot stop a running library scan and says so"}
@@ -33,7 +34,7 @@ var (
 var knownFailures = map[string]knownFailure{
 	// Behavior checks
 	// ArtistsService
-	"getArtistsByName": unranked,
+	"getArtistsByName": notCalledByWeb,
 	// BackupApi
 	"getBackuprestoreBackupinfo":   backup,
 	"postBackuprestoreRestore":     backup,
@@ -80,13 +81,13 @@ var knownFailures = map[string]knownFailure{
 	"getEncodingFfmpegoptions":  notCalledByWeb,
 	"postEncodingFfmpegoptions": notCalledByWeb,
 	// GameGenresService
-	"getGamegenres":       unranked,
-	"getGamegenresByName": unranked,
+	"getGamegenres":       notCalledByWeb,
+	"getGamegenresByName": notCalledByWeb,
 	// GenericUIApiService
 	"getUIView":     unranked,
 	"postUICommand": unranked,
 	// GenresService
-	"getGenresByName": unranked,
+	"getGenresByName": notCalledByWeb,
 	// HlsSegmentService
 	// ImageService
 	"deleteItemsByIdImagesByType":            administration,
@@ -124,7 +125,7 @@ var knownFailures = map[string]knownFailure{
 	"postItemsByIdImagesByTypeByIndexUrl":      administration,
 	"postItemsByIdImagesByTypeDelete":          administration,
 	// InstantMixService
-	"getAudiobooksNextup": unranked,
+	"getAudiobooksNextup": notCalledByWeb,
 	// ItemLookupService
 	"getItemsRemotesearchImage":        identifyInputs,
 	"postItemsRemotesearchApplyById":   identifyInputs,
@@ -138,7 +139,7 @@ var knownFailures = map[string]knownFailure{
 	"postItemsRemotesearchTrailer":     unranked,
 	// ItemRefreshService
 	// ItemUpdateService
-	"postItemsByItemid": unranked,
+	"postItemsByItemid": readOnlyItems,
 	// LibraryService
 	"deleteItems":               administration,
 	"getAlbumsByIdSimilar":      notCalledByWeb,
@@ -254,8 +255,8 @@ var knownFailures = map[string]knownFailure{
 	"postLivestreamsOpen":      notOfferedByWeb,
 	// MoviesService
 	// MusicGenresService
-	"getMusicgenres":       unranked,
-	"getMusicgenresByName": unranked,
+	"getMusicgenres":       notCalledByWeb,
+	"getMusicgenresByName": notCalledByWeb,
 	// NotificationsService
 	"postNotificationsAdmin": administration,
 	// OfficialRatingService
@@ -272,16 +273,16 @@ var knownFailures = map[string]knownFailure{
 	"postPackagesInstalledByName":      administration,
 	"postPackagesInstallingByIdDelete": administration,
 	// PartyService
-	"getParties":          unranked,
-	"getPartiesInfo":      unranked,
+	"getParties":          notCalledByWeb,
+	"getPartiesInfo":      notCalledByWeb,
 	"getPartiesMessages":  notCalledByWeb,
-	"postParties":         unranked,
-	"postPartiesByIdJoin": unranked,
-	"postPartiesLeave":    unranked,
+	"postParties":         notCalledByWeb,
+	"postPartiesByIdJoin": notCalledByWeb,
+	"postPartiesLeave":    notCalledByWeb,
 	"postPartiesMessages": notCalledByWeb,
 	// PersonsService
 	"getPersonsByIdCredits": unranked,
-	"getPersonsByName":      unranked,
+	"getPersonsByName":      notCalledByWeb,
 	// PlaystateService
 	"deleteUsersByUseridPlayingitemsById":       notCalledByWeb,
 	"postSessionsPlayingPing":                   notCalledByWeb,
@@ -322,7 +323,7 @@ var knownFailures = map[string]knownFailure{
 	"postSessionsByIdViewing":             notCalledByWeb,
 	"postSessionsCapabilities":            unranked,
 	// StudiosService
-	"getStudiosByName": unranked,
+	"getStudiosByName": notCalledByWeb,
 	// SubtitleOptionsService
 	"getEncodingSubtitleoptions":  notCalledByWeb,
 	"postEncodingSubtitleoptions": notCalledByWeb,
@@ -369,10 +370,10 @@ var knownFailures = map[string]knownFailure{
 	"postSystemRestart":        refusedAdmin,
 	"postSystemShutdown":       refusedAdmin,
 	// TagService
-	"getArtistsPrefixes":      unranked,
+	"getArtistsPrefixes":      notCalledByWeb,
 	"getItemsPrefixes":        unranked,
-	"postItemsByIdTagsAdd":    unranked,
-	"postItemsByIdTagsDelete": unranked,
+	"postItemsByIdTagsAdd":    readOnlyItems,
+	"postItemsByIdTagsDelete": readOnlyItems,
 	// ToneMapOptionsService
 	"getEncodingFulltonemapoptions":    administration,
 	"getEncodingPublictonemapoptions":  notCalledByWeb,
@@ -381,10 +382,8 @@ var knownFailures = map[string]knownFailure{
 	// TrailersService
 	"getTrailers": unranked,
 	// UniversalAudioService
-	"getAudioByIdUniversal":             notOfferedByWeb,
-	"getAudioByIdUniversalByContainer":  notOfferedByWeb,
-	"headAudioByIdUniversal":            notOfferedByWeb,
-	"headAudioByIdUniversalByContainer": notOfferedByWeb,
+	"getAudioByIdUniversalByContainer":  notCalledByWeb,
+	"headAudioByIdUniversalByContainer": notCalledByWeb,
 	// UserLibraryService
 	"deleteUsersByUseridItemsByIdRating":     notCalledByWeb,
 	"getLivetvProgramsById":                  notCalledByWeb,
