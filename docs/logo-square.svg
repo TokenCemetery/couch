@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="title">
+  <title id="title">Couch</title>
+  <g stroke="#4A2A12" stroke-width="3" stroke-linejoin="round">
+    <rect x="20" y="24" width="88" height="48" rx="13" fill="#B8642A"/>
+    <rect x="26" y="29" width="37" height="40" rx="10" fill="#D9853B"/>
+    <rect x="65" y="29" width="37" height="40" rx="10" fill="#D9853B"/>
+    <rect x="29" y="79" width="70" height="15" rx="3" fill="#B8642A"/>
+    <rect x="29" y="66" width="36" height="16" rx="7" fill="#E39A55"/>
+    <rect x="63" y="66" width="36" height="16" rx="7" fill="#E39A55"/>
+    <rect x="12" y="50" width="23" height="46" rx="11" fill="#C87232"/>
+    <rect x="93" y="50" width="23" height="46" rx="11" fill="#C87232"/>
+    <circle cx="23.5" cy="61" r="5" fill="#D9853B"/>
+    <circle cx="104.5" cy="61" r="5" fill="#D9853B"/>
+    <rect x="18" y="96" width="10" height="9" rx="3" fill="#6B3D1C"/>
+    <rect x="100" y="96" width="10" height="9" rx="3" fill="#6B3D1C"/>
+  </g>
+  <g fill="#FFFFFF" opacity="0.35">
+    <ellipse cx="44.5" cy="37" rx="10" ry="3.5"/>
+    <ellipse cx="83.5" cy="37" rx="10" ry="3.5"/>
+    <ellipse cx="47" cy="71" rx="8" ry="2"/>
+    <ellipse cx="81" cy="71" rx="8" ry="2"/>
+  </g>
+</svg>
