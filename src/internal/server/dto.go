@@ -454,8 +454,8 @@ func streamTitle(s media.Stream) string {
 type hdrFormat struct{ Range, Type, SubType, Description, Label string }
 
 // videoRange names s's dynamic range. The HDR10 and Dolby Vision profile 8.1
-// values are those of Emby 4.10.2.0 (#125); the HLG values and the other Dolby
-// Vision profiles' descriptions are not captured.
+// values are those of the reference Emby (#125); the HLG values and the other
+// Dolby Vision profiles' descriptions are not captured.
 func videoRange(s media.Stream) hdrFormat {
 	switch {
 	case s.Type != "Video":

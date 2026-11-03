@@ -6,7 +6,7 @@ import (
 	"github.com/TokenCemetery/couch/internal/media"
 )
 
-// HDR10 and Dolby Vision 8.1 report what Emby 4.10.2.0 does for the same
+// HDR10 and Dolby Vision 8.1 report what the reference Emby does for the same
 // streams (#125); SDR and audio keep None.
 func TestMediaStreamsReportDynamicRange(t *testing.T) {
 	hdr := media.Stream{Type: "Video", Codec: "hevc", Height: 1080, ColorTransfer: "smpte2084", ColorPrimaries: "bt2020", ColorSpace: "bt2020nc"}

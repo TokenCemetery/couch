@@ -15,7 +15,7 @@ type ToneMap string
 
 const (
 	// ToneMapOff encodes the HDR picture as it is and keeps its colour tags:
-	// a client that ignores them shows it washed out. Emby 4.10.2.0 does the
+	// a client that ignores them shows it washed out. The reference Emby does the
 	// same by default.
 	ToneMapOff ToneMap = ""
 	// ToneMapGPU tone-maps with libplacebo on a Vulkan device. libplacebo

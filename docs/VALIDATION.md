@@ -815,7 +815,7 @@ No server errors were logged; the console showed only the blocked Premiere check
 
 ## HDR reference capture and tone mapping (2026-11-03, #125)
 
-**Reference capture.** Authorized by the owner on 2026-11-03: a read-only capture as in #22. Sign-in as `oleg` with the device `couch-capture-hdr`, then `Sessions/Logout` (204) and token revocation confirmed by a 401. The reference now reports version **4.10.2.0**, not 4.10.0.40, and `oleg` is not an administrator, so `Encoding/PublicToneMapOptions` answered 403 and Emby's FFmpeg logs could not be read. Kept: the field values below, no raw data.
+**Reference capture.** Authorized by the owner on 2026-11-03: a read-only capture as in #22. Sign-in as `oleg` with the device `couch-capture-hdr`, then `Sessions/Logout` (204) and token revocation confirmed by a 401. The reference now reports version **4.10.2.0**, not 4.10.0.40; Couch stays on 4.10.0.40 until #126 moves it. `oleg` is not an administrator, so `Encoding/PublicToneMapOptions` answered 403 and Emby's FFmpeg logs could not be read. Kept: the field values below, no raw data.
 
 - Of 11,620 movies and episodes, 13 video streams are HDR10, 9 Dolby Vision, the rest SDR; none is HLG.
 - HDR10 (HEVC Main 10, 1920×800): `VideoRange: "HDR 10"`, `ColorTransfer: smpte2084`, `ColorPrimaries: bt2020`, `ColorSpace: bt2020nc`, `ExtendedVideoType: Hdr10`, `ExtendedVideoSubType: Hdr10`, `ExtendedVideoSubTypeDescription: "HDR 10"`, `DisplayTitle: "1080p HDR 10 HEVC"`.

@@ -419,7 +419,7 @@ FFmpeg alone in the release image built with `--build-arg VAAPI=1` (FFmpeg 8.1, 
 - **GPU:** libplacebo adds 19–33 % wall time and 18–24 % CPU to a VA-API encode, and 92 / 67 MiB, and stays faster than real time on 2 CPUs. The frames go to the GPU and back for tone mapping, so decoding and the VA-API upload stay where they were. In Emby Web the whole job (with its AAC audio, no CPU limit, 16 CPUs) peaked at about 1 GiB.
 - **CPU:** `zscale` doubles a `libx264` encode and adds about 300 MiB: 0.32× real time on 2 CPUs and 0.5× on 4, so 4K HDR stalls in playback. 1080p was not measured in the image.
 - **VA-API's own tone mapping** (`tonemap_vaapi`) fails on the Radeon 780M (`VAAPI driver doesn't support HDR`), and the host has no OpenCL platform for `tonemap_opencl`; libplacebo is the GPU path that works here.
-- **Emby 4.10.2.0** does not tone-map with its settings on the reference NAS: its H.264 transcodes of an HDR10 and a Dolby Vision 8.1 item kept `smpte2084`/`bt2020` ([VALIDATION](VALIDATION.md), "HDR reference capture"). Its cost was not measured.
+- **The reference Emby** does not tone-map with its settings on the reference NAS: its H.264 transcodes of an HDR10 and a Dolby Vision 8.1 item kept `smpte2084`/`bt2020` ([VALIDATION](VALIDATION.md), "HDR reference capture"). Its cost was not measured.
 
 ## Not measured yet
 
