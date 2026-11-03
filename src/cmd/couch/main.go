@@ -122,6 +122,17 @@ func run() error {
 	}
 	defer func() { _ = logFile.Close() }()
 	log.SetOutput(io.MultiWriter(os.Stderr, logFile))
+	// Database maintenance runs while nothing else uses the database: the
+	// vacuum Emby Web asked for before serving, and the optimize after every
+	// other deferred step on the way out, before a clean stop is logged.
+	vacuumDatabase(s)
+	stopped := false
+	defer func() {
+		if stopped {
+			logUsage()
+		}
+	}()
+	defer optimizeDatabase(s)
 	var web http.Handler
 	if *webDir != "" {
 		local, err := server.OpenWebDirectory(*webDir)
@@ -238,8 +249,35 @@ func run() error {
 			_ = httpServer.Close()
 			return err
 		}
-		logUsage()
+		stopped = true
 		return nil
+	}
+}
+
+// vacuumDatabase runs the one VACUUM Emby Web's Database page asked for.
+// A failure is logged and Couch starts anyway.
+func vacuumDatabase(s *state.Store) {
+	start := time.Now()
+	asked, before, after, err := s.Vacuum(context.Background())
+	switch {
+	case !asked:
+	case err != nil:
+		slog.Warn("Database vacuum failed", "error", err)
+	default:
+		slog.Info("Database vacuumed", "duration", time.Since(start).Round(time.Millisecond), "size_before", before, "size_after", after)
+	}
+}
+
+// optimizeDatabase runs PRAGMA optimize when Couch stops, unless the
+// Database page turned it off.
+func optimizeDatabase(s *state.Store) {
+	ran, err := s.Optimize(context.Background())
+	switch {
+	case !ran:
+	case err != nil:
+		slog.Warn("Database optimize failed", "error", err)
+	default:
+		slog.Info("Database optimized")
 	}
 }
 

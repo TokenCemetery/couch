@@ -145,6 +145,10 @@ type Data struct {
 	LibrariesConfigured bool
 	// ServerName is the name set in Emby Web, empty until one is set.
 	ServerName string
+	// VacuumOnStartup asks for one VACUUM at the next start; Vacuum clears
+	// it. OptimizeOnShutdown runs Optimize when Couch stops, as Emby does by
+	// default.
+	VacuumOnStartup, OptimizeOnShutdown bool
 	// Collections are the collections in creation order.
 	Collections []Collection
 	// Playlists are every user's playlists in creation order.
@@ -398,7 +402,8 @@ func (s *Store) Initialize(name, password string) error {
 		u := User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: passwordIterations,
 			Configuration: map[string]json.RawMessage{}, Settings: map[string]json.RawMessage{},
 			Policy: Policy{IsAdministrator: true, EnableAllFolders: true, EnabledFolders: []string{}}}
-		*d = Data{SchemaVersion: 1, ServerID: randomID(), Users: map[string]User{u.ID: u}, Sessions: map[string]Session{}, Libraries: []Library{}}
+		*d = Data{SchemaVersion: 1, ServerID: randomID(), Users: map[string]User{u.ID: u}, Sessions: map[string]Session{}, Libraries: []Library{},
+			OptimizeOnShutdown: true}
 		return nil
 	})
 }
@@ -797,6 +802,20 @@ func (s *Store) CopyUserData(from string, to []string, policy, configuration boo
 func (s *Store) SetServerName(name string) error {
 	return s.update("", nil, func(d *Data) error {
 		d.ServerName = name
+		return nil
+	})
+}
+
+// SetMaintenance stores Emby's database settings: one VACUUM at the next
+// start, and PRAGMA optimize when Couch stops. A nil setting is left as it is.
+func (s *Store) SetMaintenance(vacuumOnStartup, optimizeOnShutdown *bool) error {
+	return s.update("", nil, func(d *Data) error {
+		if vacuumOnStartup != nil {
+			d.VacuumOnStartup = *vacuumOnStartup
+		}
+		if optimizeOnShutdown != nil {
+			d.OptimizeOnShutdown = *optimizeOnShutdown
+		}
 		return nil
 	})
 }

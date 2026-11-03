@@ -120,6 +120,35 @@ func TestDashboard(t *testing.T) {
 		t.Fatalf("fixed setting: %d %s", w.Code, w.Body)
 	}
 
+	// The Database page saves its four fields through Partial: the two
+	// maintenance settings are stored, the name is kept, the analysis limit
+	// is fixed and the cache size, which Couch does not report, is ignored.
+	if config["VacuumDatabaseOnStartup"] != false || config["OptimizeDatabaseOnShutdown"] != true || config["DatabaseAnalysisLimit"] != float64(400) {
+		t.Fatalf("database settings %v %v %v", config["VacuumDatabaseOnStartup"], config["OptimizeDatabaseOnShutdown"], config["DatabaseAnalysisLimit"])
+	}
+	page := `{"DatabaseCacheSizeMB":"","OptimizeDatabaseOnShutdown":false,"DatabaseAnalysisLimit":"400","VacuumDatabaseOnStartup":true}`
+	expectStatus(t, request(h, "POST", "/System/Configuration/Partial", "application/json", page, admin), 204)
+	if d := store.Snapshot(); !d.VacuumOnStartup || d.OptimizeOnShutdown || api.serverName() != "Living room" {
+		t.Fatalf("after the Database page: vacuum %v, optimize %v, name %q", d.VacuumOnStartup, d.OptimizeOnShutdown, api.serverName())
+	}
+	decode("/System/Configuration", admin, &config)
+	if config["VacuumDatabaseOnStartup"] != true || config["OptimizeDatabaseOnShutdown"] != false {
+		t.Fatalf("reported %v %v", config["VacuumDatabaseOnStartup"], config["OptimizeDatabaseOnShutdown"])
+	}
+	if w := request(h, "POST", "/System/Configuration/Partial", "application/json", `{"DatabaseAnalysisLimit":"1000"}`, admin); w.Code != 400 || !strings.Contains(w.Body.String(), "DatabaseAnalysisLimit") {
+		t.Fatalf("analysis limit change: %d %s", w.Code, w.Body)
+	}
+	if w := request(h, "POST", "/System/Configuration/Partial", "application/json", `{"DatabaseCacheSizeMB":"256"}`, admin); w.Code != 400 || !strings.Contains(w.Body.String(), "DatabaseCacheSizeMB") {
+		t.Fatalf("cache size: %d %s", w.Code, w.Body)
+	}
+	// A full save that leaves them out keeps them.
+	expectStatus(t, request(h, "POST", "/System/Configuration", "application/json", `{"ServerName":"Living room"}`, admin), 204)
+	if d := store.Snapshot(); !d.VacuumOnStartup || d.OptimizeOnShutdown {
+		t.Fatalf("after a full save without them: vacuum %v, optimize %v", d.VacuumOnStartup, d.OptimizeOnShutdown)
+	}
+	notAdmin, _ := signIn("guest", "guest-test-password", "watch")
+	expectStatus(t, request(h, "POST", "/System/Configuration/Partial", "application/json", `{"VacuumDatabaseOnStartup":false}`, notAdmin), 403)
+
 	// A named configuration saved unchanged is accepted, a change refused.
 	expectStatus(t, request(h, "POST", "/System/Configuration/branding", "application/json", `{"LoginDisclaimer":"","CustomCss":"","SplashscreenEnabled":false}`, admin), 204)
 	if w := request(h, "POST", "/System/Configuration/branding", "application/json", `{"LoginDisclaimer":"Welcome"}`, admin); w.Code != 400 || !strings.Contains(w.Body.String(), "LoginDisclaimer") {

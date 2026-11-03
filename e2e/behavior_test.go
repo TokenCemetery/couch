@@ -349,6 +349,36 @@ var behaviors = []behavior{
 		},
 	},
 	{
+		Key:     "database-vacuum-on-next-start",
+		Title:   "The Database page's vacuum runs once at the next start",
+		Feature: "ConfigurationService",
+		Run: func(inst *Instance, check *Check) {
+			// What Emby Web's Database page posts, with the vacuum ticked.
+			page := Request{Method: "POST", Path: "/System/Configuration/Partial", ContentType: "application/json",
+				Body: []byte(`{"DatabaseCacheSizeMB":"","OptimizeDatabaseOnShutdown":true,"DatabaseAnalysisLimit":"400","VacuumDatabaseOnStartup":true}`)}
+			if resp, err := inst.Send(page, true); err != nil || resp.Status != 204 {
+				check.Errorf("save the Database page: status %d, err %v, want 204", resp.Status, err)
+				return
+			}
+			before := len(inst.stderr.String())
+			if err := inst.Restart(func(string) error { return nil }); err != nil {
+				check.Errorf("restart: %v", err)
+				return
+			}
+			log := inst.stderr.String()[before:]
+			if !strings.Contains(log, "Database vacuumed") {
+				check.Errorf("the restart did not vacuum the database")
+			}
+			if !strings.Contains(log, "Database optimized") {
+				check.Errorf("the stop did not optimize the database")
+			}
+			var config struct{ VacuumDatabaseOnStartup, OptimizeDatabaseOnShutdown bool }
+			if err := inst.Get("/emby/System/Configuration", &config); err != nil || config.VacuumDatabaseOnStartup || !config.OptimizeDatabaseOnShutdown {
+				check.Errorf("after the vacuum: %+v, %v; want the vacuum cleared and optimize kept", config, err)
+			}
+		},
+	},
+	{
 		Key:     "backup-restores-after-forced-stop",
 		Title:   "A backup taken while Couch runs restores after a forced stop",
 		Feature: "UserLibraryService",

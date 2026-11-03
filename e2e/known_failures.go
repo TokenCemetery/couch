@@ -24,6 +24,7 @@ var (
 	unranked        = knownFailure{34, "not implemented; not ranked by real usage yet"}
 	notCalledByWeb  = knownFailure{34, "Emby Web 4.10.0.40 does not call it; use by other clients is not ranked yet"}
 	notOfferedByWeb = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags, user policy flags or media types Couch does not send; not ranked yet"}
+	emptyPartial    = knownFailure{129, "implemented; the generated request has no body, which Emby 4.10.0.40 answers with 500 and Couch refuses with 400"}
 )
 
 // knownFailures lists contract operations (by operationId) and behavior
@@ -48,7 +49,7 @@ var knownFailures = map[string]knownFailure{
 	"getCollectionsByIdProvideritems": notCalledByWeb,
 	// ConfigurationService
 	"postSystemConfigurationByKey":   refusedAdmin,
-	"postSystemConfigurationPartial": administration,
+	"postSystemConfigurationPartial": emptyPartial,
 	// ConnectService
 	"deleteUsersByIdConnectLink":     unranked,
 	"getConnectExchange":             unranked,

@@ -233,10 +233,15 @@ func (s *Server) publishTasks() {
 }
 
 // fixedConfiguration is the server configuration Couch reports; only the
-// server name can be changed. The rest describes what Couch does: no UPnP,
-// remote access or HTTPS settings, English UI and fixed metadata sources.
+// server name and the database maintenance settings can be changed. The rest
+// describes what Couch does: no UPnP, remote access or HTTPS settings, English
+// UI, fixed metadata sources and Emby's analysis limit. The database cache
+// size is left out: Couch keeps SQLite's 2 MB, below the 64 MB the Database
+// page accepts.
 func (s *Server) fixedConfiguration() object {
+	d := s.store.Snapshot()
 	return object{
+		"VacuumDatabaseOnStartup": d.VacuumOnStartup, "OptimizeDatabaseOnShutdown": d.OptimizeOnShutdown, "DatabaseAnalysisLimit": state.AnalysisLimit,
 		"ServerName": s.serverName(), "UICulture": "en-US", "IsStartupWizardCompleted": true,
 		"EnableUPnP": false, "EnableRemoteAccess": false, "EnableHttps": false, "RequireHttps": false,
 		"PublicPort": 8097, "HttpServerPortNumber": 8097, "PublicHttpsPort": 8920, "HttpsPortNumber": 8920,
@@ -442,45 +447,72 @@ func (s *Server) dashboardRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /scheduledtasks/running/{task}", stop)
 	mux.HandleFunc("POST /scheduledtasks/running/{task}/delete", stop)
 
-	// Server settings: only the name can be changed; a change to anything
-	// else is refused by name.
+	// Server settings: the name and the database maintenance settings can
+	// be changed; a change to anything else is refused by name. The Database
+	// page saves through Partial, which leaves the name out.
 	mux.HandleFunc("GET /system/configuration", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		respond(w, 200, s.fixedConfiguration())
 	}))
-	mux.HandleFunc("POST /system/configuration", s.admin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		var posted map[string]json.RawMessage
-		if decodeJSON(w, r, &posted) != nil {
-			fail(w, 400, "InvalidRequest")
-			return
-		}
-		reported := s.fixedConfiguration()
-		var name string
-		if raw, ok := posted["ServerName"]; ok && json.Unmarshal(raw, &name) != nil {
-			fail(w, 400, "InvalidRequest")
-			return
-		}
-		delete(posted, "ServerName")
-		if field := fixedChange(posted, reported, nil); field != "" {
-			failText(w, 400, "Couch does not support changing the "+field+" setting.")
-			return
-		}
-		name = strings.TrimSpace(name)
-		if len(name) > 128 {
-			failText(w, 400, "The server name must contain at most 128 bytes.")
-			return
-		}
-		if name != s.serverName() {
-			if name == s.name {
-				name = ""
-			}
-			if err := s.store.SetServerName(name); err != nil {
-				s.internalError(w)
+	saveConfiguration := func(partial bool) func(http.ResponseWriter, *http.Request, string, state.Session) {
+		return func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+			var posted map[string]json.RawMessage
+			if decodeJSON(w, r, &posted) != nil {
+				fail(w, 400, "InvalidRequest")
 				return
 			}
-			s.record(state.Activity{Type: "ServerNameChanged", Name: "The server was renamed " + s.serverName(), Severity: "Info", UserID: session.UserID})
+			reported := s.fixedConfiguration()
+			var name string
+			if partial {
+				name = s.serverName()
+			}
+			if raw, ok := posted["ServerName"]; ok && json.Unmarshal(raw, &name) != nil {
+				fail(w, 400, "InvalidRequest")
+				return
+			}
+			var maintenance struct{ VacuumDatabaseOnStartup, OptimizeDatabaseOnShutdown *bool }
+			if remarshal(posted, &maintenance) != nil {
+				fail(w, 400, "InvalidRequest")
+				return
+			}
+			// The Database page posts its cache size field, empty since
+			// Couch does not report one.
+			if raw, ok := posted["DatabaseCacheSizeMB"]; ok && !emptyJSON(raw) {
+				failText(w, 400, "Couch does not support changing the DatabaseCacheSizeMB setting.")
+				return
+			}
+			for _, key := range []string{"ServerName", "VacuumDatabaseOnStartup", "OptimizeDatabaseOnShutdown"} {
+				delete(posted, key)
+			}
+			if field := fixedChange(posted, reported, nil); field != "" {
+				failText(w, 400, "Couch does not support changing the "+field+" setting.")
+				return
+			}
+			name = strings.TrimSpace(name)
+			if len(name) > 128 {
+				failText(w, 400, "The server name must contain at most 128 bytes.")
+				return
+			}
+			if maintenance.VacuumDatabaseOnStartup != nil || maintenance.OptimizeDatabaseOnShutdown != nil {
+				if err := s.store.SetMaintenance(maintenance.VacuumDatabaseOnStartup, maintenance.OptimizeDatabaseOnShutdown); err != nil {
+					s.internalError(w)
+					return
+				}
+			}
+			if name != s.serverName() {
+				if name == s.name {
+					name = ""
+				}
+				if err := s.store.SetServerName(name); err != nil {
+					s.internalError(w)
+					return
+				}
+				s.record(state.Activity{Type: "ServerNameChanged", Name: "The server was renamed " + s.serverName(), Severity: "Info", UserID: session.UserID})
+			}
+			w.WriteHeader(http.StatusNoContent)
 		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	}
+	mux.HandleFunc("POST /system/configuration", s.admin(saveConfiguration(false)))
+	mux.HandleFunc("POST /system/configuration/partial", s.admin(saveConfiguration(true)))
 	// Named configurations (branding, Live TV, encoding and others) are not
 	// settings Couch has: they read as empty, and a save is accepted only
 	// when it changes nothing, as the General page's does.

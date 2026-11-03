@@ -147,6 +147,21 @@ Quality switching was verified 2026-10-07 on the set above, the other rows earli
 | A track Couch cannot serve (`mov_text` without FFmpeg) | playback without it, no error | verified 2026-10-06 ("Undeliverable subtitles in the browser") |
 | Image-based subtitles (PGS, DVD) selected in the player or on the item page | new PlaybackInfo, H.264 transcode with the track burned in (`SubtitleMethod=Encode`) | verified 2026-11-01 on R11 (PGS selected in the player at 48 s: cue shown at 54 s; turned off: new stream without it, playing on) and R07 (DVD preselected on the item page: cue shown at 20.2 s) (#24) |
 
+## Database settings (#129)
+
+Read from a local `emby/embyserver:4.10.0.40` container on 2026-11-03, and checked against Couch in Emby Web 4.10.0.40 (Chromium, Linux) on the same day.
+
+| Setting | Emby 4.10.0.40 | Couch |
+|---|---|---|
+| Page | Manage Emby Server → Database (`#!/database`, administrators); Save posts all four fields to `POST /System/Configuration/Partial` (Emby Web uses Partial for servers from 4.8.8) | same page; Partial answers 204 |
+| `VacuumDatabaseOnStartup` | off by default; at the next start Emby logs `Begin vacuuming …` and `Completed vacuuming … after N ms` for each of its four databases, and the setting reads `false` afterwards | the same once for `couch.db`, before the media index loads and HTTP starts; the log shows `Database vacuumed` with the duration and file size before and after, and the setting reads `false` after a restart |
+| `OptimizeDatabaseOnShutdown` | on by default; on a stop Emby logs `Running pragma optimize on …` for each database | on by default; `PRAGMA optimize` after every other step of the stop, logged as `Database optimized` |
+| `DatabaseAnalysisLimit` | 400 by default, the page's minimum | reported as 400 and applied as `PRAGMA analysis_limit`; a change is refused with its name |
+| `DatabaseCacheSizeMB` | 128 by default, minimum 64 | not reported: Couch keeps SQLite's 2 MB cache, below the page's minimum, so the field is empty; saving it empty works, and a value is refused by name |
+| `POST /System/Configuration/Partial` without a body | 500 (`{}` answers 204) | 400 |
+
+Against Couch, Emby Web kept the page's view in memory, so the vacuum toggle still showed ticked after a restart until the page was reloaded, while `GET /System/Configuration` already answered `false`. This is Emby Web's own view cache; it was not checked against Emby.
+
 ## Not investigated
 
 - Android, Android TV (#26), iOS, Apple TV (#27).

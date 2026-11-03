@@ -395,7 +395,7 @@ func TestOwnerBecomesAdministrator(t *testing.T) {
 	if !viewer(s.Snapshot()).Policy.IsAdministrator {
 		t.Fatal("-init did not create an administrator")
 	}
-	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE catalog; DROP TABLE catalog_folders;"+dropPolicyColumns+"ALTER TABLE metadata DROP COLUMN identified; PRAGMA user_version = 2"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown;"+dropPolicyColumns+"ALTER TABLE metadata DROP COLUMN identified; PRAGMA user_version = 2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

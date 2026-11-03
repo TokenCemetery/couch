@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 11
+const dbSchemaVersion = 12
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,8 +57,16 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + `
-PRAGMA user_version = 11;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + `
+PRAGMA user_version = 12;
+`
+
+// maintenanceColumns were added in version 12: Emby's database settings.
+// vacuum_on_startup asks for one VACUUM at the next start, which clears it;
+// optimize_on_shutdown runs PRAGMA optimize when Couch stops.
+const maintenanceColumns = `
+ALTER TABLE server ADD COLUMN vacuum_on_startup INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE server ADD COLUMN optimize_on_shutdown INTEGER NOT NULL DEFAULT 1;
 `
 
 // catalogSchema was added in version 11: the media index, which until then
@@ -183,6 +191,8 @@ var migrations = map[int]string{
 	// Version 11 stores the media index; the first start imports
 	// catalog.json.
 	10: catalogSchema + "PRAGMA user_version = 11;",
+	// Version 12 stores the database maintenance settings.
+	11: maintenanceColumns + "PRAGMA user_version = 12;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -225,7 +235,8 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 		return Data{}, fmt.Errorf("unsupported database schema version %d", version)
 	}
 	d := Data{SchemaVersion: 1, Sessions: map[string]Session{}}
-	if err := db.QueryRowContext(ctx, "SELECT server_id, libraries_configured, server_name FROM server").Scan(&d.ServerID, &d.LibrariesConfigured, &d.ServerName); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT server_id, libraries_configured, server_name, vacuum_on_startup, optimize_on_shutdown FROM server").Scan(
+		&d.ServerID, &d.LibrariesConfigured, &d.ServerName, &d.VacuumOnStartup, &d.OptimizeOnShutdown); err != nil {
 		return Data{}, err
 	}
 	libraries, err := loadLibraries(ctx, db)
@@ -359,7 +370,8 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 		if _, err := tx.ExecContext(ctx, dbSchema); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO server (id, server_id, libraries_configured, server_name) VALUES (1, ?, 0, '')", next.ServerID); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO server (id, server_id, libraries_configured, server_name, vacuum_on_startup, optimize_on_shutdown) VALUES (1, ?, 0, '', ?, ?)",
+			next.ServerID, next.VacuumOnStartup, next.OptimizeOnShutdown); err != nil {
 			return err
 		}
 		for _, u := range next.Users {
@@ -389,6 +401,11 @@ func write(ctx context.Context, tx *sql.Tx, prev, next Data, userIDs, items []st
 	}
 	if prev.ServerName != next.ServerName {
 		if _, err := tx.ExecContext(ctx, "UPDATE server SET server_name = ?", next.ServerName); err != nil {
+			return err
+		}
+	}
+	if prev.VacuumOnStartup != next.VacuumOnStartup || prev.OptimizeOnShutdown != next.OptimizeOnShutdown {
+		if _, err := tx.ExecContext(ctx, "UPDATE server SET vacuum_on_startup = ?, optimize_on_shutdown = ?", next.VacuumOnStartup, next.OptimizeOnShutdown); err != nil {
 			return err
 		}
 	}

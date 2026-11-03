@@ -87,7 +87,7 @@ func TestCatalog(t *testing.T) {
 	}
 
 	// A database written before the index was stored is migrated on open.
-	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE catalog; DROP TABLE catalog_folders; PRAGMA user_version = 10"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; PRAGMA user_version = 10"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
