@@ -1,6 +1,6 @@
 # Running Couch as a systemd service
 
-The container ([README](../README.md#container)) is the main way to run Couch. This manual covers the alternative: the static binary as a systemd service on Linux amd64, written for Ubuntu 26.04. The unit is verified with `systemd-analyze`, but the install has not yet been run on the target host ([VALIDATION](VALIDATION.md), "Install on the target host", #117). Couch serves plain HTTP on port 8097 for the LAN; TLS and a reverse proxy are not covered.
+The container ([README](../README.md#quick-start-docker-compose)) is the main way to run Couch. This manual covers the alternative: the static binary as a systemd service on Linux amd64, written for Ubuntu 26.04. The unit is verified with `systemd-analyze`, but the install has not yet been run on the target host ([VALIDATION](VALIDATION.md#install-114-117), #117). Couch serves plain HTTP on port 8097 for the LAN; TLS and a reverse proxy are not covered.
 
 ## What gets installed
 
@@ -33,7 +33,7 @@ sudo scripts/install.sh
 COUCH_ARGS=-listen :8097 -media-dir /srv/media -web-dir /opt/emby-webui
 ```
 
-`-data /var/lib/couch` is added by the unit. The values are split at spaces, so paths must not contain any. The other options are listed in the [README](../README.md#running). `COUCH_TMDB_API_KEY`, `COUCH_TVDB_API_KEY` and `COUCH_AUDIODB_API_KEY` in the same file turn on online metadata, and the file is readable only by root.
+`-data /var/lib/couch` is added by the unit. The values are split at spaces, so paths must not contain any. The other options are listed in the [README](../README.md#configuration). `COUCH_TMDB_API_KEY`, `COUCH_TVDB_API_KEY` and `COUCH_AUDIODB_API_KEY` in the same file turn on online metadata, and the file is readable only by root.
 
 The `couch` user must be able to read the media and Emby Web, including every parent folder. A home folder (mode 0750 on Ubuntu) usually blocks it, so keep them in a folder such as `/srv` or `/opt`, or grant read access with an ACL, for example `sudo setfacl -R -m u:couch:rX /srv/media`.
 
@@ -74,7 +74,7 @@ Couch upgrades the database on its first start and refuses a database from a new
 
 ## Backup and restore
 
-`-backup` writes a consistent copy while Couch runs (README, "Storage and limitations"). It holds password and token hashes, so keep it as private as `/var/lib/couch`:
+`-backup` writes a consistent copy while Couch runs ([README](../README.md#operations)). It holds password and token hashes, so keep it as private as `/var/lib/couch`:
 
 ```sh
 sudo -u couch /usr/local/bin/couch -data /var/lib/couch -backup /var/lib/couch/backup-2026-11-01

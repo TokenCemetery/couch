@@ -1,88 +1,85 @@
 # Supported features (#35)
 
-Version: Couch 0.1.0, `main` at 81a45d0 (2026-11-01). Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium; the other mandatory clients (Android/Android TV, iOS/Apple TV) are not checked (#26, #27), so nothing here applies to them.
+Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium only; Android/Android TV and iOS/Apple TV are unchecked (#26, #27). Update this list in the same change as the behaviour.
 
-The list follows what a viewer does, not API routes. Statuses:
-
-- **Supported:** the scenario works in Emby Web and is backed by a browser check, a matrix row or an automated test.
-- **Partial:** it works with a stated limit.
+- **Supported:** works in Emby Web, backed by a browser check, matrix row or automated test ([VALIDATION](VALIDATION.md), [COMPATIBILITY](COMPATIBILITY.md)).
+- **Partial:** works with a stated limit.
 - **Unsupported:** not implemented; Emby Web hides it, shows an empty list or reports an error.
-
-Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VALIDATION](VALIDATION.md) (checks) and the linked issues. Update this list in the same change as the behavior.
 
 ## Connection and account
 
 | Feature | Status | Notes |
 |---|---|---|
-| Connect by address; stable ServerId across restarts | Supported | M1 acceptance, [ROADMAP](ROADMAP.md) M1 |
-| Sign in, sign out, session restored after restart, revoked token refused | Supported | M1 acceptance; sign-in is rate limited |
-| User accounts and user management | Partial | `-init` creates the administrator; the Users pages create, edit, disable, hide and delete users, set passwords and copy data (#111), and limit a user to some libraries (#116) |
-| Emby Connect, Emby Premiere | Unsupported | The Premiere check to `mb3admin.com` is blocked by the UI's CSP; the client shows "Get Emby Premiere" (#89) |
+| Connect by address; stable ServerId | Supported | |
+| Sign in, sign out, session survives restart, revoked token refused | Supported | Sign-in is rate limited |
+| User accounts and management | Partial | `-init` creates the administrator; Users pages create, edit, disable, hide, delete, set passwords, copy data (#111), restrict libraries (#116) |
+| Emby Connect, Emby Premiere | Unsupported | Premiere check blocked by CSP; "Get Emby Premiere" stays (#89) |
 
 ## Browsing
 
 | Feature | Status | Notes |
 |---|---|---|
-| Home screen: My Media, Continue Watching (with Next Up), Continue Listening, Latest | Supported | Row titles localized for ru, de, fr, es, it; English otherwise (#18); Continue Listening only with a music library (#104) |
-| Movie and TV Shows libraries, item pages, seasons, episodes | Supported | Series need `Show/Season NN/Show.SNNENN.ext` naming; a movies library holds the other files |
-| Search, recent searches | Supported | By title, original title or file name |
-| Customizing home sections in Settings → Home Screen | Supported | Add, edit, remove and reorder sections per user, stored in `couch.db`; "Copy Data to Users" copies them with the configuration. Types: My Media, Continue Watching, Continue Listening, Latest Media, Collections, Playlists, a single collection or playlist, Dynamic Media, Recently Released Movies and Episodes. On Now and Active Recordings are refused: there is no Live TV. An administrator cannot edit another user's home screen (#100) |
-| Sorting, paging, A–Z jump bar, filters on technical data (container, codecs, audio layout, languages) | Supported | #78, #79, #124 |
-| Filters and sorts on metadata: genres, studios, tags, parental ratings, years, people; genre, studio and person pages, person credit tabs | Supported | Values come from `.nfo` files and online providers; a person's photo, biography and birth date come from TMDb, TheTVDB or a `.nfo` `<actor><thumb>` (#131); people cannot be marked favorite (#101, #80); credit tabs list only items in the user's libraries (#123) |
-| Next Up, Suggestions tab of TV Shows | Supported | Merge order with in-progress items is an assumption, not captured from Emby (#40) |
+| Home: My Media, Continue Watching (with Next Up), Continue Listening, Latest | Supported | Titles localized for ru, de, fr, es, it (#18) |
+| Home Screen settings: add, edit, remove, reorder sections | Supported | Stored per user; Live TV sections refused; an administrator cannot edit another user's (#100) |
+| Movie and TV Shows libraries, item pages, seasons, episodes | Supported | Series need `Show/Season NN/Show.SNNENN.ext` |
+| Search, recent searches | Supported | Title, original title or file name |
+| Sorting, paging, A–Z bar, technical filters (container, codecs, layout, languages) | Supported | #78, #79, #124 |
+| Metadata filters and pages: genres, studios, tags, ratings, years, people | Supported | From `.nfo` and providers; people cannot be favorites; credits list only visible items (#80, #101, #123, #131) |
+| Next Up, TV Suggestions tab | Supported | Merge order with in-progress items assumed (#40) |
 | Local images: Primary, Backdrop, Logo, Thumb; series images on seasons and episodes | Supported | #85, #86, #88 |
-| Titles from file names, duration and technical data from FFprobe | Supported | Used when an item has no metadata |
-| Metadata from `.nfo` files: title, overview, year, genres, studios, tags, ratings, people, provider IDs | Supported | Re-read when the file changes; checked in Emby Web (#101) |
-| Metadata and poster/backdrop from TMDb and TheTVDB | Supported | On only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; checked against the live services in English and Russian (#101); a season's title, overview, date and poster (#132) are checked against recorded provider answers only; a person's photo, biography and birth date (#131) are checked live with TheTVDB, and with TMDb only against recorded answers |
-| Collections: create, add and remove items, rename, delete, play; Collections library and tabs, "Included In" row; created from movie sets | Supported | Administrators edit them; other users see those with an item they can see. Two movies naming the same `.nfo` `<set>` or TMDb collection make one, kept in line with their metadata (#133). A collage of their items' covers, or an uploaded image (#134); missing items always empty (#40) |
-| Playlists: create, add (with or without duplicates), reorder, remove, rename, delete, play; Playlists library and menu section | Supported | Private to their user; movies, episodes, tracks, home videos and photos, an album adds its tracks (#103, #104, #105); a square collage of their items' covers, or an image their user uploads (#134) |
-| Music libraries: albums, album artists, artists, songs, genres, folders; album and artist pages; Latest Music; favorite artists | Supported | Album, artists, track and disc numbers, year and genres from the file tags, else from `Artist/Album/NN Title` folders; local `cover.jpg` or `folder.jpg` album art, else the cover embedded in the files (#120). With `COUCH_AUDIODB_API_KEY`, an album artist's photo, fanart and biography and an album's description and, without local or embedded art, cover from TheAudioDB (#136). No composers (#104) |
-| Home videos & photos libraries: Videos, Photos and Folders tabs, photo albums, slideshow; Latest | Supported | jpg, png, gif, webp, bmp, served as the original file; EXIF date and orientation from JPEG; folders are photo albums. The "Enable photos" switch is not stored. No HEIC, RAW or resized thumbnails (#105) |
-| Lyrics from `.lrc` and `.txt` files and lyrics tags | Partial | Served as `Stream.js` track events, timed for LRC (#135); Emby Web's lyrics view needs Emby Premiere and shows its unlock message instead (#89) |
-| Instant Mix from a track, album, artist, genre or playlist | Supported | The seed's tracks, then those sharing an artist or genre; at most 200, shuffled after the first seed track (#119) |
+| Titles from file names; duration and technical data from FFprobe | Supported | Used when no metadata exists |
+| `.nfo` metadata | Supported | Re-read when the file changes (#101) |
+| TMDb and TheTVDB metadata and images | Supported | Only with `COUCH_TMDB_API_KEY` / `COUCH_TVDB_API_KEY`; seasons (#132) and TMDb people checked against recorded answers only |
+| Collections | Supported | Created, edited, played; auto-created from `.nfo` `<set>` or TMDb collections (#133); collage or uploaded image (#134); administrators edit |
+| Playlists | Supported | Private per user; videos, tracks, photos; reorder, duplicates; collage or uploaded image (#103, #134) |
+| Music libraries: albums, artists, songs, genres, folders, favorite artists | Supported | Tags, else `Artist/Album/NN Title`; folder or embedded art (#120); TheAudioDB with `COUCH_AUDIODB_API_KEY` (#136); no composers (#104) |
+| Home videos & photos: tabs, albums, slideshow | Supported | jpg, png, gif, webp, bmp sent as originals; EXIF date and orientation; no HEIC, RAW or thumbnails; "Enable photos" not stored (#105) |
+| Lyrics from `.lrc`, `.txt` and tags | Partial | Served; Emby Web's view needs Premiere (#135, #89) |
+| Instant Mix | Supported | Seed tracks, then shared artist or genre; at most 200 (#119) |
 | Missing and upcoming episodes, recommendations | Unsupported | Empty lists (#34) |
-| Books, games, Live TV, DVR, channels | Unsupported | No such libraries; Live TV lists are empty (#34) |
+| Books, games, Live TV, DVR, channels | Unsupported | #34 |
 
 ## Watching
 
 | Feature | Status | Notes |
 |---|---|---|
-| Direct Stream with seek (HTTP Range) | Supported | MP4, MKV, WebM with codecs the browser plays, including AV1; [COMPATIBILITY](COMPATIBILITY.md) |
-| Remux to HLS (container or audio the browser cannot play) | Supported | Video copied, audio such as AC3 encoded to AAC; at most 2 sessions |
-| Transcode to H.264 over HLS | Supported | MPEG-2, MPEG-4 ASP and HEVC sources verified; at most 1 session; threads follow a CPU quota by default, `-ffmpeg-threads` overrides (#92) |
-| 4K HEVC transcode | Partial | Encoded at the source size; on 4 CPUs it starts, but encodes at about 0.75× real time, so playback stalls and a resume can exceed Emby Web's 10 s wait (#97) |
-| HDR sources | Partial | HDR10, Dolby Vision and HLG reported as Emby does (HLG values assumed). A transcode tone-maps to SDR with libplacebo where Vulkan works (the VA-API image on AMD), or with `zscale` on the CPU, at about 0.3× real time for 4K, behind `-tonemap software`; otherwise, as in the default image, it keeps the HDR tags (#125) |
-| Interlaced sources | Partial | Transcoded without deinterlacing |
-| Rotated video | Partial | Rotation applied; seek checked once on a transcode, resume not checked (#22) |
-| Quality switch in the player | Supported | Keeps the position |
-| Saved position, resume, played and favorite marks, remove from Continue Watching | Supported | Survive restart and forced stop |
-| Auto-advance to the next episode, play a whole series | Supported | |
-| Music playback: tracks, albums, playlists, with seek and saved position | Supported | MP3, FLAC, AAC in M4A, Ogg Vorbis, Opus and WAV play as they are; WMA, ALAC and AIFF are encoded to AAC in M4A (192 kbit/s, at most stereo) once per track, at most 2 at a time (#104) |
-| Hardware-accelerated transcoding | Supported on the target | `-hwaccel vaapi` on the target AMD GPU (radeonsi), with the image built with `VAAPI=1`: every transcode file of the agreed set passes; `qsv`, `nvenc`, `amf` unverified on hardware; decoding stays on the CPU (#28) |
-| Casting, play on another device, remote control | Unsupported | Casting not checked; session control routes not implemented (#34) |
-| Offline sync and downloads to the client | Unsupported | #34 |
+| Direct Stream with seek | Supported | MP4, MKV, WebM with browser codecs, including AV1 |
+| Remux to HLS | Supported | Video copied, audio such as AC3 to AAC; at most 2 sessions |
+| Transcode to H.264 over HLS | Supported | MPEG-2, MPEG-4 ASP, HEVC verified; 1 session; threads follow the CPU quota, `-ffmpeg-threads` overrides (#92) |
+| GPU transcoding | Supported on the target | `-hwaccel vaapi` on AMD with the `VAAPI=1` image; `qsv`, `nvenc`, `amf` unverified; decoding on CPU (#28) |
+| 4K HEVC transcode | Partial | Real time with VA-API; `libx264` on 4 CPUs runs at 0.75× and stalls (#97) |
+| HDR sources | Partial | Reported as Emby does (HLG values assumed). Tone-mapped to SDR with libplacebo where Vulkan works, or `zscale` with `-tonemap software` (0.3× on 4K); otherwise HDR tags kept (#125) |
+| Interlaced sources | Partial | No deinterlacing |
+| Rotated video | Partial | Rotation applied; resume after a transcode seek not checked (#22) |
+| Quality switch | Supported | Position kept |
+| Position, resume, played, favorite, remove from Continue Watching | Supported | Survive restart and forced stop |
+| Auto-advance, play a whole series | Supported | |
+| Music playback with seek and saved position | Supported | MP3, FLAC, AAC, Vorbis, Opus, WAV as is; WMA, ALAC, AIFF encoded once to AAC, 2 at a time (#104) |
+| Casting, remote control | Unsupported | #34 |
+| Offline sync and downloads | Unsupported | #34 |
 
 ## Tracks and subtitles
 
 | Feature | Status | Notes |
 |---|---|---|
-| Audio track selection | Supported | A non-first track goes through HLS remux |
-| External SRT, WebVTT, ASS/SSA; embedded SubRip, `mov_text`, WebVTT, ASS/SSA | Supported | WebVTT external or inside HLS; subtitle files must be UTF-8 |
-| Default subtitle by the user's subtitle mode and language | Supported | Rules follow Emby Web's mode descriptions |
-| Image subtitles (PGS, DVD, DVB) | Supported | Burned into an H.264 transcode; turning them off returns to Direct Stream or remux |
-| Subtitle files in legacy encodings | Unsupported | By decision: UTF-8 only (#24) |
-| Subtitle search and download, subtitle editing and deletion | Unsupported | Hidden: Emby Web offers them only when the user policy enables subtitle downloading or management, and Couch's does not (#34) |
+| Audio track selection | Supported | A non-first track goes through remux |
+| External SRT, WebVTT, ASS/SSA; embedded SubRip, `mov_text`, WebVTT, ASS/SSA | Supported | WebVTT external or inside HLS; files must be UTF-8 |
+| Default subtitle by user mode and language | Supported | |
+| Image subtitles (PGS, DVD, DVB) | Supported | Burned into an H.264 transcode |
+| Subtitle files in legacy encodings | Unsupported | UTF-8 only by decision (#24) |
+| Subtitle search, download, editing | Unsupported | Hidden by the user policy (#34) |
 
 ## Library and server
 
 | Feature | Status | Notes |
 |---|---|---|
-| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies, TV shows, music (#104) and home videos & photos (#105); library options other than real-time monitoring are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
-| Rescan from the library page, the "Scan media library" task, `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; a folder that cannot be read or comes back empty keeps its videos, and the others are updated (#39, #112) |
-| Real-time monitoring of library folders | Partial | On Linux with inotify, on by default per library; a rescan starts 10 s after changes stop. Not on macOS, and network mounts report no changes made by other hosts: use `-rescan-interval` there (#130) |
-| Catalog kept across restarts | Supported | Saved to `couch.db` (in `catalog.json` before #128), so backups keep it; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
-| Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; on a first start without one, an unreadable folder stays empty and is reported until a rescan reaches it (#31, #39, #112) |
-| Backup and restore of user state | Partial | By copying the data directory; the Emby backup API is not implemented (#32) |
-| Server administration in the UI (dashboard, libraries, users, tasks, activity, logs, devices) | Supported | Users (#111) and libraries (#112) are managed; the dashboard shows sessions and activity, tasks run on request, logs are kept in `-data/logs`, devices can be signed out; only the server name is a setting (#113); Refresh Metadata, Identify and Remove Identification work, and the Metadata Manager shows items without saving them (#115) |
-| Container image (Linux amd64, FFmpeg 8.1) | Supported | `Dockerfile` and `deploy/compose.yaml`, checked in CI; install, upgrade, forced stop, restore and VA-API verified on the target host (#114); reboot and a sign-in from another LAN host not checked (#117) |
-| Native install as a systemd service | Partial | `make release`, `scripts/install.sh`, `deploy/couch.service`, [INSTALL](INSTALL.md); not yet run on the target host (#117) |
+| Libraries managed in Emby Web below `-media-root` | Supported | Movies, TV, music, home videos & photos; options other than real-time monitoring not stored; `-media-dir` creates the first two (#112) |
+| Rescan: library page, scheduled task, `SIGHUP`, `-rescan-interval`; open screens refresh | Supported | Unchanged IDs kept; a folder that fails or comes back empty keeps its items (#39, #112) |
+| Real-time monitoring | Partial | Linux inotify, rescan 10 s after changes stop; not macOS, not changes made by other hosts on network mounts (#130) |
+| Catalog kept across restarts | Supported | In `couch.db`; served at once, rescanned in the background; date added kept (#39, #128) |
+| Library unreachable at startup | Partial | Saved catalog kept; on a first start the folder stays empty until a rescan reaches it (#31, #39) |
+| Backup and restore | Partial | `-backup` or copying the data directory; no Emby backup API (#32) |
+| Administration: dashboard, users, libraries, tasks, activity, logs, devices, metadata refresh and identify | Supported | Only the server name is a setting (#113, #115) |
+| Database settings page | Supported | Vacuum on start, optimize on stop (#129) |
+| Container image (Linux amd64, FFmpeg 8.1) | Supported | Verified on the target host; reboot and LAN sign-in unchecked (#114, #117) |
+| Native systemd install | Partial | [INSTALL](INSTALL.md); not yet run on the target host (#117) |
