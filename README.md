@@ -1,11 +1,17 @@
-# Couch
+<p align="center">
+  <img src="docs/logo.svg" alt="Couch logo" width="132">
+</p>
 
-<img src="docs/logo.svg" alt="Couch logo" width="132">
+<h1 align="center">Couch</h1>
 
-[![CI](https://github.com/TokenCemetery/couch/actions/workflows/ci.yml/badge.svg)](https://github.com/TokenCemetery/couch/actions/workflows/ci.yml)
-[![License: GPL v2](https://img.shields.io/badge/license-GPL--2.0-blue.svg)](LICENSE)
+<p align="center">
+  A lightweight media server in Go that speaks the Emby API, so the unmodified Emby Web client works against it.
+</p>
 
-A lightweight media server in Go that speaks the Emby API, so the unmodified Emby Web client works against it.
+<p align="center">
+  <a href="https://github.com/TokenCemetery/couch/actions/workflows/ci.yml"><img src="https://github.com/TokenCemetery/couch/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0-blue.svg" alt="License: GPL v2"></a>
+</p>
 
 Couch serves movies, TV series, music, home videos and photos from read-only folders: browsing, search, playback with saved position, remux and transcoding to HLS, subtitles, metadata and user management. It idles at about 11 MiB RSS, against about 200 MiB for Emby on the same hardware ([measurements](docs/BASELINE.md)).
 
