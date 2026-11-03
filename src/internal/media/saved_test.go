@@ -99,7 +99,7 @@ func TestSavedCatalog(t *testing.T) {
 	}
 	for name, content := range map[string]string{
 		"corrupted":                      string(saved[:len(saved)/2]),
-		"other version":                  strings.Replace(string(saved), `"Version":5`, `"Version":99`, 1),
+		"other version":                  strings.Replace(string(saved), `"Version":6`, `"Version":99`, 1),
 		"path outside":                   strings.Replace(string(saved), `"Path":"Movie.mkv"`, `"Path":"../Movie.mkv"`, 1),
 		"duplicate path":                 strings.Replace(string(saved), `"Path":"New.mp4"`, `"Path":"Movie.mkv"`, 1),
 		"no folders":                     `{"Version":2,"Folders":[]}`,
@@ -135,6 +135,49 @@ func TestSavedCatalog(t *testing.T) {
 	}
 	_ = fromV1.Close()
 	if err := os.Remove(old); err != nil {
+		t.Fatal(err)
+	}
+	// A version 5 index, from before colour properties, is served as it is,
+	// and its videos keep a mark through a save until a rescan probes them
+	// again (#125).
+	v5 := filepath.Join(data, "v5.json")
+	if err := os.WriteFile(v5, []byte(strings.Replace(string(saved), `"Version":6`, `"Version":5`, 1)), 0600); err != nil { //nolint:gosec // test index in a temp dir
+		t.Fatal(err)
+	}
+	fromV5, err := load(dir, v5, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plain(fromV5.Items), plain(again.Items)) {
+		t.Fatal("a version 5 index loads differently")
+	}
+	if err := fromV5.Save(v5); err != nil {
+		t.Fatal(err)
+	}
+	_ = fromV5.Close()
+	if fromV5, err = load(dir, v5, probe); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range fromV5.Items {
+		if !item.reprobe {
+			t.Fatalf("%s lost its reprobe mark", item.Path)
+		}
+	}
+	probes = 0
+	reprobed, err := fromV5.Rescan(context.Background(), fromV5.Libraries())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if probes != len(fromV5.Items) || !reflect.DeepEqual(plain(reprobed.Items), plain(again.Items)) {
+		t.Fatalf("rescan of a version 5 index probed %d of %d files", probes, len(fromV5.Items))
+	}
+	for _, item := range reprobed.Items {
+		if item.reprobe {
+			t.Fatalf("%s still marked after the rescan", item.Path)
+		}
+	}
+	_ = fromV5.Close()
+	if err := os.Remove(v5); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := load(filepath.Join(dir, "missing"), file, probe); err == nil {

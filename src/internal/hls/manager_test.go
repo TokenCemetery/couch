@@ -874,7 +874,7 @@ func TestThreadsCapTranscodeOnly(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("FFmpeg runs:\n%s", runs)
 	}
-	if strings.Contains(lines[0], "-threads") {
+	if strings.Contains(lines[0], "-threads") || strings.Contains(lines[1], "-filter_threads") {
 		t.Fatalf("remux capped threads: %s", lines[0])
 	}
 	decoder, encoder, _ := strings.Cut(lines[1], " -i fd: ")
@@ -887,7 +887,7 @@ func TestThreadsCapTranscodeOnly(t *testing.T) {
 // overlay's output replaces the video stream (#24).
 func TestEncodeBurnsSubtitle(t *testing.T) {
 	source := Source{VideoStream: 0, VideoEncode: true, MaxHeight: 720, BurnSubtitle: true, SubtitleStream: 3}
-	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "trim=start=2.999000,", 0, Accel{}, source), " ")
+	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "trim=start=2.999000,", 0, Accel{}, ToneMapOff, source), " ")
 	want := "-filter_complex [0:0][0:3]overlay=eof_action=pass,trim=start=2.999000,scale=w=iw:h='min(ih,720)':force_original_aspect_ratio=decrease:force_divisible_by=2[v] "
 	if !strings.Contains(args, want) || strings.Contains(args, "-vf") {
 		t.Fatalf("arguments: %s", args)
@@ -901,10 +901,160 @@ func TestEncodeBurnsSubtitle(t *testing.T) {
 // graph, after a burned-in subtitle, and keeps the bitrate cap.
 func TestEncodeUploadsForHardware(t *testing.T) {
 	source := Source{VideoStream: 0, VideoEncode: true, VideoBitrate: 4_000_000, MaxHeight: 720, BurnSubtitle: true, SubtitleStream: 3}
-	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "", 0, Accel{Kind: "vaapi", Device: "/dev/dri/renderD128"}, source), " ")
+	args := strings.Join(encodeVideo([]float64{0, 3}, 0, "", 0, Accel{Kind: "vaapi", Device: "/dev/dri/renderD128"}, ToneMapOff, source), " ")
 	if !strings.Contains(args, "force_divisible_by=2,format=nv12,hwupload[v] ") || !strings.Contains(args, "-c:v h264_vaapi ") ||
 		!strings.Contains(args, "-maxrate 4000000 ") || strings.Contains(args, "yuv420p") {
 		t.Fatalf("arguments: %s", args)
+	}
+}
+
+// An HDR video is tone-mapped after scaling and before the upload, or before
+// a burned-in subtitle's overlay; SDR video and ToneMapOff keep the plain
+// chain. zscale leaves Dolby Vision without an HDR10 or HLG base layer alone;
+// libplacebo reads it (#125).
+func TestEncodeToneMapsHDR(t *testing.T) {
+	vaapi := Accel{Kind: "vaapi", Device: "/dev/dri/renderD128"}
+	hdr := Source{VideoStream: 0, VideoEncode: true, ColorTransfer: "arib-std-b67"}
+	sdr := Source{VideoStream: 0, VideoEncode: true, ColorTransfer: "bt709"}
+	burned := hdr
+	burned.BurnSubtitle, burned.SubtitleStream = true, 3
+	profile5 := Source{VideoStream: 0, VideoEncode: true, ColorTransfer: "smpte2084", DoviProfile: 5}
+	untagged := Source{VideoStream: 0, VideoEncode: true, DoviProfile: 8, DoviCompatibility: 1}
+	gpu := "libplacebo=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p:tonemapping=auto"
+	plain := "force_divisible_by=2,format=nv12,hwupload "
+	for _, c := range []struct {
+		name    string
+		toneMap ToneMap
+		source  Source
+		want    string
+	}{
+		{"gpu", ToneMapGPU, hdr, "force_divisible_by=2," + gpu + ",format=nv12,hwupload "},
+		{"software", ToneMapSoftware, hdr, "force_divisible_by=2,zscale=tin=arib-std-b67:pin=bt2020:"},
+		{"sdr", ToneMapGPU, sdr, plain},
+		{"off", ToneMapOff, hdr, plain},
+		{"burned subtitle", ToneMapGPU, burned, "-filter_complex [0:0]" + gpu + "[sdr];[sdr][0:3]overlay=eof_action=pass,scale=w=iw:h=ih:force_original_aspect_ratio=decrease:" + plain[:len(plain)-1] + "[v] "},
+		{"profile 5 on gpu", ToneMapGPU, profile5, gpu},
+		{"profile 5 in software", ToneMapSoftware, profile5, plain},
+		{"untagged dolby vision on gpu", ToneMapGPU, untagged, gpu},
+		{"untagged dolby vision in software", ToneMapSoftware, untagged, plain},
+	} {
+		if args := strings.Join(encodeVideo([]float64{0, 3}, 0, "", 0, vaapi, c.toneMap, c.source), " "); !strings.Contains(args, c.want) {
+			t.Errorf("%s: %s", c.name, args)
+		}
+	}
+}
+
+// SetToneMap takes the GPU when its check passes; otherwise auto turns tone
+// mapping off and software falls back to zscale, failing without it.
+func TestSetToneMap(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg required")
+	}
+	for _, c := range []struct {
+		mode, failing string
+		want          ToneMap
+		fails         bool
+	}{
+		{"auto", "", ToneMapGPU, false},
+		{"auto", "libplacebo", ToneMapOff, false},
+		{"software", "", ToneMapGPU, false},
+		{"software", "libplacebo", ToneMapSoftware, false},
+		{"software", "libplacebo|zscale", ToneMapSoftware, true},
+		{"off", "libplacebo|zscale", ToneMapOff, false},
+	} {
+		dir := t.TempDir()
+		// The fake fails a check whose filter matches failing, and otherwise
+		// passes without running FFmpeg.
+		script := "#!/bin/sh\necho \"$@\" >> " + filepath.Join(dir, "args") + "\n"
+		if c.failing != "" {
+			script += "case \"$*\" in *" + strings.ReplaceAll(c.failing, "|", "*|*") + "*) exit 1;; esac\n"
+		}
+		wrapper := filepath.Join(dir, "ffmpeg")
+		if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // test script in a temp dir
+			t.Fatal(err)
+		}
+		m, err := NewManager(wrapper, "ffprobe", filepath.Join(dir, "transcode"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = m.SetToneMap(context.Background(), c.mode)
+		m.Close()
+		if (err != nil) != c.fails || (!c.fails && m.ToneMap != c.want) {
+			t.Errorf("%s with %q failing: %q, %v", c.mode, c.failing, m.ToneMap, err)
+		}
+		if runs, _ := os.ReadFile(filepath.Join(dir, "args")); c.mode == "off" && len(runs) > 0 {
+			t.Errorf("off ran FFmpeg: %s", runs)
+		}
+	}
+	if err := (&Manager{ffmpeg: ffmpeg}).SetToneMap(context.Background(), "always"); err == nil {
+		t.Error("unknown mode accepted")
+	}
+}
+
+// Tone mapping turns an HLG source into BT.709 segments and the job's log
+// line names the method, or off; software tone mapping caps the filter threads
+// with the others. A method this machine cannot run is skipped.
+func TestToneMapTranscode(t *testing.T) {
+	path := filepath.Join(filepath.Dir(fixture(t, "avc.mkv")), "hlg.mkv")                                                                       // skips without FFmpeg
+	build := exec.CommandContext(context.Background(), "ffmpeg", "-v", "error", "-nostdin", "-f", "lavfi", "-i", "testsrc2=s=320x180:d=8:r=25", //nolint:gosec // fixed arguments and temp paths
+		"-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=error:colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc", path)
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Skipf("cannot build HLG fixture: %v %s", err, out)
+	}
+	ffmpeg, _ := exec.LookPath("ffmpeg")
+	for _, toneMap := range []ToneMap{ToneMapOff, ToneMapSoftware, ToneMapGPU} {
+		method, colours := string(toneMap), "bt709,bt709\n"
+		if toneMap == ToneMapOff {
+			method, colours = "off", "arib-std-b67,bt2020\n"
+		}
+		t.Run(method, func(t *testing.T) {
+			dir := t.TempDir()
+			wrapper := filepath.Join(dir, "ffmpeg")
+			script := "#!/bin/sh\necho \"$@\" >> " + filepath.Join(dir, "args") + "\nexec " + ffmpeg + " \"$@\"\n"
+			if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // test script in a temp dir
+				t.Fatal(err)
+			}
+			m, err := NewManager(wrapper, "ffprobe", filepath.Join(dir, "transcode"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close()
+			m.ToneMap, m.Threads = toneMap, 2
+			ctx := context.Background()
+			if toneMap != ToneMapOff {
+				if err := m.CheckToneMap(ctx); err != nil {
+					t.Skipf("unavailable here: %v", err)
+				}
+			}
+			var logged lockedBuffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+			defer slog.SetDefault(previous)
+			source := Source{ItemID: "hlg", Version: "1", Duration: 8, VideoStream: 0, VideoEncode: true, VideoBitrate: 1_000_000, AudioStream: -1,
+				ColorTransfer: "arib-std-b67", Open: func() (*os.File, error) { return os.Open(path) }}
+			file, err := m.Segment(ctx, "a", "owner", source, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0", //nolint:gosec // test segment path
+				"-show_entries", "stream=color_transfer,color_primaries", "-of", "csv=p=0", file.Name()).Output()
+			_ = file.Close()
+			if err != nil || !strings.HasPrefix(string(out), colours) {
+				t.Fatalf("segment colours %q: %v", out, err)
+			}
+			m.Stop("a", "owner")
+			runs, _ := os.ReadFile(filepath.Join(dir, "args"))
+			if capped := strings.Contains(string(runs), " -threads 2 -filter_threads 2 -fd 3 "); capped != (toneMap == ToneMapSoftware) {
+				t.Fatalf("FFmpeg runs:\n%s", runs)
+			}
+			for deadline := time.Now().Add(10 * time.Second); !strings.Contains(logged.String(), "encoder=libx264 tonemap="+method+" "); {
+				if time.Now().After(deadline) {
+					t.Fatalf("log %q", logged.String())
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
 	}
 }
 

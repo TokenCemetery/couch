@@ -18,7 +18,8 @@ func TestLibraryFilters(t *testing.T) {
 		{ID: "mkv", Name: "Beta", Container: "mkv", Streams: []media.Stream{
 			{Type: "Video", Codec: "h264"}, {Type: "Audio", Codec: "ac3", ChannelLayout: "5.1(side)", Language: "rus"}}},
 		{ID: "episode", Kind: "Episode", Name: "Show S01E01", Container: "mkv", ParentID: "season", SeriesID: "series", SeasonID: "season", SeasonNumber: 1, EpisodeNumber: 1,
-			Streams: []media.Stream{{Type: "Video", Codec: "hevc"}, {Type: "Audio", Codec: "eac3", Language: "jpn"}}},
+			Streams: []media.Stream{{Type: "Video", Codec: "hevc", ColorTransfer: "smpte2084", DoviProfile: 8, DoviCompatibility: 1}, {Type: "Audio", Codec: "eac3", Language: "jpn"}}},
+		{ID: "track", Kind: "Audio", Name: "Track", Container: "flac", Streams: []media.Stream{{Type: "Audio", Codec: "flac"}}},
 	}}
 	catalog.Folders = []media.Item{
 		{ID: "series", Kind: "Series", Name: "Show", ParentID: catalog.SeriesLibraryID()},
@@ -66,7 +67,8 @@ func TestLibraryFilters(t *testing.T) {
 		"/Studios":                                       "",
 		"/Tags":                                          "",
 		"/OfficialRatings":                               "",
-		"/ExtendedVideoTypes":                            "",
+		"/ExtendedVideoTypes":                            "DolbyVision",
+		"/ExtendedVideoTypes?" + movies:                  "",
 		"/Artists?Filters=IsFavorite&ArtistType=all":     "",
 		"/Persons?Filters=IsFavorite":                    "",
 	} {
@@ -100,6 +102,8 @@ func TestLibraryFilters(t *testing.T) {
 		"VideoCodecs=hevc&IncludeItemTypes=Series":       "series",
 		"ExtendedVideoTypes=None&IncludeItemTypes=Movie": "mkv,mp4",
 		"ExtendedVideoTypes=Dolby":                       "",
+		"ExtendedVideoTypes=DolbyVision":                 "episode,season,series",
+		"ExtendedVideoTypes=None&IncludeItemTypes=Audio": "track",
 		"Genres=Drama":                                   "",
 		"Years=2020":                                     "",
 	} {

@@ -18,8 +18,10 @@ import (
 // an index of another version is rejected and the libraries scanned again.
 // Version 1 held one directory, version 2 no audio files and version 4 no
 // photos; they are still read. Version 3 lacked embedded covers and is
-// scanned again.
-const savedVersion = 5
+// scanned again. Versions before 6 lacked the colour properties that tell
+// HDR from SDR: their videos are served at once and probed again by the
+// background rescan.
+const savedVersion = 6
 
 const maxSavedBytes = 256 << 20
 
@@ -49,6 +51,8 @@ type savedItem struct {
 	Tags         Tags  `json:",omitzero"`
 	Cover        Image `json:",omitzero"`
 	Photo        Photo `json:",omitzero"`
+	// Reprobe keeps an item's mark until a rescan probes it again.
+	Reprobe bool `json:",omitempty"`
 }
 
 // Save writes the catalog to file atomically, so a crash leaves either the
@@ -60,7 +64,7 @@ func (c *Catalog) Save(file string) error {
 		f := savedFolder{Path: folder, Items: make([]savedItem, len(src.items))}
 		for n, item := range src.items {
 			f.Items[n] = savedItem{Path: item.Path, Size: item.Size, Modified: item.Modified, Added: item.Added,
-				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags, Cover: item.Cover, Photo: item.Photo}
+				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags, Cover: item.Cover, Photo: item.Photo, Reprobe: item.reprobe}
 		}
 		saved.Folders = append(saved.Folders, f)
 	}
@@ -142,7 +146,7 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 				folders[folder] = saved.Items
 			}
 		}
-	case 2, 4, savedVersion:
+	case 2, 4, 5, savedVersion:
 		for _, folder := range saved.Folders {
 			if _, duplicate := folders[folder.Path]; duplicate {
 				return nil, errors.New("media index has a folder twice")
@@ -174,7 +178,7 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 			return nil, errors.New("media index has too many media files")
 		}
 		video, audio, photo := folderKinds(libraries, folder)
-		src, err := loadSource(folder, items, video, audio, photo)
+		src, err := loadSource(folder, items, video, audio, photo, saved.Version < 6)
 		if err != nil {
 			_ = catalog.Close()
 			return nil, err
@@ -195,8 +199,9 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 
 // loadSource rebuilds a folder's items from the index, rejecting paths that
 // could leave the folder. Files of a kind the folder's libraries no longer
-// catalog are left for the next rescan.
-func loadSource(folder string, saved []savedItem, video, audio, photo bool) (*source, error) {
+// catalog are left for the next rescan, and videos are marked for it to
+// probe again when noColour says their probes predate colour properties.
+func loadSource(folder string, saved []savedItem, video, audio, photo, noColour bool) (*source, error) {
 	src := &source{path: folder, key: stableID("movies\x00" + folder), items: make([]Item, 0, len(saved)), video: video, audio: audio, photo: photo}
 	seen := make(map[string]bool, len(saved))
 	for _, s := range saved {
@@ -221,6 +226,7 @@ func loadSource(folder string, saved []savedItem, video, audio, photo bool) (*so
 			ID: stableID(src.key + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
 			Container: containerOf(ext),
 			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: tags, Cover: cover, Photo: pictured,
+			reprobe: !music && !picture && (noColour || s.Reprobe),
 		})
 	}
 	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })

@@ -201,7 +201,7 @@ func TestRescan(t *testing.T) {
 func plain(items []Item) []Item {
 	out := make([]Item, len(items))
 	for n, item := range items {
-		item.src = nil
+		item.src, item.reprobe = nil, false
 		out[n] = item
 	}
 	return out

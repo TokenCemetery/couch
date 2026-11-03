@@ -40,6 +40,22 @@ func TestParseProbe(t *testing.T) {
 	}
 }
 
+// Colour properties and a Dolby Vision configuration record tell HDR
+// from SDR (#125).
+func TestParseProbeColour(t *testing.T) {
+	item, err := parseProbe([]byte(`{"streams":[
+		{"index":0,"codec_type":"video","codec_name":"hevc","color_transfer":"smpte2084","color_primaries":"bt2020","color_space":"bt2020nc",
+			"side_data_list":[{},{"dv_profile":8,"dv_bl_signal_compatibility_id":1}]},
+		{"index":1,"codec_type":"video","codec_name":"h264"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Stream{Index: 0, Type: "Video", Codec: "hevc", ColorTransfer: "smpte2084", ColorPrimaries: "bt2020", ColorSpace: "bt2020nc", DoviProfile: 8, DoviCompatibility: 1}
+	if !reflect.DeepEqual(item.Streams[0], want) || item.Streams[1].ColorTransfer != "" || item.Streams[1].DoviProfile != 0 {
+		t.Fatalf("streams %+v", item.Streams)
+	}
+}
+
 func TestParseProbeAudioTags(t *testing.T) {
 	// MP3 and FLAC keep their tags in the format, in any case.
 	item, err := parseProbe([]byte(`{"format":{"duration":"3","bit_rate":"900000","tags":{"TITLE":"Song","ARTIST":"A; B ;A","album_artist":"A","ALBUM":"Album","GENRE":"Rock/Pop","track":"3/12","DISC":"2/2","date":"2001-05-02"}},

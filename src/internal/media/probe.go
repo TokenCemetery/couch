@@ -90,7 +90,7 @@ func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error
 			// format, so those are probed alongside the basic descriptors.
 			// Audio files keep their tags in the format, or in the stream
 			// for Ogg and Opus.
-			"-show_entries", "format=duration,bit_rate:format_tags="+audioTags+":stream=index,codec_type,codec_name,codec_tag_string,profile,level,width,height,channels,channel_layout,sample_rate,bit_rate,pix_fmt,bits_per_raw_sample,bits_per_sample,refs,avg_frame_rate,r_frame_rate,time_base,field_order:stream_tags=language,"+audioTags+":stream_disposition=default,forced,attached_pic,hearing_impaired:stream_side_data=rotation")
+			"-show_entries", "format=duration,bit_rate:format_tags="+audioTags+":stream=index,codec_type,codec_name,codec_tag_string,profile,level,width,height,channels,channel_layout,sample_rate,bit_rate,pix_fmt,bits_per_raw_sample,bits_per_sample,refs,avg_frame_rate,r_frame_rate,time_base,field_order,color_transfer,color_primaries,color_space:stream_tags=language,"+audioTags+":stream_disposition=default,forced,attached_pic,hearing_impaired:stream_side_data=rotation,dv_profile,dv_bl_signal_compatibility_id")
 		if err != nil {
 			return Item{}, err
 		}
@@ -208,9 +208,16 @@ func parseProbe(data []byte) (Item, error) {
 			RFrameRate    string `json:"r_frame_rate"`
 			TimeBase      string `json:"time_base"`
 			FieldOrder    string `json:"field_order"`
+			ColorTransfer string `json:"color_transfer"`
+			ColorPrimary  string `json:"color_primaries"`
+			ColorSpace    string `json:"color_space"`
 			Tags          map[string]string
-			SideData      []struct{ Rotation float64 } `json:"side_data_list"`
-			Disposition   struct {
+			SideData      []struct {
+				Rotation          float64
+				DoviProfile       int `json:"dv_profile"`
+				DoviCompatibility int `json:"dv_bl_signal_compatibility_id"`
+			} `json:"side_data_list"`
+			Disposition struct {
 				Default         int
 				Forced          int
 				AttachedPic     int `json:"attached_pic"`
@@ -258,9 +265,13 @@ func parseProbe(data []byte) (Item, error) {
 			stream.BitDepth, _ = strconv.Atoi(raw.BitDepth)
 			stream.AverageFrameRate = frameRate(raw.AvgFrameRate)
 			stream.RealFrameRate = frameRate(raw.RFrameRate)
+			stream.ColorTransfer, stream.ColorPrimaries, stream.ColorSpace = raw.ColorTransfer, raw.ColorPrimary, raw.ColorSpace
 			for _, side := range raw.SideData {
 				if side.Rotation != 0 {
 					stream.Rotation = (int(math.Round(side.Rotation))%360 + 360) % 360
+				}
+				if side.DoviProfile != 0 {
+					stream.DoviProfile, stream.DoviCompatibility = side.DoviProfile, side.DoviCompatibility
 				}
 			}
 		case "audio":

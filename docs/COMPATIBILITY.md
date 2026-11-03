@@ -89,6 +89,17 @@ The rows above that transcode, again on the target hardware with `-hwaccel vaapi
 
 R09 plays in real time on the GPU, where `libx264` stalls (#97). Under a CPU quota the [BASELINE](BASELINE.md) run ("VA-API") encodes its 18 s of 4K in 13.3 s on 2 CPUs and 8.6 s on 4, faster than real time, but in 26.7 s on 1 CPU, slower. Chromium dropped no frames on any row in the first 10 s.
 
+### HDR tone mapping (#125)
+
+The HDR rows again with tone mapping, 2026-11-03: the release image built with `--build-arg VAAPI=1`, which now also has Mesa's Vulkan driver, `-hwaccel vaapi` and the default `-tonemap auto`, the render node passed in, no CPU limit, Emby Web via `-web-dir` in the built-in Chromium. Couch logged `HDR tone mapping method=libplacebo` at startup and `encoder=h264_vaapi tonemap=libplacebo` for every job. The rows above, and R09 on the CPU, ran before tone mapping existed and passed the HDR tags through.
+
+| ID | Source | Item page | Start | Seek: target → 10 s later | Stop | Resume | Status |
+|---|---|---|---|---|---|---|---|
+| R09 | HEVC Main 10 HDR10 3840×2076 | "HEVC 4K HDR 10", Video Range HDR 10 | segments H.264 BT.709 at 3840×2076, SDR colours; 20 s played in 20 s with no stall, 31.6 s buffered ahead; Chromium dropped 65 of 480 frames | 2644.1 → 2650.1 s (2653.2 s without tone mapping) | 2656.5 s saved | playing 6.2 s after "Resume", 2662.4 s at 12 s | verified 2026-11-03 |
+| HLG Test (synthetic) | HEVC Main 10 HLG 1920×1080, 120 s, AC3 | "HEVC 1080p HLG" | SDR colours at 1920×1080 | not checked | stopped | not checked | verified 2026-11-03 |
+
+Software tone mapping (`-tonemap software`) is checked by `TestToneMapTranscode` only, not in Emby Web: on 4K it runs at about 0.3× real time on 2 CPUs ([BASELINE](BASELINE.md), "HDR tone mapping"), so R09 would stall as it did with `libx264` alone.
+
 ## Music, Emby Web 4.10.0.40, Chromium 152, Linux (#104)
 
 Synthetic tagged tracks made with FFmpeg 8.0 (stereo sine tones of 3 s, one WMA of 60 s) in a music library, played from Emby Web's album cards, Songs tab and a playlist. Emby Web requests every track from `Audio/{id}/universal` with the Chromium Container list (`opus`, `mp3|mp3`, `aac|aac`, `m4a|aac`, `mp4|aac`, `flac`, `webma`, `webm`, `wav|PCM_S16LE`, `wav|PCM_S24LE`, `ogg`, among others) and `TranscodingProtocol=hls`.

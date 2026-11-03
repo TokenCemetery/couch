@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 
@@ -360,6 +361,7 @@ func containerMIME(container string) string {
 func mediaStreams(item media.Item) []object {
 	streams := make([]object, 0, len(item.Streams))
 	for _, s := range item.Streams {
+		hdr := videoRange(s)
 		stream := object{
 			"Index":                           s.Index,
 			"Type":                            s.Type,
@@ -373,13 +375,14 @@ func mediaStreams(item media.Item) []object {
 			"SupportsExternalStream":          s.Path != "",
 			"Protocol":                        "File",
 			"DisplayTitle":                    streamTitle(s),
-			"ExtendedVideoType":               "None",
-			"ExtendedVideoSubType":            "None",
-			"ExtendedVideoSubTypeDescription": "None",
+			"ExtendedVideoType":               hdr.Type,
+			"ExtendedVideoSubType":            hdr.SubType,
+			"ExtendedVideoSubTypeDescription": hdr.Description,
 			"AttachmentSize":                  0,
 		}
 		for key, value := range map[string]string{"Language": s.Language, "Title": s.Title,
-			"CodecTag": s.CodecTag, "TimeBase": s.TimeBase, "Profile": s.Profile} {
+			"CodecTag": s.CodecTag, "TimeBase": s.TimeBase, "Profile": s.Profile,
+			"ColorTransfer": s.ColorTransfer, "ColorPrimaries": s.ColorPrimaries, "ColorSpace": s.ColorSpace} {
 			if value != "" {
 				stream[key] = value
 			}
@@ -390,7 +393,7 @@ func mediaStreams(item media.Item) []object {
 		switch s.Type {
 		case "Video":
 			stream["Width"], stream["Height"] = s.Width, s.Height
-			stream["VideoRange"] = "SDR"
+			stream["VideoRange"] = hdr.Range
 			stream["Level"] = s.Level
 			stream["IsAnamorphic"] = false
 			stream["IsAVC"] = strings.EqualFold(s.Codec, "h264")
@@ -437,10 +440,42 @@ func streamTitle(s media.Stream) string {
 	if s.Type == "Video" && s.Height > 0 {
 		parts = append(parts, verticalResolution(s.Height))
 	}
+	if label := videoRange(s).Label; label != "" {
+		parts = append(parts, label)
+	}
 	if s.Type == "Audio" && s.Channels > 0 {
 		parts = append(parts, channelLayout(s.Channels))
 	}
 	return strings.Join(parts, " ")
+}
+
+// hdrFormat is how Emby names a video's dynamic range in MediaStream; Label is
+// its part of DisplayTitle, empty for SDR.
+type hdrFormat struct{ Range, Type, SubType, Description, Label string }
+
+// videoRange names s's dynamic range. The HDR10 and Dolby Vision profile 8.1
+// values are those of Emby 4.10.2.0 (#125); the HLG values and the other Dolby
+// Vision profiles' descriptions are not captured.
+func videoRange(s media.Stream) hdrFormat {
+	switch {
+	case s.Type != "Video":
+	case s.DoviProfile > 0:
+		description := fmt.Sprintf("Profile %d.%d", s.DoviProfile, s.DoviCompatibility)
+		switch s.DoviCompatibility {
+		case 1, 6:
+			description += " (HDR10 compatible)"
+		case 2:
+			description += " (SDR compatible)"
+		case 4:
+			description += " (HLG compatible)"
+		}
+		return hdrFormat{"DolbyVision", "DolbyVision", fmt.Sprintf("DoviProfile%d%d", s.DoviProfile, s.DoviCompatibility), description, "Dolby Vision"}
+	case s.ColorTransfer == "smpte2084":
+		return hdrFormat{"HDR 10", "Hdr10", "Hdr10", "HDR 10", "HDR 10"}
+	case s.ColorTransfer == "arib-std-b67":
+		return hdrFormat{"HLG", "HyperLogGamma", "HyperLogGamma", "HLG", "HLG"}
+	}
+	return hdrFormat{"SDR", "None", "None", "None", ""}
 }
 
 func verticalResolution(height int) string {

@@ -307,7 +307,8 @@ func transcodingURL(item media.Item, deviceID, playSession, token, videoCodec, a
 func remuxSource(catalog *media.Catalog, item media.Item, video *media.Stream) hls.Source {
 	return hls.Source{ItemID: item.ID, Version: fmt.Sprintf("%d/%d", item.Size, item.Modified.UnixNano()),
 		Open: func() (*os.File, error) { return catalog.Open(item) }, Duration: float64(item.RunTimeTicks) / 1e7,
-		VideoStream: video.Index, AudioStream: -1}
+		VideoStream: video.Index, AudioStream: -1,
+		ColorTransfer: video.ColorTransfer, DoviProfile: video.DoviProfile, DoviCompatibility: video.DoviCompatibility}
 }
 
 // hlsSource derives the stream from an HLS request's query, so that the

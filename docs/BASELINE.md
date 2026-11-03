@@ -405,6 +405,22 @@ Startup, idle, the API, Direct Stream and remux do not encode and match the eigh
 
   VA-API is 0.002 SSIM and 1.2 dB PSNR below `libx264` at the same bitrate cap, within the 0.01 SSIM condition of the budgets.
 
+## HDR tone mapping (2026-11-03, #125)
+
+FFmpeg alone in the release image built with `--build-arg VAAPI=1` (FFmpeg 8.1, Mesa's VA-API and Vulkan drivers), the first 18 s of R09 (HEVC Main 10 HDR10 3840×2076) at the source size, video only, with the filters and encoder options Couch builds, `-threads` and `-filter_threads` at the CPU count, `--memory 4g`, the render node passed in. Times and peak RSS from GNU time; each output's transfer checked with FFprobe (`smpte2084` without tone mapping, `bt709` with it). One run each.
+
+| Encoder, tone mapping | 2 CPUs: wall / CPU / peak RSS | 4 CPUs: wall / CPU / peak RSS |
+|---|---|---|
+| `h264_vaapi`, off | 13.1 s / 26.0 s / 364 MiB | 8.3 s / 32.5 s / 499 MiB |
+| `h264_vaapi`, libplacebo (Vulkan) | 15.6 s / 30.8 s / 456 MiB | 11.0 s / 40.3 s / 566 MiB |
+| `libx264`, off | 28.8 s / 57.2 s / 945 MiB | 18.9 s / 63.5 s / 1164 MiB |
+| `libx264`, `zscale` + `tonemap=mobius` | 55.7 s / 111.2 s / 1254 MiB | 36.1 s / 143.2 s / 1478 MiB |
+
+- **GPU:** libplacebo adds 19–33 % wall time and 18–24 % CPU to a VA-API encode, and 92 / 67 MiB, and stays faster than real time on 2 CPUs. The frames go to the GPU and back for tone mapping, so decoding and the VA-API upload stay where they were. In Emby Web the whole job (with its AAC audio, no CPU limit, 16 CPUs) peaked at about 1 GiB.
+- **CPU:** `zscale` doubles a `libx264` encode and adds about 300 MiB: 0.32× real time on 2 CPUs and 0.5× on 4, so 4K HDR stalls in playback. 1080p was not measured in the image.
+- **VA-API's own tone mapping** (`tonemap_vaapi`) fails on the Radeon 780M (`VAAPI driver doesn't support HDR`), and the host has no OpenCL platform for `tonemap_opencl`; libplacebo is the GPU path that works here.
+- **Emby 4.10.2.0** does not tone-map with its settings on the reference NAS: its H.264 transcodes of an HDR10 and a Dolby Vision 8.1 item kept `smpte2084`/`bt2020` ([VALIDATION](VALIDATION.md), "HDR reference capture"). Its cost was not measured.
+
 ## Not measured yet
 
 - Picture quality of the two encoders.

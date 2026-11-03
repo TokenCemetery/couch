@@ -50,7 +50,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Remux to HLS (container or audio the browser cannot play) | Supported | Video copied, audio such as AC3 encoded to AAC; at most 2 sessions |
 | Transcode to H.264 over HLS | Supported | MPEG-2, MPEG-4 ASP and HEVC sources verified; at most 1 session; threads follow a CPU quota by default, `-ffmpeg-threads` overrides (#92) |
 | 4K HEVC transcode | Partial | Encoded at the source size; on 4 CPUs it starts, but encodes at about 0.75× real time, so playback stalls and a resume can exceed Emby Web's 10 s wait (#97) |
-| HDR sources | Partial | Transcoded without tone mapping and reported as SDR (#125) |
+| HDR sources | Partial | HDR10, Dolby Vision and HLG reported as Emby does (HLG values assumed). A transcode tone-maps to SDR with libplacebo where Vulkan works (the VA-API image on AMD), or with `zscale` on the CPU, at about 0.3× real time for 4K, behind `-tonemap software`; otherwise, as in the default image, it keeps the HDR tags (#125) |
 | Interlaced sources | Partial | Transcoded without deinterlacing |
 | Rotated video | Partial | Rotation applied; seek checked once on a transcode, resume not checked (#22) |
 | Quality switch in the player | Supported | Keeps the position |

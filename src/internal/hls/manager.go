@@ -86,6 +86,11 @@ type Source struct {
 	// video.
 	BurnSubtitle   bool
 	SubtitleStream int
+	// ColorTransfer is the video's, as FFprobe names it, and DoviProfile and
+	// DoviCompatibility are its Dolby Vision record (0 without one); an
+	// encoded HDR video is tone-mapped as Manager.ToneMap says.
+	ColorTransfer                  string
+	DoviProfile, DoviCompatibility int
 }
 
 // Key identifies what the session produces; a session ID cannot be reused
@@ -111,6 +116,9 @@ type Manager struct {
 	// Accel encodes transcodes on hardware. Set it before the first
 	// session.
 	Accel Accel
+	// ToneMap turns encoded HDR video into SDR. Set it before the first
+	// session.
+	ToneMap ToneMap
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -509,7 +517,7 @@ func (m *Manager) Segment(ctx context.Context, id, owner string, source Source, 
 				return nil, ErrSuperseded
 			}
 			s.stopJob()
-			if err := s.startJob(m.ffmpeg, m.Threads, m.Accel, bounds, start, n); err != nil {
+			if err := s.startJob(m.ffmpeg, m.Threads, m.Accel, m.ToneMap, bounds, start, n); err != nil {
 				s.mu.Unlock()
 				slog.Warn("HLS job failed to start", "item", source.ItemID, "error", err)
 				return nil, ErrSegment
@@ -613,7 +621,7 @@ func (j *job) finished() bool {
 }
 
 // startJob writes segments from n on. Caller holds s.mu.
-func (s *session) startJob(ffmpeg string, threads int, accel Accel, bounds []float64, start float64, n int) error {
+func (s *session) startJob(ffmpeg string, threads int, accel Accel, toneMap ToneMap, bounds []float64, start float64, n int) error {
 	file, err := s.source.Open()
 	if err != nil {
 		return err
@@ -650,6 +658,9 @@ func (s *session) startJob(ffmpeg string, threads int, accel Accel, bounds []flo
 		args = append(args, accel.global()...)
 		if threads > 0 {
 			args = append(args, "-threads", strconv.Itoa(threads))
+			if toneMap.method(s.source) == ToneMapSoftware {
+				args = append(args, "-filter_threads", strconv.Itoa(threads))
+			}
 		}
 	}
 	// A burned-in subtitle is mapped as the overlay's output.
@@ -666,7 +677,7 @@ func (s *session) startJob(ffmpeg string, threads int, accel Accel, bounds []flo
 		if trimmed {
 			trim = "trim=start=" + cut + ","
 		}
-		args = append(args, encodeVideo(bounds[n:], start, trim, threads, accel, s.source)...)
+		args = append(args, encodeVideo(bounds[n:], start, trim, threads, accel, toneMap, s.source)...)
 	} else {
 		args = append(args, "-c:v", "copy")
 	}
@@ -744,6 +755,9 @@ func (s *session) startJob(ffmpeg string, threads int, accel Accel, bounds []flo
 			attrs := []any{"item", s.source.ItemID, "video", video, "audio", audio}
 			if s.source.VideoEncode {
 				attrs = append(attrs, "encoder", accel.Encoder())
+				if s.source.hdr() {
+					attrs = append(attrs, "tonemap", toneMap.method(s.source).logName())
+				}
 			}
 			attrs = append(attrs, "segments", segments, "cpu", cpu.Round(time.Millisecond), "peak_rss_kib", peak)
 			slog.Info("HLS job ended", attrs...)
@@ -761,13 +775,15 @@ func (s *session) startJob(ffmpeg string, threads int, accel Accel, bounds []flo
 // H.264 for the segments starting at bounds, relative to the file's start
 // time; trim, when set, is a filter that runs before scaling. A burned-in
 // subtitle is overlaid before both, on a canvas of the video's size, and the
-// result is the [v] output; accel uploads it last. Keyframes are
+// result is the [v] output; accel uploads it last. toneMap maps an HDR picture
+// to SDR after scaling, or, with a burned-in subtitle, before the overlay, so
+// that the SDR subtitle is not tone-mapped. Keyframes are
 // forced on the plan's grid, so every segment starts with one. The encoder keeps the source's time base (demux):
 // with the frame rate's, timestamps are rounded and a forced keyframe can
 // land one frame late. The picture keeps its aspect ratio, shrinks to fit
 // the source's MaxWidth and MaxHeight, and has even dimensions, as 4:2:0
 // requires. Threads, when positive, caps the encoder threads.
-func encodeVideo(bounds []float64, start float64, trim string, threads int, accel Accel, source Source) []string {
+func encodeVideo(bounds []float64, start float64, trim string, threads int, accel Accel, toneMap ToneMap, source Source) []string {
 	keyframes := make([]string, len(bounds))
 	for i, b := range bounds {
 		keyframes[i] = strconv.FormatFloat(start+b-0.001, 'f', 6, 64)
@@ -778,10 +794,15 @@ func encodeVideo(bounds []float64, start float64, trim string, threads int, acce
 		}
 		return "'min(" + size + "," + strconv.Itoa(limit) + ")'"
 	}
-	scale := trim + "scale=w=" + bound(source.MaxWidth, "iw") + ":h=" + bound(source.MaxHeight, "ih") + ":force_original_aspect_ratio=decrease:force_divisible_by=2" + accel.upload()
-	filter := []string{"-vf", scale}
+	scale := trim + "scale=w=" + bound(source.MaxWidth, "iw") + ":h=" + bound(source.MaxHeight, "ih") + ":force_original_aspect_ratio=decrease:force_divisible_by=2"
+	toneMapped := toneMap.filter(source)
+	filter := []string{"-vf", scale + prefixed(toneMapped) + accel.upload()}
 	if source.BurnSubtitle {
-		filter = []string{"-filter_complex", fmt.Sprintf("[0:%d][0:%d]overlay=eof_action=pass,%s[v]", source.VideoStream, source.SubtitleStream, scale)}
+		video := fmt.Sprintf("[0:%d]", source.VideoStream)
+		if toneMapped != "" {
+			video += toneMapped + "[sdr];[sdr]"
+		}
+		filter = []string{"-filter_complex", fmt.Sprintf("%s[0:%d]overlay=eof_action=pass,%s[v]", video, source.SubtitleStream, scale+accel.upload())}
 	}
 	args := append(accel.encode(source.VideoBitrate), filter...)
 	args = append(args, "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
@@ -790,6 +811,14 @@ func encodeVideo(bounds []float64, start float64, trim string, threads int, acce
 		args = append(args, "-threads", strconv.Itoa(threads))
 	}
 	return args
+}
+
+// prefixed joins filter onto a chain: with a leading comma, or empty.
+func prefixed(filter string) string {
+	if filter == "" {
+		return ""
+	}
+	return "," + filter
 }
 
 // follow records each segment FFmpeg finishes and pauses the job (SIGSTOP)

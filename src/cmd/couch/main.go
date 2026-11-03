@@ -56,6 +56,7 @@ func run() error {
 	ffmpegThreads := flag.Int("ffmpeg-threads", 0, "cap FFmpeg decoder and encoder threads per transcode; 0 follows a CPU quota, or leaves them to FFmpeg without one")
 	hwaccel := flag.String("hwaccel", "", "encode transcodes on hardware: "+strings.Join(hls.Accels, ", ")+"; empty uses libx264")
 	hwaccelDevice := flag.String("hwaccel-device", "/dev/dri/renderD128", "DRM render node for -hwaccel vaapi and qsv")
+	toneMap := flag.String("tonemap", "auto", "tone-map transcoded HDR video to SDR: auto (on the GPU with libplacebo when Vulkan works), software (with zscale on the CPU when it does not), off")
 	metadataLanguage := flag.String("metadata-language", "en", "language of online metadata: "+strings.Join(metadata.SupportedLanguages(), ", "))
 	metadataRefresh := flag.Duration("metadata-refresh", 0, "fetch online metadata again once it is this old, for example 720h; 0 never does")
 	flag.Parse()
@@ -73,6 +74,9 @@ func run() error {
 	}
 	if !slices.Contains(metadata.SupportedLanguages(), *metadataLanguage) {
 		return fmt.Errorf("-metadata-language must be one of %s", strings.Join(metadata.SupportedLanguages(), ", "))
+	}
+	if !slices.Contains(hls.ToneMapModes, *toneMap) {
+		return errors.New("-tonemap must be auto, software or off")
 	}
 	if *hwaccel != "" && !slices.Contains(hls.Accels, *hwaccel) {
 		return fmt.Errorf("-hwaccel must be one of %s", strings.Join(hls.Accels, ", "))
@@ -163,6 +167,9 @@ func run() error {
 			if err := remux.CheckAccel(context.Background()); err != nil {
 				return fmt.Errorf("-hwaccel %s: %w", *hwaccel, err)
 			}
+		}
+		if err := remux.SetToneMap(context.Background(), *toneMap); err != nil {
+			return fmt.Errorf("-tonemap %s: %w", *toneMap, err)
 		}
 		api.SetHLS(remux)
 	} else if *hwaccel != "" {

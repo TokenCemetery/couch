@@ -23,8 +23,13 @@ var mediaFilters = map[string]func(item media.Item) []string{
 	"subtitlecodecs":    streamValues("Subtitle", func(s media.Stream) string { return s.Codec }),
 	"audiolanguages":    streamValues("Audio", func(s media.Stream) string { return s.Language }),
 	"subtitlelanguages": streamValues("Subtitle", func(s media.Stream) string { return s.Language }),
-	// Every item reports ExtendedVideoType None (dto.go).
-	"extendedvideotypes": func(media.Item) []string { return []string{"None"} },
+	// HDR10, HLG or Dolby Vision, or None for SDR and items without video (#125).
+	"extendedvideotypes": func(item media.Item) []string {
+		if values := streamValues("Video", func(s media.Stream) string { return videoRange(s).Type })(item); len(values) > 0 {
+			return values
+		}
+		return []string{"None"}
+	},
 }
 
 // metadataFilters maps the Items filters on metadata to the list type
@@ -298,6 +303,8 @@ func (s *Server) filterRoutes(mux *http.ServeMux) {
 		"/officialratings": "OfficialRating", "/years": "Year", "/persons": "Person"} {
 		mux.HandleFunc("GET "+path, s.protect(s.metadataValueList(kind)))
 	}
-	// Every video is of the plain type.
-	mux.HandleFunc("GET /extendedvideotypes", s.protect(s.filterValueList(nil)))
+	// The HDR types; the plain one, None, is not offered.
+	mux.HandleFunc("GET /extendedvideotypes", s.protect(s.filterValueList(func(item media.Item) []string {
+		return slices.DeleteFunc(mediaFilters["extendedvideotypes"](item), func(v string) bool { return v == "None" })
+	})))
 }

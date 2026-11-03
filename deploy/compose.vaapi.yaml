@@ -1,5 +1,6 @@
-# Adds VA-API encoding on the host's GPU to compose.yaml: Mesa's drivers in
-# the image and the render node. Enabled from .env (see .env.example).
+# Adds VA-API encoding and HDR tone mapping on the host's GPU to
+# compose.yaml: Mesa's drivers in the image and the render node. Enabled from
+# .env (see .env.example).
 services:
   couch:
     build:

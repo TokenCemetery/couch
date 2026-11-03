@@ -83,6 +83,9 @@ type Item struct {
 	Photo Photo
 	// src is the folder the item was found in.
 	src *source
+	// reprobe marks a video loaded from an index whose probes lack a field
+	// the current one records; the next rescan probes it again.
+	reprobe bool
 }
 
 // Tags are an audio file's metadata, as probed. Track and Disc are 0 and
@@ -204,6 +207,15 @@ type Stream struct {
 	IsDefault         bool
 	IsForced          bool
 	IsHearingImpaired bool
+	// ColorTransfer, ColorPrimaries and ColorSpace are FFprobe's names, such
+	// as smpte2084, bt2020 and bt2020nc.
+	ColorTransfer  string `json:",omitempty"`
+	ColorPrimaries string `json:",omitempty"`
+	ColorSpace     string `json:",omitempty"`
+	// DoviProfile and DoviCompatibility are from a Dolby Vision
+	// configuration record; DoviProfile is 0 without one.
+	DoviProfile       int `json:",omitempty"`
+	DoviCompatibility int `json:",omitempty"`
 	// Path is set for an external subtitle file, relative to the media
 	// directory. It is never sent to clients.
 	Path string `json:",omitempty"`
@@ -414,7 +426,7 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 		}
 		modified := info.ModTime().UTC()
 		var item Item
-		if previous, ok := known[path]; ok && previous.Size == info.Size() && previous.Modified.Equal(modified) {
+		if previous, ok := known[path]; ok && !previous.reprobe && previous.Size == info.Size() && previous.Modified.Equal(modified) {
 			// Sidecars and episode fields are derived again below.
 			item = Item{RunTimeTicks: previous.RunTimeTicks, Streams: embeddedStreams(previous.Streams), Tags: previous.Tags, Cover: previous.Cover, Photo: previous.Photo}
 		} else if picture {
