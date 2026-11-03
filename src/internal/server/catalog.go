@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/TokenCemetery/couch/internal/media"
 	"github.com/TokenCemetery/couch/internal/state"
@@ -143,9 +145,11 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 	s.seriesRoutes(mux)
 	s.imageRoutes(mux)
 	s.userImageRoutes(mux)
-	mux.HandleFunc("GET /itemtypes", s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-		s.listItems(w, r, session, false, false)
-	}))
+	for _, path := range []string{"/itemtypes", "/items/prefixes"} {
+		mux.HandleFunc("GET "+path, s.protect(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+			s.listItems(w, r, session, false, false)
+		}))
+	}
 }
 
 // extrasRoutes answers the companion requests Emby Web makes on an item page.
@@ -252,6 +256,7 @@ const supportedSorts = "sortname,name,datecreated,dateplayed,runtime,indexnumber
 func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session state.Session, catalog *media.Catalog, latest, resume bool) {
 	token, _ := requestToken(r) // Callers have already authenticated this request.
 	typesOnly := r.URL.Path == "/itemtypes"
+	prefixesOnly := r.URL.Path == "/items/prefixes"
 	query, err := catalogQuery(r)
 	if err != nil {
 		fail(w, 400, "InvalidQuery")
@@ -596,6 +601,27 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 			result = append(result, object{"Name": name})
 		}
 		respond(w, 200, object{"Items": result, "TotalRecordCount": len(result)})
+		return
+	}
+	if prefixesOnly {
+		// The A–Z jump bar offers the first letter of each sort name in the
+		// filtered result; picking one sends NameStartsWithOrGreater (#124).
+		letters := []string{}
+		for _, item := range items {
+			first, _ := utf8.DecodeRuneInString(s.sortName(*item))
+			if first == utf8.RuneError {
+				continue
+			}
+			if letter := string(unicode.ToUpper(first)); !slices.Contains(letters, letter) {
+				letters = append(letters, letter)
+			}
+		}
+		slices.SortFunc(letters, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+		result := make([]object, 0, len(letters))
+		for _, letter := range letters {
+			result = append(result, object{"Name": letter})
+		}
+		respond(w, 200, result)
 		return
 	}
 	// A series or season sorts by its episodes for the newest added and the

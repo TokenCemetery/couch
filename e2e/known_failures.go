@@ -371,7 +371,6 @@ var knownFailures = map[string]knownFailure{
 	"postSystemShutdown":       refusedAdmin,
 	// TagService
 	"getArtistsPrefixes":      notCalledByWeb,
-	"getItemsPrefixes":        unranked,
 	"postItemsByIdTagsAdd":    readOnlyItems,
 	"postItemsByIdTagsDelete": readOnlyItems,
 	// ToneMapOptionsService

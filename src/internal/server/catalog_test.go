@@ -172,6 +172,49 @@ func TestItemsQueriesFromEmbyWeb(t *testing.T) {
 	}
 }
 
+// The A–Z jump bar lists the first letters of the names in the list's own
+// query (#124).
+func TestItemsPrefixes(t *testing.T) {
+	store, _, _ := newTestServer(t)
+	catalog := &media.Catalog{ID: "movies", Items: []media.Item{
+		{ID: "a", Name: "alpha"},
+		{ID: "a2", Name: "Avatar"},
+		{ID: "z", Name: "Zulu"},
+		{ID: "n", Name: "1917"},
+		{ID: "episode", Kind: "Episode", Name: "Show S01E01", ParentID: "season", SeriesID: "series", SeasonID: "season", SeasonNumber: 1, EpisodeNumber: 1},
+	}}
+	catalog.Folders = []media.Item{
+		{ID: "series", Kind: "Series", Name: "Show", ParentID: catalog.SeriesLibraryID()},
+		{ID: "season", Kind: "Season", Name: "Season 1", ParentID: "series", SeriesID: "series", SeasonNumber: 1},
+	}
+	h := New(store, "test", nil, catalog).Handler()
+	token := login(t, h)
+	user := testUser(store).ID
+	for query, want := range map[string]string{
+		"ParentId=movies&Recursive=true&IncludeItemTypes=Movie":                             "1,A,Z",
+		"ParentId=" + catalog.SeriesLibraryID() + "&Recursive=true&IncludeItemTypes=Series": "S",
+		"ParentId=movies&Recursive=true&IncludeItemTypes=Movie&SearchTerm=zu":               "Z",
+		"ParentId=movies&Recursive=true&IncludeItemTypes=Series":                            "",
+	} {
+		w := request(h, "GET", "/Items/Prefixes?UserId="+user+"&"+query, "", "", token)
+		expectStatus(t, w, 200)
+		var prefixes []struct{ Name string }
+		if err := json.Unmarshal(w.Body.Bytes(), &prefixes); err != nil || prefixes == nil {
+			t.Fatalf("%s: %s", query, w.Body.String())
+		}
+		letters := []string{}
+		for _, p := range prefixes {
+			letters = append(letters, p.Name)
+		}
+		if got := strings.Join(letters, ","); got != want {
+			t.Errorf("%s: %s, want %s", query, got, want)
+		}
+	}
+	expectStatus(t, request(h, "GET", "/Items/Prefixes?Recursive=yes", "", "", token), 400)
+	expectStatus(t, request(h, "GET", "/Items/Prefixes?UserId=other", "", "", token), 403)
+	expectStatus(t, request(h, "GET", "/Items/Prefixes", "", "", ""), 401)
+}
+
 // Every sort Emby Web's library menus offer answers 200 (#79).
 func TestLibraryMenuSorts(t *testing.T) {
 	store, _, _ := newTestServer(t)
