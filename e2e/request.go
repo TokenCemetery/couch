@@ -58,6 +58,13 @@ var requestOverrides = map[string]func(*Request, Fixtures){
 		r.Query.Set("Name", "e2e")
 		r.Query.Set("Ids", ids.MovieID)
 	},
+	// Couch changes the images of collections and playlists only.
+	"postItemsByIdImagesByType":              collectionImageUpload,
+	"postItemsByIdImagesByTypeByIndex":       collectionImageUpload,
+	"postItemsByIdImagesByTypeDelete":        collectionPath,
+	"postItemsByIdImagesByTypeByIndexDelete": collectionPath,
+	"deleteItemsByIdImagesByType":            collectionPath,
+	"deleteItemsByIdImagesByTypeByIndex":     collectionPath,
 	// Couch deletes collections only, never media files.
 	"getItemsByIdDeleteinfo": collectionPath,
 	"deleteItemsById":        collectionPath,
@@ -84,6 +91,12 @@ var requestOverrides = map[string]func(*Request, Fixtures){
 // collectionPath points an item operation at the collection.
 func collectionPath(r *Request, ids Fixtures) {
 	r.Path = strings.Replace(r.Path, "/Items/"+url.PathEscape(ids.MovieID), "/Items/"+url.PathEscape(ids.CollectionID), 1)
+}
+
+// collectionImageUpload uploads the collection's image like an avatar.
+func collectionImageUpload(r *Request, ids Fixtures) {
+	collectionPath(r, ids)
+	avatarUpload(r, ids)
 }
 
 // avatarUpload sends an image the way Emby Web does: base64 text, not bytes.

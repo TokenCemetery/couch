@@ -195,8 +195,8 @@ type Store struct {
 	lock *os.File
 	db   *sql.DB
 	data Data
-	// imageMu serializes avatar changes, so a file is removed only once the
-	// committed state no longer references it.
+	// imageMu serializes changes of uploaded images, so a file is removed
+	// only once the committed state no longer references it.
 	imageMu sync.Mutex
 }
 
@@ -857,28 +857,34 @@ func (s *Store) RevokeDevice(deviceID string) ([]string, error) {
 	return revoked, err
 }
 
-// DeleteUser removes the user with their playback state, avatar and
-// sessions, whose IDs are returned. The last administrator cannot be deleted.
+// DeleteUser removes the user with their playback state, avatar, playlists
+// and sessions, whose IDs are returned. The last administrator cannot be
+// deleted.
 func (s *Store) DeleteUser(id string) ([]string, error) {
 	s.imageMu.Lock()
 	defer s.imageMu.Unlock()
 	var revoked []string
-	var image *UserImage
+	var images []*UserImage
 	err := s.update("", nil, func(d *Data) error {
 		u, ok := d.Users[id]
 		if !ok {
 			return ErrUserNotFound
 		}
-		image = u.Image
+		images = []*UserImage{u.Image}
 		delete(d.Users, id)
 		if administrators(d) == 0 {
 			return ErrLastAdministrator
 		}
 		revoked = revokeSessions(d, id, "")
-		d.Playlists = slices.DeleteFunc(slices.Clone(d.Playlists), func(p Playlist) bool { return p.UserID == id })
+		d.Playlists = slices.DeleteFunc(slices.Clone(d.Playlists), func(p Playlist) bool {
+			if p.UserID == id {
+				images = append(images, p.Image)
+			}
+			return p.UserID == id
+		})
 		return nil
 	})
-	s.removeUnreferencedImages(image)
+	s.removeUnreferencedImages(images...)
 	return revoked, err
 }
 

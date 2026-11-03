@@ -53,7 +53,7 @@ func TestCollections(t *testing.T) {
 	if err := s.DeleteCollections([]string{other.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE collections DROP COLUMN set_key; ALTER TABLE collections DROP COLUMN set_items; ALTER TABLE collections DROP COLUMN declined; DROP TABLE dismissed_sets; ALTER TABLE libraries DROP COLUMN realtime_monitor; DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; DROP TABLE collections; DROP TABLE playlists; ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 7"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE collections DROP COLUMN image_revision; ALTER TABLE collections DROP COLUMN image_mime; ALTER TABLE collections DROP COLUMN image_width; ALTER TABLE collections DROP COLUMN image_height; ALTER TABLE playlists DROP COLUMN image_revision; ALTER TABLE playlists DROP COLUMN image_mime; ALTER TABLE playlists DROP COLUMN image_width; ALTER TABLE playlists DROP COLUMN image_height; ALTER TABLE collections DROP COLUMN set_key; ALTER TABLE collections DROP COLUMN set_items; ALTER TABLE collections DROP COLUMN declined; DROP TABLE dismissed_sets; ALTER TABLE libraries DROP COLUMN realtime_monitor; DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; DROP TABLE collections; DROP TABLE playlists; ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 7"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

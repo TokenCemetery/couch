@@ -93,7 +93,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 			snapshot := s.store.Snapshot()
 			sets := s.sessionBoxSets(session)
 			if set, ok := sets[id]; ok {
-				respond(w, 200, s.boxSetDTO(set, snapshot.ServerID, userOf(snapshot, session).Items, userOf(snapshot, session).Policy.IsAdministrator))
+				respond(w, 200, s.boxSetDTO(s.catalogFor(session), set, snapshot.ServerID, userOf(snapshot, session).Items, userOf(snapshot, session).Policy.IsAdministrator, token))
 				return
 			}
 			if id == collectionsViewID && len(sets) > 0 {
@@ -102,7 +102,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 			}
 			lists := s.sessionPlaylists(session)
 			if p, ok := lists[id]; ok {
-				respond(w, 200, playlistDTO(p, snapshot.ServerID, userOf(snapshot, session).Items))
+				respond(w, 200, s.playlistDTO(s.catalogFor(session), p, snapshot.ServerID, userOf(snapshot, session).Items, token))
 				return
 			}
 			if id == playlistsViewID && len(lists) > 0 {
@@ -729,11 +729,7 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 			case "director":
 				comparison = strings.Compare(director(a), director(b))
 			case "displayorder":
-				// A collection lists its items by release date, then name.
-				comparison = s.info(a.ID).Premiere.Compare(s.info(b.ID).Premiere)
-				if comparison == 0 {
-					comparison = strings.Compare(s.sortKey(*a), s.sortKey(*b))
-				}
+				comparison = s.displayOrder(a, b)
 			case "listitemorder":
 				comparison = cmp.Compare(listOrder[a], listOrder[b])
 			case "datemodified":
@@ -799,9 +795,9 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 		case item == listsView:
 			result = append(result, playlistsViewDTO(serverID, len(lists), false))
 		case isPlaylist(item):
-			result = append(result, playlistDTO(lists[item.ID], serverID, user.Items))
+			result = append(result, s.playlistDTO(catalog, lists[item.ID], serverID, user.Items, token))
 		case isBoxSet(item):
-			result = append(result, s.boxSetDTO(sets[item.ID], serverID, user.Items, user.Policy.IsAdministrator))
+			result = append(result, s.boxSetDTO(catalog, sets[item.ID], serverID, user.Items, user.Policy.IsAdministrator, token))
 		case isCollection(item):
 			result = append(result, s.collectionDTO(item.ID, serverID, false))
 		default:

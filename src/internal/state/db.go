@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 14
+const dbSchemaVersion = 15
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,8 +57,21 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + monitorColumn + setColumns + `
-PRAGMA user_version = 14;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + monitorColumn + setColumns + imageColumns + `
+PRAGMA user_version = 15;
+`
+
+// imageColumns were added in version 15: the Primary image uploaded for a
+// collection or playlist and its size, NULL when there is none.
+const imageColumns = `
+ALTER TABLE collections ADD COLUMN image_revision TEXT;
+ALTER TABLE collections ADD COLUMN image_mime TEXT;
+ALTER TABLE collections ADD COLUMN image_width INTEGER;
+ALTER TABLE collections ADD COLUMN image_height INTEGER;
+ALTER TABLE playlists ADD COLUMN image_revision TEXT;
+ALTER TABLE playlists ADD COLUMN image_mime TEXT;
+ALTER TABLE playlists ADD COLUMN image_width INTEGER;
+ALTER TABLE playlists ADD COLUMN image_height INTEGER;
 `
 
 // setColumns were added in version 14: the movie set an automatic
@@ -212,6 +225,8 @@ var migrations = map[int]string{
 	12: monitorColumn + "PRAGMA user_version = 13;",
 	// Version 14 stores collections created from movie sets.
 	13: setColumns + "PRAGMA user_version = 14;",
+	// Version 15 stores images uploaded for collections and playlists.
+	14: imageColumns + "PRAGMA user_version = 15;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -324,9 +339,7 @@ func loadUsers(ctx context.Context, db *sql.DB) (map[string]User, error) {
 		if err := json.Unmarshal([]byte(folders), &p.EnabledFolders); err != nil {
 			return nil, err
 		}
-		if revision.Valid {
-			u.Image = &UserImage{Revision: revision.String, MIME: mime.String}
-		}
+		u.Image = nullImage(revision, mime, sql.NullInt64{}, sql.NullInt64{})
 		users[u.ID] = u
 	}
 	if err := rows.Err(); err != nil {
@@ -339,6 +352,24 @@ func loadUsers(ctx context.Context, db *sql.DB) (map[string]User, error) {
 		users[id] = u
 	}
 	return users, nil
+}
+
+// nullImage is the uploaded image stored in the image_revision, image_mime,
+// image_width and image_height columns, or nil when they are NULL.
+func nullImage(revision, mime sql.NullString, width, height sql.NullInt64) *UserImage {
+	if !revision.Valid {
+		return nil
+	}
+	return &UserImage{Revision: revision.String, MIME: mime.String, Width: int(width.Int64), Height: int(height.Int64)}
+}
+
+// imageColumnValues are the image_revision, image_mime, image_width and
+// image_height values of image, NULL for none.
+func imageColumnValues(image *UserImage) (revision, mime, width, height any) {
+	if image == nil {
+		return nil, nil, nil, nil
+	}
+	return image.Revision, image.MIME, image.Width, image.Height
 }
 
 func loadItems(ctx context.Context, db *sql.DB, u *User) error {
@@ -497,10 +528,8 @@ func userRow(u User) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var revision, mime, sections any
-	if u.Image != nil {
-		revision, mime = u.Image.Revision, u.Image.MIME
-	}
+	revision, mime, _, _ := imageColumnValues(u.Image)
+	var sections any
 	if u.HomeSections != nil {
 		text, err := json.Marshal(u.HomeSections)
 		if err != nil {
@@ -678,7 +707,7 @@ func writeLibraries(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 }
 
 func loadCollections(ctx context.Context, db *sql.DB) ([]Collection, []string, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, name, added, items, set_key, set_items, declined FROM collections ORDER BY position")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, added, items, set_key, set_items, declined, image_revision, image_mime, image_width, image_height FROM collections ORDER BY position")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -687,9 +716,12 @@ func loadCollections(ctx context.Context, db *sql.DB) ([]Collection, []string, e
 	for rows.Next() {
 		var c Collection
 		var added, items, setItems, declined string
-		if err := rows.Scan(&c.ID, &c.Name, &added, &items, &c.Set, &setItems, &declined); err != nil {
+		var revision, mime sql.NullString
+		var width, height sql.NullInt64
+		if err := rows.Scan(&c.ID, &c.Name, &added, &items, &c.Set, &setItems, &declined, &revision, &mime, &width, &height); err != nil {
 			return nil, nil, err
 		}
+		c.Image = nullImage(revision, mime, width, height)
 		if err := c.Added.UnmarshalText([]byte(added)); err != nil {
 			return nil, nil, err
 		}
@@ -759,8 +791,10 @@ func writeCollections(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO collections (id, position, name, added, items, set_key, set_items, declined) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			c.ID, n, c.Name, added, string(items), c.Set, string(setItems), string(declined)); err != nil {
+		revision, mime, width, height := imageColumnValues(c.Image)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO collections (id, position, name, added, items, set_key, set_items, declined, image_revision, image_mime, image_width, image_height)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			c.ID, n, c.Name, added, string(items), c.Set, string(setItems), string(declined), revision, mime, width, height); err != nil {
 			return err
 		}
 	}
@@ -768,7 +802,7 @@ func writeCollections(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 }
 
 func loadPlaylists(ctx context.Context, db *sql.DB) ([]Playlist, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, user_id, name, added, modified, entries FROM playlists ORDER BY position")
+	rows, err := db.QueryContext(ctx, "SELECT id, user_id, name, added, modified, entries, image_revision, image_mime, image_width, image_height FROM playlists ORDER BY position")
 	if err != nil {
 		return nil, err
 	}
@@ -777,9 +811,12 @@ func loadPlaylists(ctx context.Context, db *sql.DB) ([]Playlist, error) {
 	for rows.Next() {
 		var p Playlist
 		var added, modified, entries string
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &added, &modified, &entries); err != nil {
+		var revision, mime sql.NullString
+		var width, height sql.NullInt64
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &added, &modified, &entries, &revision, &mime, &width, &height); err != nil {
 			return nil, err
 		}
+		p.Image = nullImage(revision, mime, width, height)
 		if err := p.Added.UnmarshalText([]byte(added)); err != nil {
 			return nil, err
 		}
@@ -824,9 +861,12 @@ func writePlaylists(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO playlists (id, position, user_id, name, added, modified, entries) VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT (id) DO UPDATE SET position = excluded.position, name = excluded.name, modified = excluded.modified, entries = excluded.entries`,
-			p.ID, n, p.UserID, p.Name, added, modified, string(entries)); err != nil {
+		revision, mime, width, height := imageColumnValues(p.Image)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO playlists (id, position, user_id, name, added, modified, entries, image_revision, image_mime, image_width, image_height)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT (id) DO UPDATE SET position = excluded.position, name = excluded.name, modified = excluded.modified, entries = excluded.entries,
+				image_revision = excluded.image_revision, image_mime = excluded.image_mime, image_width = excluded.image_width, image_height = excluded.image_height`,
+			p.ID, n, p.UserID, p.Name, added, modified, string(entries), revision, mime, width, height); err != nil {
 			return err
 		}
 	}

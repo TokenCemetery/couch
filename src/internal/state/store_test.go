@@ -446,7 +446,7 @@ func TestLibrariesPersist(t *testing.T) {
 		t.Fatalf("reopened libraries %+v", d.Libraries)
 	}
 	// Libraries stored before real-time monitoring get it turned on.
-	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE collections DROP COLUMN set_key; ALTER TABLE collections DROP COLUMN set_items; ALTER TABLE collections DROP COLUMN declined; DROP TABLE dismissed_sets; ALTER TABLE libraries DROP COLUMN realtime_monitor; PRAGMA user_version = 12"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE collections DROP COLUMN image_revision; ALTER TABLE collections DROP COLUMN image_mime; ALTER TABLE collections DROP COLUMN image_width; ALTER TABLE collections DROP COLUMN image_height; ALTER TABLE playlists DROP COLUMN image_revision; ALTER TABLE playlists DROP COLUMN image_mime; ALTER TABLE playlists DROP COLUMN image_width; ALTER TABLE playlists DROP COLUMN image_height; ALTER TABLE collections DROP COLUMN set_key; ALTER TABLE collections DROP COLUMN set_items; ALTER TABLE collections DROP COLUMN declined; DROP TABLE dismissed_sets; ALTER TABLE libraries DROP COLUMN realtime_monitor; PRAGMA user_version = 12"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

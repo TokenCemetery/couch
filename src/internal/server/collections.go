@@ -32,20 +32,26 @@ func (b boxSet) item() *media.Item {
 func boxSets(catalog *media.Catalog, user state.User, d state.Data) map[string]boxSet {
 	sets := map[string]boxSet{}
 	for _, c := range d.Collections {
-		set := boxSet{Collection: c}
-		for _, id := range c.Items {
-			if catalog == nil {
-				break
-			}
-			if item, found := catalog.Lookup(id); found {
-				set.members = append(set.members, item)
-			}
-		}
-		if len(set.members) > 0 || user.Policy.IsAdministrator {
+		if set, ok := boxSetOf(catalog, user, c); ok {
 			sets[c.ID] = set
 		}
 	}
 	return sets
+}
+
+// boxSetOf is the collection c as the user sees it; ok is false when the
+// user does not see it.
+func boxSetOf(catalog *media.Catalog, user state.User, c state.Collection) (boxSet, bool) {
+	set := boxSet{Collection: c}
+	for _, id := range c.Items {
+		if catalog == nil {
+			break
+		}
+		if item, found := catalog.Lookup(id); found {
+			set.members = append(set.members, item)
+		}
+	}
+	return set, len(set.members) > 0 || user.Policy.IsAdministrator
 }
 
 // sessionBoxSets is boxSets for the session's user.
@@ -80,10 +86,30 @@ func (s *Server) boxSetUserData(set boxSet, items map[string]state.ItemState) ob
 		"IsFavorite": items[set.ID].IsFavorite, "Played": len(videos) > 0 && unplayed == 0}
 }
 
+// displayOrder sorts a collection's items as Couch lists them: by release
+// date, then name (SortBy=DisplayOrder).
+func (s *Server) displayOrder(a, b *media.Item) int {
+	if comparison := s.info(a.ID).Premiere.Compare(s.info(b.ID).Premiere); comparison != 0 {
+		return comparison
+	}
+	return strings.Compare(s.sortKey(*a), s.sortKey(*b))
+}
+
+// boxSetImage is the collection's Primary image: the uploaded one, else a
+// poster collage of the items listed first.
+func (s *Server) boxSetImage(catalog *media.Catalog, set boxSet) (listImage, bool) {
+	members := slices.Clone(set.members)
+	slices.SortStableFunc(members, s.displayOrder)
+	return s.listImage(catalog, set.Image, posterCollage, members)
+}
+
 // boxSetDTO is the collection as a BoxSet. An administrator may edit and
 // delete it, which Emby Web decides by CanEditItems and CanDelete.
-func (s *Server) boxSetDTO(set boxSet, serverID string, items map[string]state.ItemState, admin bool) object {
+func (s *Server) boxSetDTO(catalog *media.Catalog, set boxSet, serverID string, items map[string]state.ItemState, admin bool, token string) object {
 	dto := baseFields(set.ID, set.Name, "BoxSet", serverID)
+	if image, ok := s.boxSetImage(catalog, set); ok {
+		s.addListImage(dto, set.ID, image, token)
+	}
 	dto["DateCreated"] = embyDate(set.Added)
 	dto["IsFolder"] = true
 	dto["ParentId"] = collectionsViewID

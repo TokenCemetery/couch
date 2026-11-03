@@ -12,7 +12,7 @@ import (
 )
 
 // Backup writes a consistent copy of the state in dir to dest, a new or empty
-// directory: the database through VACUUM INTO, then the avatar files that copy
+// directory: the database through VACUUM INTO, then the uploaded image files that copy
 // references. It does not take the data directory lock, so it works while
 // Couch runs; a commit waits for the snapshot instead of interleaving with it.
 // The copy is loaded and validated as Open would before Backup succeeds.
@@ -38,7 +38,7 @@ func Backup(dir, dest string) error {
 	}
 	defer func() { _ = src.Close() }()
 	src.SetMaxOpenConns(1)
-	// The avatar can be replaced between the snapshot and the copy of its
+	// An image can be replaced between the snapshot and the copy of its
 	// file; the next snapshot then references the new file.
 	for range 3 {
 		err = backupOnce(context.Background(), src, dir, dest)
@@ -71,14 +71,13 @@ func backupOnce(ctx context.Context, src *sql.DB, dir, dest string) error {
 		return err
 	}
 	copied := map[string]bool{}
-	for _, u := range d.Users {
-		image := u.Image
+	for _, image := range d.images() {
 		if image == nil || copied[image.Revision] {
 			continue
 		}
 		copied[image.Revision] = true
 		if b, err := hex.DecodeString(image.Revision); err != nil || len(b) != 16 {
-			return fmt.Errorf("invalid avatar revision %q", image.Revision)
+			return fmt.Errorf("invalid image revision %q", image.Revision)
 		}
 		name := "user-image-" + image.Revision
 		content, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // dir is the operator-selected data directory; the revision is checked hex

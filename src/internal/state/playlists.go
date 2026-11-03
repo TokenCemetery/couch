@@ -22,7 +22,8 @@ var (
 // Playlist is an ordered list of catalogue items private to the user who
 // created it. An item may appear more than once, so each entry has its own ID:
 // Emby's PlaylistItemId. Entries keep IDs whose files are gone, so an item
-// comes back when its path does.
+// comes back when its path does. Image is the Primary image its user
+// uploaded.
 type Playlist struct {
 	ID       string
 	UserID   string
@@ -30,6 +31,7 @@ type Playlist struct {
 	Added    time.Time
 	Modified time.Time
 	Entries  []PlaylistEntry
+	Image    *UserImage
 }
 
 // PlaylistEntry is one position in a playlist.
@@ -79,6 +81,12 @@ func appendEntries(entries []PlaylistEntry, items []string, skipDuplicates bool)
 // changePlaylist replaces the user's playlist id with the result of fn, which
 // works on a copy, and records the change time.
 func (s *Store) changePlaylist(userID, id string, fn func(*Playlist) error) error {
+	return s.editPlaylist(userID, id, true, fn)
+}
+
+// editPlaylist is changePlaylist that records the change time only when
+// touch is set.
+func (s *Store) editPlaylist(userID, id string, touch bool, fn func(*Playlist) error) error {
 	return s.update("", nil, func(d *Data) error {
 		i := slices.IndexFunc(d.Playlists, func(p Playlist) bool { return p.ID == id && p.UserID == userID })
 		if i < 0 {
@@ -92,7 +100,9 @@ func (s *Store) changePlaylist(userID, id string, fn func(*Playlist) error) erro
 		if len(p.Entries) > maxPlaylistEntries {
 			return ErrStateLimit
 		}
-		p.Modified = time.Now().UTC()
+		if touch {
+			p.Modified = time.Now().UTC()
+		}
 		d.Playlists = slices.Clone(d.Playlists)
 		d.Playlists[i] = p
 		return nil
@@ -175,15 +185,24 @@ func (s *Store) RenamePlaylist(userID, id, name string) error {
 	})
 }
 
-// DeletePlaylists removes the user's playlists; their items are not touched.
+// DeletePlaylists removes the user's playlists and their images; their items
+// are not touched.
 func (s *Store) DeletePlaylists(userID string, ids []string) error {
-	return s.update("", nil, func(d *Data) error {
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
+	var images []*UserImage
+	err := s.update("", nil, func(d *Data) error {
+		images = nil
 		for _, id := range ids {
-			if _, ok := d.UserPlaylist(userID, id); !ok {
+			p, ok := d.UserPlaylist(userID, id)
+			if !ok {
 				return ErrPlaylistNotFound
 			}
+			images = append(images, p.Image)
 		}
 		d.Playlists = slices.DeleteFunc(slices.Clone(d.Playlists), func(p Playlist) bool { return slices.Contains(ids, p.ID) })
 		return nil
 	})
+	s.removeUnreferencedImages(images...)
+	return err
 }

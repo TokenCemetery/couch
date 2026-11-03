@@ -846,3 +846,14 @@ Couch now reports those values. HLG has no reference item, so `VideoRange: "HLG"
 - **`-tonemap` selection** moved to `Manager.SetToneMap` and is covered by `TestSetToneMap` with a fake FFmpeg.
 
 Not checked: Dolby Vision profile 5 on a real file (no sample), Intel or Nvidia GPUs, a burned-in subtitle with tone mapping in Emby Web, `-tonemap software` in Emby Web, and other clients.
+
+## Collection and playlist images (2026-11-03, #134)
+
+Reference: the 108 collections in the captured `items-boxset.json` all have a Primary image at an aspect ratio of about 2:3. Six have no backdrop; their Primary images were fetched read-only and without a token from the reference Emby 4.10.0.40 (`GET Items/{id}/Images/Primary`). Five are provider posters. One is a 400×600 JPEG collage of four movie posters in two columns of two, at that size with and without `maxHeight=600`. Its two films of one title (the same poster twice) fill the left column, which is why Couch fills the tiles column by column. The images were not kept. The reference has no playlist, so the playlist's square collage is an assumption.
+
+Emby Web 4.10.0.40 (`-web-dir`) in Chromium against Couch with seven generated 2-second videos: five movies with distinct 400×600 posters, one without a poster, and an episode whose series has a poster. Signed in as the administrator:
+
+- **Collages:** the Collections library showed "Saga" (four movies with posters and the one without) as a 2:3 collage of the four posters in title order, filled column by column, and "Duo" (two movies) as the two posters, each twice. The collection page used the collage as its poster. The playlist "Evening" (the episode, the movie without a poster and two movies) showed a square collage in the Playlists library and the sidebar: the series poster, the two movies, then the series poster again.
+- **Edit Images:** the image editor listed the collage as "Primary 400×600" with a delete button. The Primary card's "…" menu offers Delete, Open in New Window, Select Image File and Set Image from URL. "Select Image File" with a 300×450 PNG, then "Upload", sent `POST Items/{id}/Images/Primary` (204). The editor then showed "Primary 300×450". Deleting it ("Delete image?", Delete) sent `POST Items/{id}/Images/Primary/0/Delete` (204), and the collage came back.
+
+No server errors were logged; the only console errors were the blocked Premiere check (#89). Another user's view of a collage and uploads refused to other users are covered by `TestCollectionAndPlaylistImages` but were not clicked through. Set Image from URL is refused (`400`), a known failure in `make e2e`; it was not clicked. `make e2e` passes the item image upload and delete operations against the collection made at startup.

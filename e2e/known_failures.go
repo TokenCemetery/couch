@@ -25,6 +25,7 @@ var (
 	notCalledByWeb  = knownFailure{34, "Emby Web 4.10.0.40 does not call it; use by other clients is not ranked yet"}
 	notOfferedByWeb = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags, user policy flags or media types Couch does not send; not ranked yet"}
 	emptyPartial    = knownFailure{129, "implemented; the generated request has no body, which Emby 4.10.0.40 answers with 500 and Couch refuses with 400"}
+	onePrimaryImage = knownFailure{134, "Couch keeps one uploaded Primary image for a collection or playlist: it neither reorders images nor downloads one from a URL"}
 )
 
 // knownFailures lists contract operations (by operationId) and behavior
@@ -91,8 +92,6 @@ var knownFailures = map[string]knownFailure{
 	"getGenresByName": notCalledByWeb,
 	// HlsSegmentService
 	// ImageService
-	"deleteItemsByIdImagesByType":            administration,
-	"deleteItemsByIdImagesByTypeByIndex":     administration,
 	"getArtistsByNameImagesByType":           notCalledByWeb,
 	"getArtistsByNameImagesByTypeByIndex":    notCalledByWeb,
 	"getGamegenresByNameImagesByType":        notCalledByWeb,
@@ -119,12 +118,8 @@ var knownFailures = map[string]knownFailure{
 	"headPersonsByNameImagesByTypeByIndex":     notCalledByWeb,
 	"headStudiosByNameImagesByType":            notCalledByWeb,
 	"headStudiosByNameImagesByTypeByIndex":     notCalledByWeb,
-	"postItemsByIdImagesByType":                administration,
-	"postItemsByIdImagesByTypeByIndex":         administration,
-	"postItemsByIdImagesByTypeByIndexDelete":   administration,
-	"postItemsByIdImagesByTypeByIndexIndex":    administration,
-	"postItemsByIdImagesByTypeByIndexUrl":      administration,
-	"postItemsByIdImagesByTypeDelete":          administration,
+	"postItemsByIdImagesByTypeByIndexIndex":    onePrimaryImage,
+	"postItemsByIdImagesByTypeByIndexUrl":      onePrimaryImage,
 	// InstantMixService
 	"getAudiobooksNextup": notCalledByWeb,
 	// ItemLookupService

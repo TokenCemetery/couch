@@ -51,8 +51,11 @@ type Server struct {
 
 	// logDir holds the server log files; empty when they are not kept.
 	logDir string
-	// coverDir caches covers read from audio files.
+	// coverDir caches covers read from audio files and the collages of
+	// collections and playlists.
 	coverDir string
+	// collageMu lets one collage be drawn at a time.
+	collageMu sync.Mutex
 	// refreshRequested is set while a metadata refresh an administrator ran
 	// is pending.
 	refreshRequested atomic.Bool

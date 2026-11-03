@@ -340,12 +340,12 @@ func (s *Server) instantMix(w http.ResponseWriter, r *http.Request, token string
 	respond(w, 200, object{"Items": result, "TotalRecordCount": len(result)})
 }
 
-// maxCovers covers read from audio files are cached; the least recently
-// used goes first.
+// maxCovers covers read from audio files and collages are cached; the least
+// recently used goes first.
 const maxCovers = 1000
 
 // SetCoverCache names the directory that caches covers read from audio
-// files. Call it before serving.
+// files and collages. Call it before serving.
 func (s *Server) SetCoverCache(dir string) { s.coverDir = dir }
 
 // embeddedCover opens the cover embedded in item's audio file, or its first
@@ -356,21 +356,39 @@ func (s *Server) embeddedCover(ctx context.Context, catalog *media.Catalog, item
 		return nil, media.Image{}, os.ErrNotExist
 	}
 	name := filepath.Join(s.coverDir, info.Revision)
-	if file, err := os.Open(name); err == nil { //nolint:gosec // name is a revision hash under the data directory
-		now := time.Now()
-		_ = os.Chtimes(name, now, now)
+	if file, err := openCachedCover(name); err == nil {
 		return file, info, nil
 	}
 	data, err := catalog.ExtractCover(ctx, track)
 	if err != nil {
 		return nil, media.Image{}, err
 	}
-	if err := os.MkdirAll(s.coverDir, 0700); err != nil {
+	if err := s.cacheCover(name, data); err != nil {
 		return nil, media.Image{}, err
+	}
+	file, err := os.Open(name) //nolint:gosec // name is a revision hash under the data directory
+	return file, info, err
+}
+
+// openCachedCover opens name in the cover cache and marks it recently used.
+func openCachedCover(name string) (*os.File, error) {
+	file, err := os.Open(name) //nolint:gosec // name is a revision hash under the data directory
+	if err == nil {
+		now := time.Now()
+		_ = os.Chtimes(name, now, now)
+	}
+	return file, err
+}
+
+// cacheCover writes data to name in the cover cache, synced, and prunes the
+// cache.
+func (s *Server) cacheCover(name string, data []byte) error {
+	if err := os.MkdirAll(s.coverDir, 0700); err != nil {
+		return err
 	}
 	temp, err := os.CreateTemp(s.coverDir, ".cover-*")
 	if err != nil {
-		return nil, media.Image{}, err
+		return err
 	}
 	defer func() { _ = os.Remove(temp.Name()) }()
 	_, err = temp.Write(data)
@@ -384,11 +402,10 @@ func (s *Server) embeddedCover(ctx context.Context, catalog *media.Catalog, item
 		err = os.Rename(temp.Name(), name)
 	}
 	if err != nil {
-		return nil, media.Image{}, err
+		return err
 	}
 	pruneCovers(s.coverDir)
-	file, err := os.Open(name) //nolint:gosec // name is a revision hash under the data directory
-	return file, info, err
+	return nil
 }
 
 // pruneCovers removes the least recently used cached covers beyond

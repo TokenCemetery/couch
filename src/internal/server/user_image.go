@@ -13,7 +13,8 @@ import (
 	"github.com/TokenCemetery/couch/internal/state"
 )
 
-// Avatar limits match local covers: the file is stored and served as uploaded,
+// Limits on uploaded images, avatars and the images of collections and
+// playlists, match local covers: the file is stored and served as uploaded,
 // and only its header is decoded.
 const (
 	maxUserImageBytes = 8 << 20
@@ -61,32 +62,41 @@ func (s *Server) userImage(w http.ResponseWriter, r *http.Request) {
 	serveImage(w, r, file, info.MIME, info.Revision)
 }
 
-// uploadUserImage accepts the body Emby Web sends: the file as base64 text,
-// with a Content-Type derived from the file extension. The format is taken
-// from the decoded header, not from the Content-Type.
-func (s *Server) uploadUserImage(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
-	if !primaryImage(r) {
-		fail(w, 404, "NotFound")
-		return
-	}
+// readImageUpload reads the body Emby Web sends to upload an image: the file
+// as base64 text, with a Content-Type derived from the file extension. The
+// format and size are taken from the decoded header, not from the
+// Content-Type. On failure the response has been written.
+func readImageUpload(w http.ResponseWriter, r *http.Request) ([]byte, state.UserImage, bool) {
 	limit := base64.StdEncoding.EncodedLen(maxUserImageBytes)
 	encoded, err := io.ReadAll(io.LimitReader(r.Body, int64(limit)+1))
 	if err != nil || len(encoded) > limit {
 		fail(w, 413, "ImageTooLarge")
-		return
+		return nil, state.UserImage{}, false
 	}
 	content, err := base64.StdEncoding.DecodeString(string(bytes.TrimSpace(encoded)))
 	if err != nil || len(content) == 0 || len(content) > maxUserImageBytes {
 		fail(w, 400, "InvalidImage")
-		return
+		return nil, state.UserImage{}, false
 	}
 	config, format, err := image.DecodeConfig(bytes.NewReader(content))
 	if err != nil || (format != "jpeg" && format != "png") || config.Width <= 0 || config.Height <= 0 ||
 		config.Width > maxUserImageSide || config.Height > maxUserImageSide || config.Width*config.Height > maxUserImageArea {
 		fail(w, 400, "InvalidImage")
+		return nil, state.UserImage{}, false
+	}
+	return content, state.UserImage{MIME: "image/" + format, Width: config.Width, Height: config.Height}, true
+}
+
+func (s *Server) uploadUserImage(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	if !primaryImage(r) {
+		fail(w, 404, "NotFound")
 		return
 	}
-	s.changed(w, s.store.SetUserImage(token, content, "image/"+format))
+	content, info, ok := readImageUpload(w, r)
+	if !ok {
+		return
+	}
+	s.changed(w, s.store.SetUserImage(token, content, info.MIME))
 }
 
 func (s *Server) deleteUserImage(w http.ResponseWriter, r *http.Request, token string, session state.Session) {

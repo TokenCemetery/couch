@@ -39,21 +39,25 @@ func (p playlistView) item() *media.Item {
 func playlists(catalog *media.Catalog, user state.User, d state.Data) map[string]playlistView {
 	lists := map[string]playlistView{}
 	for _, p := range d.Playlists {
-		if p.UserID != user.ID {
-			continue
+		if p.UserID == user.ID {
+			lists[p.ID] = playlistViewOf(catalog, p)
 		}
-		view := playlistView{Playlist: p}
-		for _, e := range p.Entries {
-			if catalog == nil {
-				break
-			}
-			if item, found := catalog.Lookup(e.ItemID); found {
-				view.entries = append(view.entries, playlistEntry{id: e.ID, item: item})
-			}
-		}
-		lists[p.ID] = view
 	}
 	return lists
+}
+
+// playlistViewOf is the playlist p as its owner sees it.
+func playlistViewOf(catalog *media.Catalog, p state.Playlist) playlistView {
+	view := playlistView{Playlist: p}
+	for _, e := range p.Entries {
+		if catalog == nil {
+			break
+		}
+		if item, found := catalog.Lookup(e.ItemID); found {
+			view.entries = append(view.entries, playlistEntry{id: e.ID, item: item})
+		}
+	}
+	return view
 }
 
 // sessionPlaylists is playlists for the session's user.
@@ -103,10 +107,23 @@ func (p playlistView) mediaType() string {
 	return kind
 }
 
+// playlistImage is the playlist's Primary image: the uploaded one, else a
+// square collage of its first items.
+func (s *Server) playlistImage(catalog *media.Catalog, p playlistView) (listImage, bool) {
+	items := make([]*media.Item, 0, len(p.entries))
+	for _, e := range p.entries {
+		items = append(items, e.item)
+	}
+	return s.listImage(catalog, p.Image, squareCollage, items)
+}
+
 // playlistDTO is the playlist as a Playlist. Its owner may reorder, rename
 // and delete it, which Emby Web decides by CanEditItems and CanDelete.
-func playlistDTO(p playlistView, serverID string, items map[string]state.ItemState) object {
+func (s *Server) playlistDTO(catalog *media.Catalog, p playlistView, serverID string, items map[string]state.ItemState, token string) object {
 	dto := baseFields(p.ID, p.Name, "Playlist", serverID)
+	if image, ok := s.playlistImage(catalog, p); ok {
+		s.addListImage(dto, p.ID, image, token)
+	}
 	dto["DateCreated"] = embyDate(p.Added)
 	dto["DateModified"] = embyDate(p.Modified)
 	dto["IsFolder"] = true

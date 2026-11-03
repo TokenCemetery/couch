@@ -39,7 +39,8 @@ func collectionName(name string) (string, error) {
 // setIdents names it; it is empty for one an administrator created.
 // SetItems are the members SyncSets added, which leave with the set;
 // Declined are members an administrator removed, which are not added again
-// while they stay in the set.
+// while they stay in the set. Image is the Primary image an administrator
+// uploaded.
 type Collection struct {
 	ID       string
 	Name     string
@@ -48,6 +49,7 @@ type Collection struct {
 	Set      string
 	SetItems []string
 	Declined []string
+	Image    *UserImage
 }
 
 // MovieSet is the set a movie's metadata names: by name, from a .nfo or
@@ -179,11 +181,15 @@ func (s *Store) RenameCollection(id, name string) error {
 	})
 }
 
-// DeleteCollections removes the collections; their items are not touched.
-// The set of an automatic collection is dismissed.
+// DeleteCollections removes the collections and their images; their items
+// are not touched. The set of an automatic collection is dismissed.
 func (s *Store) DeleteCollections(ids []string) error {
-	return s.update("", nil, func(d *Data) error {
+	s.imageMu.Lock()
+	defer s.imageMu.Unlock()
+	var images []*UserImage
+	err := s.update("", nil, func(d *Data) error {
 		d.DismissedSets = slices.Clone(d.DismissedSets)
+		images = nil
 		for _, id := range ids {
 			c, ok := d.Collection(id)
 			if !ok {
@@ -192,11 +198,14 @@ func (s *Store) DeleteCollections(ids []string) error {
 			if c.Set != "" && !slices.Contains(d.DismissedSets, c.Set) {
 				d.DismissedSets = append(d.DismissedSets, c.Set)
 			}
+			images = append(images, c.Image)
 		}
 		slices.Sort(d.DismissedSets)
 		d.Collections = slices.DeleteFunc(slices.Clone(d.Collections), func(c Collection) bool { return slices.Contains(ids, c.ID) })
 		return nil
 	})
+	s.removeUnreferencedImages(images...)
+	return err
 }
 
 var errUnchanged = errors.New("unchanged")

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -15,11 +16,17 @@ func (s *Server) imageRoutes(mux *http.ServeMux) {
 		mux.HandleFunc("GET "+route, s.itemImage)
 	}
 	// The image editor lists an item's images; Couch has no image search
-	// and changes no image. The owner of a playlist may open it too.
+	// and changes only the Primary image of a collection or playlist. The
+	// owner of a playlist may open it too.
 	mux.HandleFunc("GET /items/{item}/images", s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		id := r.PathValue("item")
-		if _, ok := s.store.Snapshot().Collection(id); ok || s.ownsPlaylist(r, session) {
-			respond(w, 200, []object{})
+		if image, hasImage, found := s.listOf(session, id); found {
+			infos := []object{}
+			if hasImage {
+				info := image.info()
+				infos = append(infos, object{"ImageType": "Primary", "ImageTag": s.store.ImageTag(token, id, info.Revision), "Width": info.Width, "Height": info.Height})
+			}
+			respond(w, 200, infos)
 			return
 		}
 		catalog := s.catalog()
@@ -46,11 +53,50 @@ func (s *Server) imageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /items/{item}/remoteimages/providers", s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		respond(w, 200, []object{})
 	}))
-	refuse := s.ownerOrAdmin(func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	change := s.ownerOrAdmin(s.changeItemImage)
+	mux.HandleFunc("POST /items/{item}/images/{rest...}", change)
+	mux.HandleFunc("DELETE /items/{item}/images/{rest...}", change)
+}
+
+// changeItemImage uploads or deletes the Primary image of a collection, for
+// an administrator, or of the user's own playlist. Emby Web uploads with
+// POST .../Images/{Type} and deletes with POST .../Images/{Type}/{Index}/Delete.
+func (s *Server) changeItemImage(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	id := r.PathValue("item")
+	snapshot := s.store.Snapshot()
+	_, collection := snapshot.Collection(id)
+	_, playlist := snapshot.UserPlaylist(session.UserID, id)
+	if !collection && !playlist {
 		failText(w, 400, "Couch does not change images: replace the image file next to the video, or use Identify, then Refresh Metadata.")
-	})
-	mux.HandleFunc("POST /items/{item}/images/{rest...}", refuse)
-	mux.HandleFunc("DELETE /items/{item}/images/{rest...}", refuse)
+		return
+	}
+	parts := strings.Split(r.PathValue("rest"), "/")
+	remove := r.Method == http.MethodDelete
+	if len(parts) > 1 && parts[len(parts)-1] == "delete" {
+		remove, parts = true, parts[:len(parts)-1]
+	}
+	if parts[0] != "primary" || len(parts) > 2 || (len(parts) == 2 && parts[1] != "0") {
+		failText(w, 400, "Couch keeps only a Primary image for a collection or playlist.")
+		return
+	}
+	var content []byte
+	var info state.UserImage
+	if !remove {
+		var ok bool
+		if content, info, ok = readImageUpload(w, r); !ok {
+			return
+		}
+	}
+	if collection {
+		err := s.store.SetCollectionImage(id, content, info)
+		if errors.Is(err, state.ErrCollectionNotFound) {
+			fail(w, 404, "NotFound")
+			return
+		}
+		s.changed(w, err)
+		return
+	}
+	s.playlistChanged(w, s.store.SetPlaylistImage(session.UserID, id, content, info))
 }
 
 // imageAccess authorizes an image request by API token or, because browsers
@@ -116,6 +162,24 @@ func (s *Server) itemImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := imageKind(r)
+	if image, hasImage, found := s.listOf(session, r.PathValue("item")); found {
+		if !hasImage || kind != "primary" {
+			fail(w, 404, "NotFound")
+			return
+		}
+		file, info, err := s.openListImage(r.Context(), image)
+		if err != nil {
+			fail(w, 404, "ImageUnavailable")
+			return
+		}
+		defer func() { _ = file.Close() }()
+		if revision != "" && revision != info.Revision {
+			fail(w, 404, "ImageChanged")
+			return
+		}
+		serveImage(w, r, file, info.MIME, info.Revision)
+		return
+	}
 	catalog := s.catalogFor(session)
 	item, found := findItem(catalog, r.PathValue("item"))
 	if !found {
