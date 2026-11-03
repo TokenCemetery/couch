@@ -247,7 +247,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request, session state
 }
 
 // supportedSorts lists the SortBy keys listItemsIn accepts, in lower case.
-const supportedSorts = "sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriessortname,channelnumber," +
+const supportedSorts = "sortname,name,datecreated,dateplayed,runtime,indexnumber,parentindexnumber,sortindexnumber,sortparentindexnumber,datelastsearched,isfolder,filename,seriesname,seriessortname,channelnumber," +
 	"totalbitrate,videocodec,container,size,resolution,framerate,playcount,random,seriesdateplayed,datelastcontentadded," +
 	"officialrating,productionyear,premieredate,communityrating,criticrating,director,lastcontentpremieredate,displayorder,listitemorder,datemodified," +
 	"album,albumartist,artist,bitrate,composer"
@@ -701,8 +701,10 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 				comparison = -cmp.Compare(boolRank(a.IsFolder() || isCollection(a) || isBoxSet(a) || isPlaylist(a)), boolRank(b.IsFolder() || isCollection(b) || isBoxSet(b) || isPlaylist(b)))
 			case "filename":
 				comparison = strings.Compare(strings.ToLower(path.Base(a.Path)), strings.ToLower(path.Base(b.Path)))
-			case "seriessortname":
+			case "seriesname":
 				comparison = strings.Compare(strings.ToLower(s.seriesName(*a)), strings.ToLower(s.seriesName(*b)))
+			case "seriessortname":
+				comparison = strings.Compare(strings.ToLower(s.seriesSortName(*a)), strings.ToLower(s.seriesSortName(*b)))
 			case "officialrating":
 				comparison = strings.Compare(s.info(a.ID).OfficialRating, s.info(b.ID).OfficialRating)
 			case "productionyear":

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/metadata"
 )
 
 func TestMovieCatalog(t *testing.T) {
@@ -292,5 +293,37 @@ func TestLibraryMenuSorts(t *testing.T) {
 		if got := order(series + sort); got != want {
 			t.Fatalf("SortBy=%s: %s, want %s", sort, got, want)
 		}
+	}
+}
+
+// A person page's Episodes row sorts by series name, season and episode (#127).
+func TestSeriesNameSort(t *testing.T) {
+	store, _, _ := newTestServer(t)
+	episode := func(id, series string, season, number int) media.Item {
+		return media.Item{ID: id, Name: id, Kind: "Episode", ParentID: series + "-s", SeasonID: series + "-s", SeriesID: series, SeriesName: series, SeasonNumber: season, EpisodeNumber: number, Path: series + "/" + id + ".mp4"}
+	}
+	catalog := &media.Catalog{ID: "movies", Items: []media.Item{
+		episode("b2", "Bravo", 1, 2), episode("a2", "Alpha", 2, 1), episode("b1", "Bravo", 1, 1), episode("a1", "Alpha", 1, 3),
+		{ID: "movie", Name: "Zulu", Path: "Movies/zulu.mp4"},
+	}}
+	api := New(store, "test", nil, catalog)
+	actor := []metadata.Person{{Name: "Ann Actor", Type: "Actor"}}
+	api.SetMetadata(metadata.Library{
+		"Bravo": {Name: "Bravo", SortName: "Aardvark"},
+		"a1":    {People: actor}, "a2": {People: actor}, "b1": {People: actor}, "b2": {People: actor}, "movie": {People: actor},
+	})
+	h := api.Handler()
+	token := login(t, h)
+	user := "/Users/" + testUser(store).ID + "/Items?Recursive=true&PersonIds=" + metadata.ID("Person", "Ann Actor")
+	for sort, want := range map[string]string{
+		"SeriesName,SortParentIndexNumber,SortIndexNumber,SortName":     "movie,a1,a2,b1,b2",
+		"SeriesSortName,SortParentIndexNumber,SortIndexNumber,SortName": "movie,b1,b2,a1,a2",
+	} {
+		if got := pageIDs(t, h, user+"&SortBy="+sort+"&SortOrder=Ascending", token); got != want {
+			t.Fatalf("SortBy=%s: %s, want %s", sort, got, want)
+		}
+	}
+	if got := pageIDs(t, h, user+"&IncludeItemTypes=Episode&SortBy=SeriesName,SortParentIndexNumber,SortIndexNumber,SortName&SortOrder=Ascending", token); got != "a1,a2,b1,b2" {
+		t.Fatalf("Episodes row: %s", got)
 	}
 }

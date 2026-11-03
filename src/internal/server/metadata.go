@@ -119,6 +119,13 @@ func (s *Server) seriesName(item media.Item) string {
 	return item.SeriesName
 }
 
+func (s *Server) seriesSortName(item media.Item) string {
+	if name := s.info(item.SeriesID).SortName; name != "" {
+		return name
+	}
+	return s.seriesName(item)
+}
+
 func (s *Server) seasonName(item media.Item) string {
 	if name := s.info(item.SeasonID).Name; name != "" {
 		return name
