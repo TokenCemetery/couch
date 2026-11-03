@@ -340,7 +340,13 @@ func (t *tmdb) series(ctx context.Context, ids map[string]string, title string, 
 }
 
 type tmdbSeason struct {
-	Episodes []struct {
+	// ID is 0 when the series has no such season.
+	ID         int    `json:"id"`
+	Name       string `json:"name"`
+	Overview   string `json:"overview"`
+	AirDate    string `json:"air_date"`
+	PosterPath string `json:"poster_path"`
+	Episodes   []struct {
 		Number      int     `json:"episode_number"`
 		Name        string  `json:"name"`
 		Overview    string  `json:"overview"`
@@ -351,14 +357,36 @@ type tmdbSeason struct {
 	} `json:"episodes"`
 }
 
-func (t *tmdb) episode(ctx context.Context, seriesID string, season, episode int) (Info, map[string]string, error) {
+// seasonOf returns the season with its episodes, empty when TMDb has none.
+func (t *tmdb) seasonOf(ctx context.Context, seriesID string, season int) (tmdbSeason, error) {
 	key := seriesID + "/" + strconv.Itoa(season)
 	s, cached := t.seasons[key]
 	if !cached {
 		if err := t.get(ctx, "/tv/"+url.PathEscape(seriesID)+"/season/"+strconv.Itoa(season), nil, &s); err != nil && !errors.Is(err, errNotFound) {
-			return Info{}, nil, err
+			return tmdbSeason{}, err
 		}
 		t.seasons[key] = s
+	}
+	return s, nil
+}
+
+func (t *tmdb) season(ctx context.Context, seriesID string, season int) (Info, map[string]string, error) {
+	s, err := t.seasonOf(ctx, seriesID, season)
+	if err != nil {
+		return Info{}, nil, err
+	}
+	if s.ID == 0 {
+		return Info{}, nil, errNotFound
+	}
+	info := Info{Name: clean(s.Name), Overview: clean(s.Overview)}
+	setDate(&info, s.AirDate)
+	return info, map[string]string{"Primary": tmdbImage(tmdbPoster, s.PosterPath)}, nil
+}
+
+func (t *tmdb) episode(ctx context.Context, seriesID string, season, episode int) (Info, map[string]string, error) {
+	s, err := t.seasonOf(ctx, seriesID, season)
+	if err != nil {
+		return Info{}, nil, err
 	}
 	for _, e := range s.Episodes {
 		if e.Number != episode {

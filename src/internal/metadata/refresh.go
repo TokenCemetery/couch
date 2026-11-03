@@ -398,8 +398,8 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 	return true
 }
 
-// sortItems puts series first, so episodes can use their series' provider
-// IDs, then seasons, movies and episodes.
+// sortItems puts series first, so seasons and episodes can use their
+// series' provider IDs, then seasons, movies and episodes.
 func sortItems(items []media.Item) []media.Item {
 	rank := map[string]int{"Series": 0, "Season": 1, "Movie": 2, "Episode": 3}
 	items = slices.Clone(items)
@@ -547,15 +547,16 @@ func idText(ids map[string]string) string {
 func (x *run) lookupOf(item media.Item) lookup {
 	prefix := strings.Join([]string{lookupVersion, item.Type(), x.cfg.Language, x.providers()}, "|") + "|"
 	switch item.Type() {
-	case "Season":
-		return lookup{}
-	case "Episode":
+	case "Season", "Episode":
 		series := x.info(item.SeriesID).ProviderIDs
 		if series["Tvdb"] == "" && series["Tmdb"] == "" {
 			return lookup{}
 		}
-		return lookup{key: prefix + idText(series) + "|" + strconv.Itoa(item.SeasonNumber) + "x" + strconv.Itoa(item.EpisodeNumber),
-			series: series, season: item.SeasonNumber, episode: item.EpisodeNumber}
+		key := prefix + idText(series) + "|" + strconv.Itoa(item.SeasonNumber)
+		if item.Type() == "Episode" {
+			key += "x" + strconv.Itoa(item.EpisodeNumber)
+		}
+		return lookup{key: key, series: series, season: item.SeasonNumber, episode: item.EpisodeNumber}
 	}
 	nfo := x.nfo[item.ID]
 	l := lookup{ids: nfo.ProviderIDs, title: nfo.Name, year: nfo.Year}
@@ -711,6 +712,13 @@ func (x *run) fetch(ctx context.Context, tm *tmdb, tv *tvdb, item media.Item, l 
 			sources = append(sources, func() (Info, map[string]string, error) {
 				return tm.series(ctx, union(found.ProviderIDs, l.ids), l.title, l.year)
 			})
+		}
+	case "Season":
+		if tv != nil && l.series["Tvdb"] != "" {
+			sources = append(sources, func() (Info, map[string]string, error) { return tv.season(ctx, l.series["Tvdb"], l.season) })
+		}
+		if tm != nil && l.series["Tmdb"] != "" {
+			sources = append(sources, func() (Info, map[string]string, error) { return tm.season(ctx, l.series["Tmdb"], l.season) })
 		}
 	case "Episode":
 		if tv != nil && l.series["Tvdb"] != "" {

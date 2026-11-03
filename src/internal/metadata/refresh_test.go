@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"image"
 	"image/png"
 	"io/fs"
@@ -38,6 +39,8 @@ func (d dirFiles) ReadSidecar(_ media.Item, name string, limit int64) ([]byte, f
 type fakeProviders struct {
 	mu    sync.Mutex
 	paths []string
+	// uris holds the paths with their queries.
+	uris []string
 	// down answers 500 to every request; limited answers that many 429s
 	// first; delay slows every answer.
 	down    bool
@@ -70,6 +73,7 @@ func (f *fakeProviders) requests() []string {
 func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.paths = append(f.paths, r.URL.Path)
+	f.uris = append(f.uris, r.URL.RequestURI())
 	down, limited, delay := f.down, f.limited > 0, f.delay
 	if limited {
 		f.limited--
@@ -108,12 +112,14 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"keywords":{"keywords":[{"name":"heist"}]},"release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"PG"}]}]}}`,
 		"/tmdb/movie/55":      `{"title":"TMDb Title","overview":"Overview of 55.","release_date":"2001-01-01","genres":[{"name":"Action"}]}`,
 		"/tmdb/tv/9":          `{"name":"TMDb Show","overview":"TMDb overview.","vote_average":8.1,"networks":[{"name":"Net"}],"backdrop_path":"/img/show-backdrop.png"}`,
-		"/tmdb/tv/9/season/1": `{"episodes":[{"episode_number":2,"name":"TMDb Episode","overview":"TMDb episode overview.","air_date":"2008-02-01","vote_average":8.5}]}`,
+		"/tmdb/tv/9/season/1": `{"id":90,"name":"Season 1","overview":"TMDb season overview.","air_date":"2008-01-21","poster_path":"/img/season.png","episodes":[{"episode_number":2,"name":"TMDb Episode","overview":"TMDb episode overview.","air_date":"2008-02-01","vote_average":8.5}]}`,
 		"/tvdb/login":         `{"data":{"token":"tvdb-token"}}`,
 		"/tvdb/search":        `{"data":[{"tvdb_id":"7"}]}`,
 		"/tvdb/series/7/extended": `{"data":{"name":"Original Show","overview":"Original overview.","firstAired":"2008-01-20","image":"/img/show.png",
 			"genres":[{"name":"Drama"}],"characters":[{"name":"Walter","personName":"Actor Two","peopleType":"Actor"}],
-			"remoteIds":[{"id":"9","sourceName":"TheMovieDB.com"}]}}`,
+			"remoteIds":[{"id":"9","sourceName":"TheMovieDB.com"}],
+			"seasons":[{"id":71,"number":1,"type":{"type":"dvd"}},{"id":70,"number":1,"year":"2008","image":"/img/season-tvdb.png","type":{"type":"official"},"nameTranslations":["eng"]}]}}`,
+		"/tvdb/seasons/70/translations/eng":   `{"data":{"name":"Translated Season"}}`,
 		"/tvdb/series/7/translations/eng":     `{"data":{"name":"Translated Show","overview":"Translated overview."}}`,
 		"/tvdb/series/7/episodes/default/eng": `{"data":{"episodes":[{"seasonNumber":1,"number":2,"name":"TVDB Episode","aired":"2008-01-27"}]}}`,
 	}
@@ -123,6 +129,12 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write([]byte(body))
+}
+
+func (f *fakeProviders) requestURIs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.uris...)
 }
 
 func newRefreshTest(t *testing.T) (*state.Store, *fakeProviders) {
@@ -200,6 +212,16 @@ func TestRefresh(t *testing.T) {
 		series.Images["Primary"].File == "" || series.Images["Backdrop"].File == "" {
 		t.Fatalf("series: %+v", series)
 	}
+	// A season takes the official order's season from TheTVDB, then TMDb's,
+	// reusing the series and season answers its series and episodes need.
+	season := published["season"]
+	if season.Name != "Translated Season" || season.Overview != "TMDb season overview." || season.Year != 2008 ||
+		season.Premiere.Format(time.DateOnly) != "2008-01-21" || season.Images["Primary"].File == "" || len(season.ProviderIDs) != 0 {
+		t.Fatalf("season: %+v", season)
+	}
+	if n := fake.count("/tvdb/series/7/extended") + fake.count("/tmdb/tv/9/season/1"); n != 2 {
+		t.Fatalf("series record and season fetched %d times, want once each", n)
+	}
 	episode := published["episode"]
 	if episode.Name != "TVDB Episode" || episode.Overview != "TMDb episode overview." || episode.Premiere.Format(time.DateOnly) != "2008-01-27" {
 		t.Fatalf("episode: %+v", episode)
@@ -219,6 +241,13 @@ func TestRefresh(t *testing.T) {
 	r.refresh(t.Context(), items, dirFiles(dir))
 	if published["other"].Name != "New Title" || strings.Join(published["other"].Genres, ",") != "Action" || len(fake.requests()) != before {
 		t.Fatalf("changed nfo: %+v, %d requests", published["other"], len(fake.requests())-before)
+	}
+
+	// A season.nfo wins over the providers without fetching again.
+	writeFile("Show/Season 01/season.nfo", `<season><plot>Local season plot.</plot></season>`, time.Unix(1000, 0))
+	r.refresh(t.Context(), items, dirFiles(dir))
+	if season := published["season"]; season.Overview != "Local season plot." || season.Name != "Translated Season" || len(fake.requests()) != before {
+		t.Fatalf("season.nfo: %+v, %d requests", season, len(fake.requests())-before)
 	}
 
 	// A removed item loses its record and its downloaded image.
@@ -521,4 +550,38 @@ func nameOf(l Library, id string) string {
 		return info.Name
 	}
 	return ""
+}
+
+func TestProviderSeasons(t *testing.T) {
+	_, fake := newRefreshTest(t)
+	// Without a translation in the metadata language, TheTVDB is asked only
+	// for the short series record, once.
+	tv := newTVDb("tvdb-key", languages["ru"])
+	info, images, err := tv.season(t.Context(), "7", 1)
+	if err != nil || info.Name != "" || info.Overview != "" || info.Year != 2008 || images["Primary"] == "" {
+		t.Fatalf("tvdb season: %+v, %v, %v", info, images, err)
+	}
+	if _, _, err := tv.season(t.Context(), "7", 2); !errors.Is(err, errNotFound) {
+		t.Fatalf("tvdb missing season: %v", err)
+	}
+	uris := fake.requestURIs()
+	if !slices.Contains(uris, "/tvdb/series/7/extended?short=true") || fake.count("/tvdb/series/7/extended") != 1 ||
+		slices.ContainsFunc(uris, func(uri string) bool { return strings.HasPrefix(uri, "/tvdb/seasons/") }) {
+		t.Fatalf("tvdb requests: %v", uris)
+	}
+
+	tm := newTMDb("tmdb-key", languages["en"])
+	info, images, err = tm.season(t.Context(), "9", 1)
+	if err != nil || info.Name != "Season 1" || info.Overview != "TMDb season overview." || info.Premiere.Format(time.DateOnly) != "2008-01-21" ||
+		images["Primary"] == "" {
+		t.Fatalf("tmdb season: %+v, %v, %v", info, images, err)
+	}
+	// A season TMDb does not have is not found, for the season and its
+	// episodes, with one request.
+	if _, _, err := tm.season(t.Context(), "9", 2); !errors.Is(err, errNotFound) {
+		t.Fatalf("tmdb missing season: %v", err)
+	}
+	if _, _, err := tm.episode(t.Context(), "9", 2, 1); !errors.Is(err, errNotFound) || fake.count("/tmdb/tv/9/season/2") != 1 {
+		t.Fatalf("tmdb missing season's episode: %v, %d requests", err, fake.count("/tmdb/tv/9/season/2"))
+	}
 }

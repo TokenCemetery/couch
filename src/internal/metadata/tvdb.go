@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -21,18 +22,20 @@ const (
 	tvdbBackground = 3
 )
 
-// tvdb is a TheTVDB API v4 client for series and episodes.
+// tvdb is a TheTVDB API v4 client for series, seasons and episodes.
 type tvdb struct {
 	key   string
 	lang  language
 	pace  *throttle
 	token string
-	// episodes caches season episode lists within a refresh run.
+	// seasons and episodes cache a series' seasons and a season's
+	// episodes within a refresh run.
+	seasons  map[string][]tvdbSeason
 	episodes map[string][]tvdbEpisode
 }
 
 func newTVDb(key string, lang language) *tvdb {
-	return &tvdb{key: key, lang: lang, pace: &throttle{every: spacing.tvdb}, episodes: map[string][]tvdbEpisode{}}
+	return &tvdb{key: key, lang: lang, pace: &throttle{every: spacing.tvdb}, seasons: map[string][]tvdbSeason{}, episodes: map[string][]tvdbEpisode{}}
 }
 
 func (t *tvdb) login(ctx context.Context) error {
@@ -166,12 +169,14 @@ func (t *tvdb) series(ctx context.Context, ids map[string]string, title string, 
 				ID         string `json:"id"`
 				SourceName string `json:"sourceName"`
 			} `json:"remoteIds"`
+			Seasons []tvdbSeason `json:"seasons"`
 		} `json:"data"`
 	}
 	if err := t.get(ctx, "/series/"+url.PathEscape(id)+"/extended", nil, &s); err != nil {
 		return Info{}, nil, err
 	}
 	d := s.Data
+	t.seasons[id] = d.Seasons
 	// The record is in the series' original language; a translation
 	// replaces what it has.
 	info := Info{Name: clean(d.Name), Overview: clean(d.Overview), ProviderIDs: map[string]string{"Tvdb": id}}
@@ -244,6 +249,56 @@ type tvdbEpisode struct {
 	Overview string `json:"overview"`
 	Aired    string `json:"aired"`
 	Image    string `json:"image"`
+}
+
+type tvdbSeason struct {
+	ID     int    `json:"id"`
+	Number int    `json:"number"`
+	Image  string `json:"image"`
+	Year   string `json:"year"`
+	Type   struct {
+		Type string `json:"type"`
+	} `json:"type"`
+	NameTranslations     []string `json:"nameTranslations"`
+	OverviewTranslations []string `json:"overviewTranslations"`
+}
+
+// season describes a season of the aired order: its translated name and
+// overview, its poster and its year. The untranslated name is in the
+// series' original language, so it is not used.
+func (t *tvdb) season(ctx context.Context, seriesID string, number int) (Info, map[string]string, error) {
+	seasons, cached := t.seasons[seriesID]
+	if !cached {
+		var result struct {
+			Data struct {
+				Seasons []tvdbSeason `json:"seasons"`
+			} `json:"data"`
+		}
+		err := t.get(ctx, "/series/"+url.PathEscape(seriesID)+"/extended", url.Values{"short": {"true"}}, &result)
+		if err != nil && !errors.Is(err, errNotFound) {
+			return Info{}, nil, err
+		}
+		seasons = result.Data.Seasons
+		t.seasons[seriesID] = seasons
+	}
+	i := slices.IndexFunc(seasons, func(s tvdbSeason) bool { return s.Number == number && s.Type.Type == "official" })
+	if i < 0 {
+		return Info{}, nil, errNotFound
+	}
+	s := seasons[i]
+	info := Info{}
+	if year, err := strconv.Atoi(s.Year); err == nil && validYear(year) {
+		info.Year = year
+	}
+	if slices.Contains(s.NameTranslations, t.lang.tvdb) || slices.Contains(s.OverviewTranslations, t.lang.tvdb) {
+		var tr tvdbTranslation
+		err := t.get(ctx, "/seasons/"+strconv.Itoa(s.ID)+"/translations/"+t.lang.tvdb, nil, &tr)
+		if err != nil && !errors.Is(err, errNotFound) {
+			return Info{}, nil, err
+		}
+		info.Name, info.Overview = clean(tr.Data.Name), clean(tr.Data.Overview)
+	}
+	return info, map[string]string{"Primary": tvdbImage(s.Image)}, nil
 }
 
 func (t *tvdb) episode(ctx context.Context, seriesID string, season, episode int) (Info, map[string]string, error) {
