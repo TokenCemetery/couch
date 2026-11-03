@@ -86,6 +86,30 @@ func TestLibrarySetup(t *testing.T) {
 	}
 	expectStatus(t, request(h, "POST", "/Library/VirtualFolders/LibraryOptions", "application/json", `{"Id":"`+id+`","LibraryOptions":{}}`, admin), 204)
 
+	// Real-time monitoring is on for a new library and stored when the
+	// options editor changes it.
+	monitor := func() bool {
+		t.Helper()
+		w := request(h, "GET", "/Library/VirtualFolders/Query", "", "", admin)
+		var page struct {
+			Items []struct {
+				LibraryOptions struct{ EnableRealtimeMonitor bool }
+			}
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil || len(page.Items) != 1 {
+			t.Fatalf("libraries %s", w.Body)
+		}
+		return page.Items[0].LibraryOptions.EnableRealtimeMonitor
+	}
+	if !monitor() || !store.Snapshot().Libraries[0].Monitor {
+		t.Fatal("a new library is not monitored")
+	}
+	expectStatus(t, request(h, "POST", "/Library/VirtualFolders/LibraryOptions", "application/json", `{"Id":"`+id+`","LibraryOptions":{"EnableRealtimeMonitor":false}}`, admin), 204)
+	if monitor() || store.Snapshot().Libraries[0].Monitor {
+		t.Fatal("real-time monitoring was not turned off")
+	}
+	expectStatus(t, request(h, "POST", "/Library/VirtualFolders/LibraryOptions", "application/json", `{"Id":"unknown","LibraryOptions":{"EnableRealtimeMonitor":true}}`, admin), 404)
+
 	// The folder browser lists only the roots and the folders below them.
 	w := request(h, "POST", "/Environment/DirectoryContents", "application/json", `{"Path":"`+root+`","IncludeDirectories":true}`, admin)
 	expectStatus(t, w, 200)

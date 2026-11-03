@@ -114,7 +114,7 @@ func TestMaintenance(t *testing.T) {
 	}
 
 	// A database from before the settings gets Emby's defaults.
-	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; PRAGMA user_version = 11"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE libraries DROP COLUMN realtime_monitor; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; PRAGMA user_version = 11"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

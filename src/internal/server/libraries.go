@@ -66,7 +66,7 @@ func (s *Server) virtualFolderDTO(l media.Library) object {
 	}
 	return object{"Name": l.Name, "Locations": l.Paths, "CollectionType": l.Type, "ItemId": l.ID, "Id": l.ID,
 		"Guid": derive("guid", l.ID), "RefreshStatus": status,
-		"LibraryOptions": object{"PathInfos": paths, "EnableRealtimeMonitor": false, "EnablePhotos": l.Type == media.HomeVideos}}
+		"LibraryOptions": object{"PathInfos": paths, "EnableRealtimeMonitor": l.Monitor, "EnablePhotos": l.Type == media.HomeVideos}}
 }
 
 // libraryByID finds the library named by the Id parameter or field.
@@ -124,8 +124,11 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 	})
 	route("POST /library/virtualfolders", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		var body struct {
-			LibraryOptions struct{ PathInfos []struct{ Path string } }
-			Paths          []string
+			LibraryOptions struct {
+				PathInfos             []struct{ Path string }
+				EnableRealtimeMonitor *bool
+			}
+			Paths []string
 		}
 		if decodeJSON(w, r, &body) != nil {
 			fail(w, 400, "InvalidRequest")
@@ -140,7 +143,9 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 			if !ok {
 				return nil, "", false
 			}
-			created := media.Library{ID: media.NewLibraryID(), Name: name, Type: strings.ToLower(value(r, "collectionType")), Paths: []string{}}
+			// Emby turns real-time monitoring on unless the options say otherwise.
+			monitor := body.LibraryOptions.EnableRealtimeMonitor == nil || *body.LibraryOptions.EnableRealtimeMonitor
+			created := media.Library{ID: media.NewLibraryID(), Name: name, Type: strings.ToLower(value(r, "collectionType")), Paths: []string{}, Monitor: monitor}
 			if !slices.Contains(media.LibraryTypes, created.Type) {
 				libraryFailure(w, library.ErrType)
 				return nil, "", false
@@ -247,20 +252,43 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	// Couch stores no library options: its scanner and metadata sources are
-	// fixed, so the options editor's settings take no effect.
+	// Of the library options, Couch stores only real-time monitoring: its
+	// scanner and metadata sources are fixed, so the editor's other settings
+	// take no effect. Emby Web posts the options on every dialog close, so
+	// an unchanged setting stores nothing.
 	route("POST /library/virtualfolders/libraryoptions", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 		var body struct {
-			ID string `json:"Id"`
+			ID             string `json:"Id"`
+			LibraryOptions struct{ EnableRealtimeMonitor *bool }
 		}
 		if decodeJSON(w, r, &body) != nil {
 			fail(w, 400, "InvalidRequest")
 			return
 		}
-		if _, ok := libraryByID(s.libraries.Libraries(), body.ID); !ok {
+		libraries := s.libraries.Libraries()
+		n, ok := libraryByID(libraries, body.ID)
+		if !ok {
 			fail(w, 404, "NotFound")
 			return
 		}
+		monitor := body.LibraryOptions.EnableRealtimeMonitor
+		if monitor == nil || *monitor == libraries[n].Monitor {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		switch err := s.libraries.SetMonitor(libraries[n].ID, *monitor); {
+		case errors.Is(err, library.ErrNoLibrary):
+			fail(w, 404, "NotFound")
+			return
+		case err != nil:
+			s.internalError(w)
+			return
+		}
+		activity := "Real-time monitoring was turned off for library " + libraries[n].Name
+		if *monitor {
+			activity = "Real-time monitoring was turned on for library " + libraries[n].Name
+		}
+		s.record(state.Activity{Type: "LibraryChanged", Name: activity, Severity: "Info", UserID: session.UserID})
 		w.WriteHeader(http.StatusNoContent)
 	})
 	route("GET /libraries/availableoptions", func(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
@@ -270,7 +298,7 @@ func (s *Server) libraryRoutes(mux *http.ServeMux) {
 				"SupportedImageTypes": []string{}, "DefaultImageOptions": []any{}})
 		}
 		respond(w, 200, object{"MetadataSavers": []any{}, "MetadataReaders": []any{}, "SubtitleFetchers": []any{},
-			"LyricsFetchers": []any{}, "TypeOptions": typeOptions, "DefaultLibraryOptions": object{"PathInfos": []any{}, "EnablePhotos": true}})
+			"LyricsFetchers": []any{}, "TypeOptions": typeOptions, "DefaultLibraryOptions": object{"PathInfos": []any{}, "EnablePhotos": true, "EnableRealtimeMonitor": true}})
 	})
 
 	// The folder browser of the library dialogs sees only the media roots.

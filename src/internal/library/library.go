@@ -35,6 +35,7 @@ var (
 	ErrNotFolder   = errors.New("the folder does not exist or is not a directory")
 	ErrOverlap     = errors.New("the folder overlaps a folder of another library of the same type")
 	ErrType        = errors.New("only movies, TV shows, music and home videos & photos libraries are supported")
+	ErrNoLibrary   = errors.New("no such library")
 )
 
 // Result is the outcome of the last scan.
@@ -62,6 +63,10 @@ type Manager struct {
 	// changed is called when a scan starts or ends, to report the task.
 	changed  func()
 	requests chan struct{}
+	// run is Run's context; folders are watched in it (monitor.go).
+	run     context.Context
+	watched []string
+	unwatch context.CancelFunc
 }
 
 // New returns a manager for the libraries in store. roots are the folders
@@ -160,7 +165,9 @@ func (m *Manager) Open(ctx context.Context, mediaDir string) (loaded bool, err e
 func (m *Manager) Run(ctx context.Context, hangup <-chan os.Signal, interval time.Duration, now bool) {
 	m.mu.Lock()
 	m.interval = interval
+	m.run = ctx
 	m.mu.Unlock()
+	m.monitor()
 	var tick <-chan time.Time
 	if interval > 0 {
 		ticker := time.NewTicker(interval)
@@ -244,7 +251,28 @@ func (m *Manager) SetLibraries(libraries []media.Library) error {
 	if current := m.Catalog(); current != nil {
 		m.set(current.Reassign(libraries))
 	}
+	m.monitor()
 	m.Scan()
+	return nil
+}
+
+// SetMonitor turns real-time monitoring of library id on or off. Nothing
+// else changes, so only turning it on rescans, to find what changed while
+// it was off.
+func (m *Manager) SetMonitor(id string, on bool) error {
+	libraries := m.Libraries()
+	n := slices.IndexFunc(libraries, func(l media.Library) bool { return l.ID == id })
+	if n < 0 {
+		return ErrNoLibrary
+	}
+	libraries[n].Monitor = on
+	if err := m.store.SetLibraries(toState(libraries)); err != nil {
+		return err
+	}
+	m.monitor()
+	if on {
+		m.Scan()
+	}
 	return nil
 }
 
@@ -474,7 +502,7 @@ func counts(catalog *media.Catalog) (videos, tracks, photos int) {
 func toMedia(libraries []state.Library) []media.Library {
 	out := make([]media.Library, len(libraries))
 	for n, l := range libraries {
-		out[n] = media.Library{ID: l.ID, Name: l.Name, Type: l.Type, Paths: slices.Clone(l.Paths)}
+		out[n] = media.Library{ID: l.ID, Name: l.Name, Type: l.Type, Paths: slices.Clone(l.Paths), Monitor: l.Monitor}
 	}
 	return out
 }
@@ -482,7 +510,7 @@ func toMedia(libraries []state.Library) []media.Library {
 func toState(libraries []media.Library) []state.Library {
 	out := make([]state.Library, len(libraries))
 	for n, l := range libraries {
-		out[n] = state.Library{ID: l.ID, Name: l.Name, Type: l.Type, Paths: slices.Clone(l.Paths)}
+		out[n] = state.Library{ID: l.ID, Name: l.Name, Type: l.Type, Paths: slices.Clone(l.Paths), Monitor: l.Monitor}
 	}
 	return out
 }

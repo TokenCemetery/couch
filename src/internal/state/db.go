@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 12
+const dbSchemaVersion = 13
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,9 +57,13 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + `
-PRAGMA user_version = 12;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + monitorColumn + `
+PRAGMA user_version = 13;
 `
+
+// monitorColumn was added in version 13: real-time monitoring, on for
+// libraries stored before, as Emby turns it on for a new library.
+const monitorColumn = "ALTER TABLE libraries ADD COLUMN realtime_monitor INTEGER NOT NULL DEFAULT 1;"
 
 // maintenanceColumns were added in version 12: Emby's database settings.
 // vacuum_on_startup asks for one VACUUM at the next start, which clears it;
@@ -193,6 +197,8 @@ var migrations = map[int]string{
 	10: catalogSchema + "PRAGMA user_version = 11;",
 	// Version 12 stores the database maintenance settings.
 	11: maintenanceColumns + "PRAGMA user_version = 12;",
+	// Version 13 stores real-time monitoring per library.
+	12: monitorColumn + "PRAGMA user_version = 13;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -613,7 +619,7 @@ func validate(d Data) error {
 }
 
 func loadLibraries(ctx context.Context, db *sql.DB) ([]Library, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, name, type, paths FROM libraries ORDER BY position")
+	rows, err := db.QueryContext(ctx, "SELECT id, name, type, paths, realtime_monitor FROM libraries ORDER BY position")
 	if err != nil {
 		return nil, err
 	}
@@ -622,7 +628,7 @@ func loadLibraries(ctx context.Context, db *sql.DB) ([]Library, error) {
 	for rows.Next() {
 		var library Library
 		var paths string
-		if err := rows.Scan(&library.ID, &library.Name, &library.Type, &paths); err != nil {
+		if err := rows.Scan(&library.ID, &library.Name, &library.Type, &paths, &library.Monitor); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(paths), &library.Paths); err != nil {
@@ -650,8 +656,8 @@ func writeLibraries(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO libraries (id, position, name, type, paths) VALUES (?, ?, ?, ?, ?)",
-			library.ID, n, library.Name, library.Type, string(paths)); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO libraries (id, position, name, type, paths, realtime_monitor) VALUES (?, ?, ?, ?, ?, ?)",
+			library.ID, n, library.Name, library.Type, string(paths), library.Monitor); err != nil {
 			return err
 		}
 	}

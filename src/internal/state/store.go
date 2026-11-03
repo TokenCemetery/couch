@@ -156,11 +156,13 @@ type Data struct {
 }
 
 // Library is a media library: a name, a content type and absolute folders.
+// Monitor is Emby's real-time monitoring option.
 type Library struct {
-	ID    string
-	Name  string
-	Type  string
-	Paths []string
+	ID      string
+	Name    string
+	Type    string
+	Paths   []string
+	Monitor bool
 }
 
 // UserByName finds a user by name, ignoring case.

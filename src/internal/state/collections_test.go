@@ -52,7 +52,7 @@ func TestCollections(t *testing.T) {
 	if err := s.DeleteCollections([]string{other.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; DROP TABLE collections; DROP TABLE playlists; ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 7"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE libraries DROP COLUMN realtime_monitor; DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; DROP TABLE collections; DROP TABLE playlists; ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 7"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

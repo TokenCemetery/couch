@@ -76,8 +76,9 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 
 | Feature | Status | Notes |
 |---|---|---|
-| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies, TV shows, music (#104) and home videos & photos (#105); library options are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
+| Libraries managed in Emby Web: create, rename, delete, add and remove folders below `-media-root` | Supported | Movies, TV shows, music (#104) and home videos & photos (#105); library options other than real-time monitoring are accepted but not stored; `-media-dir` creates the first two libraries once (#112) |
 | Rescan from the library page, the "Scan media library" task, `SIGHUP` or `-rescan-interval`; open screens refresh (`LibraryChanged`) | Supported | IDs of unchanged files kept; a folder that cannot be read or comes back empty keeps its videos, and the others are updated (#39, #112) |
+| Real-time monitoring of library folders | Partial | On Linux with inotify, on by default per library; a rescan starts 10 s after changes stop. Not on macOS, and network mounts report no changes made by other hosts: use `-rescan-interval` there (#130) |
 | Catalog kept across restarts | Supported | Saved to `couch.db` (in `catalog.json` before #128), so backups keep it; a start serves it at once and rescans in the background, probing only changed files; date added is kept (#39) |
 | Library unreachable at startup | Partial | With a saved index, an empty volume keeps the saved catalog; on a first start without one, an unreadable folder stays empty and is reported until a rescan reaches it (#31, #39, #112) |
 | Backup and restore of user state | Partial | By copying the data directory; the Emby backup API is not implemented (#32) |

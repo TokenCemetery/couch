@@ -430,7 +430,7 @@ func TestLibrariesPersist(t *testing.T) {
 	if d := s.Snapshot(); d.LibrariesConfigured || len(d.Libraries) != 0 {
 		t.Fatalf("new state has libraries: %+v", d.Libraries)
 	}
-	want := []Library{{ID: "b", Name: "Shows", Type: "tvshows", Paths: []string{"/media/shows", "/media/more"}}, {ID: "a", Name: "Films", Type: "movies", Paths: []string{"/media/films"}}}
+	want := []Library{{ID: "b", Name: "Shows", Type: "tvshows", Paths: []string{"/media/shows", "/media/more"}, Monitor: true}, {ID: "a", Name: "Films", Type: "movies", Paths: []string{"/media/films"}}}
 	if err := s.SetLibraries(want); err != nil {
 		t.Fatal(err)
 	}
@@ -444,6 +444,20 @@ func TestLibrariesPersist(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	if d := s.Snapshot(); !d.LibrariesConfigured || !reflect.DeepEqual(d.Libraries, want) {
 		t.Fatalf("reopened libraries %+v", d.Libraries)
+	}
+	// Libraries stored before real-time monitoring get it turned on.
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE libraries DROP COLUMN realtime_monitor; PRAGMA user_version = 12"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if d := s.Snapshot(); len(d.Libraries) != 2 || !d.Libraries[0].Monitor || !d.Libraries[1].Monitor {
+		t.Fatalf("migrated libraries %+v", d.Libraries)
 	}
 	// Removing every library keeps them configured.
 	if err := s.SetLibraries(nil); err != nil {

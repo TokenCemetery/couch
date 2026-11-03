@@ -26,12 +26,13 @@ var LibraryTypes = []string{Movies, TVShows, Music, HomeVideos}
 // library holds the episodes with their series and seasons; a music library
 // holds the audio files with their albums; a home videos library holds the
 // photos and videos with their folders as photo albums. Paths are absolute
-// and clean.
+// and clean. Monitor asks for a scan when a file in Paths changes.
 type Library struct {
-	ID    string
-	Name  string
-	Type  string
-	Paths []string
+	ID      string
+	Name    string
+	Type    string
+	Paths   []string
+	Monitor bool
 }
 
 // DefaultLibraries returns the Movies and TV Shows libraries of one
@@ -44,8 +45,8 @@ func DefaultLibraries(directory string) ([]Library, error) {
 	}
 	movies := stableID("movies\x00" + absolute)
 	return []Library{
-		{ID: movies, Name: "Movies", Type: Movies, Paths: []string{absolute}},
-		{ID: stableID("series\x00" + movies), Name: "TV Shows", Type: TVShows, Paths: []string{absolute}},
+		{ID: movies, Name: "Movies", Type: Movies, Paths: []string{absolute}, Monitor: true},
+		{ID: stableID("series\x00" + movies), Name: "TV Shows", Type: TVShows, Paths: []string{absolute}, Monitor: true},
 	}, nil
 }
 
