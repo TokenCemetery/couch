@@ -50,6 +50,11 @@ type nfo struct {
 	TMDbID string `xml:"tmdbid"`
 	IMDbID string `xml:"imdbid"`
 	TVDbID string `xml:"tvdbid"`
+	// Set is <set><name>…</name></set>, or older Kodi's <set>…</set>.
+	Set struct {
+		Text string `xml:",chardata"`
+		Name string `xml:"name"`
+	} `xml:"set"`
 }
 
 type nfoRating struct {
@@ -108,6 +113,11 @@ func parseNFO(content []byte) (Info, error) {
 	}
 	if info.Overview == "" {
 		info.Overview = clean(n.Outline)
+	}
+	if n.XMLName.Local == "movie" {
+		if info.Set = clean(n.Set.Name); info.Set == "" {
+			info.Set = clean(n.Set.Text)
+		}
 	}
 	for _, text := range []string{n.Premiered, n.Aired, n.ReleaseDate} {
 		if t, ok := parseDate(text); ok {

@@ -31,6 +31,7 @@ func TestParseNFO(t *testing.T) {
   <director>Frank Darabont</director>
   <credits>Stephen King</credits>
   <premiered>1994-09-23</premiered>
+  <set><name>Prison Films</name><overview>Ignored.</overview></set>
   <actor><name>Tim Robbins</name><role>Andy</role><thumb>https://image.tmdb.org/t/p/original/tim.jpg</thumb></actor>
 </movie>
 https://www.themoviedb.org/movie/999`
@@ -42,7 +43,7 @@ https://www.themoviedb.org/movie/999`
 		Name: "The Movie", OriginalTitle: "Le Film", SortName: "Movie, The", Overview: "Long plot.", Tagline: "One line.",
 		Year: 1994, Premiere: time.Date(1994, 9, 23, 0, 0, 0, 0, time.UTC),
 		Genres: []string{"Drama", "Crime"}, Studios: []string{"Castle Rock"}, Tags: []string{"prison"},
-		Community: 7.5, Critic: 85, OfficialRating: "PG-13",
+		Community: 7.5, Critic: 85, OfficialRating: "PG-13", Set: "Prison Films",
 		People: []Person{{Name: "Tim Robbins", Role: "Andy", Type: "Actor", Thumb: "https://image.tmdb.org/t/p/original/tim.jpg"},
 			{Name: "Frank Darabont", Role: "Director", Type: "Director"}, {Name: "Stephen King", Role: "Writer", Type: "Writer"}},
 		// The <uniqueid> wins over the trailing URL.
@@ -55,6 +56,13 @@ https://www.themoviedb.org/movie/999`
 	show, err := parseNFO([]byte(`<tvshow><title>Show</title><id>81189</id><year>2008</year><rating>9</rating></tvshow>`))
 	if err != nil || show.Name != "Show" || show.Year != 2008 || show.Community != 9 || show.ProviderIDs["Tvdb"] != "81189" {
 		t.Fatalf("tvshow: %+v %v", show, err)
+	}
+	// Older Kodi files name the set as text; only movies belong to one.
+	if old, err := parseNFO([]byte(`<movie><set> Old Set </set></movie>`)); err != nil || old.Set != "Old Set" {
+		t.Fatalf("old set: %+v %v", old, err)
+	}
+	if show, err := parseNFO([]byte(`<tvshow><set>Not a movie</set></tvshow>`)); err != nil || show.Set != "" {
+		t.Fatalf("tvshow set: %+v %v", show, err)
 	}
 	link, err := parseNFO([]byte("https://www.imdb.com/title/tt0068646/\n"))
 	if err != nil || !reflect.DeepEqual(link, Info{ProviderIDs: map[string]string{"Imdb": "tt0068646"}}) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"os"
@@ -31,10 +32,13 @@ type entity struct {
 	Type, Name string
 }
 
-// SetMetadata publishes the metadata of the catalogue's items.
+// SetMetadata publishes the metadata of the catalogue's items and brings
+// the collections of movie sets in line with it.
 func (s *Server) SetMetadata(library metadata.Library) {
 	index := &metadataIndex{library: library, entities: map[string]entity{}}
-	for _, info := range library {
+	sets := make(map[string]state.MovieSet, len(library))
+	for id, info := range library {
+		sets[id] = state.MovieSet{Name: info.Set, TmdbID: info.SetTmdbID, Pending: info.Pending}
 		for _, kind := range []struct {
 			kind   string
 			values []string
@@ -48,6 +52,13 @@ func (s *Server) SetMetadata(library metadata.Library) {
 		}
 	}
 	s.metadata.Store(index)
+	created, err := s.store.SyncSets(sets)
+	if err != nil {
+		slog.Warn("Movie set collections not updated", "error", err)
+	}
+	for _, c := range created {
+		s.record(state.Activity{Type: "CollectionCreated", Name: "Collection " + c.Name + " created", Severity: "Info", ItemID: c.ID})
+	}
 }
 
 // SetMetadataImages names the directory of downloaded provider images.

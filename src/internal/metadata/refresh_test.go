@@ -108,7 +108,7 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"/tmdb/search/movie": `{"results":[{"id":2,"title":"The Movie: Making Of","popularity":1.5},{"id":1,"title":"Le Film","original_title":"The Movie","popularity":40}]}`,
 		"/tmdb/movie/1": `{"title":"Online Movie","original_title":"Film en ligne","overview":"From TMDb.","release_date":"2010-05-01",
 			"vote_average":7.2,"genres":[{"name":"Comedy"}],"production_companies":[{"name":"Studio A"}],"poster_path":"/img/poster.png",
-			"imdb_id":"tt0000001","credits":{"cast":[{"id":11,"name":"Actor One","character":"Hero","profile_path":"/img/actor.png"},{"id":97,"name":"Same Name"}],"crew":[{"name":"Dir One","job":"Director","department":"Directing"}]},
+			"imdb_id":"tt0000001","belongs_to_collection":{"id":5,"name":"Online Collection"},"credits":{"cast":[{"id":11,"name":"Actor One","character":"Hero","profile_path":"/img/actor.png"},{"id":97,"name":"Same Name"}],"crew":[{"name":"Dir One","job":"Director","department":"Directing"}]},
 			"keywords":{"keywords":[{"name":"heist"}]},"release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"PG"}]}]}}`,
 		"/tmdb/movie/55":      `{"title":"TMDb Title","overview":"Overview of 55.","release_date":"2001-01-01","genres":[{"name":"Action"}]}`,
 		"/tmdb/tv/9":          `{"name":"TMDb Show","overview":"TMDb overview.","vote_average":8.1,"networks":[{"name":"Net"}],"backdrop_path":"/img/show-backdrop.png"}`,
@@ -192,7 +192,8 @@ func TestRefresh(t *testing.T) {
 	movie := published["movie"]
 	if movie.Name != "Online Movie" || movie.OriginalTitle != "Film en ligne" || movie.Year != 2010 || movie.OfficialRating != "PG" ||
 		movie.Community != 7.2 || strings.Join(movie.Genres, ",") != "Comedy" || strings.Join(movie.Tags, ",") != "heist" ||
-		len(movie.People) != 3 || movie.ProviderIDs["Imdb"] != "tt0000001" {
+		len(movie.People) != 3 || movie.ProviderIDs["Imdb"] != "tt0000001" ||
+		movie.Set != "Online Collection" || movie.SetTmdbID != "5" || movie.Pending {
 		t.Fatalf("movie: %+v", movie)
 	}
 	poster := movie.Images["Primary"]
@@ -413,6 +414,10 @@ func TestRefreshRejectedKey(t *testing.T) {
 	}
 	if published == nil {
 		t.Fatal("local metadata not published")
+	}
+	// Items not looked up yet wait for it, so they leave no movie set.
+	if movie := published["movie"]; movie == nil || !movie.Pending {
+		t.Fatalf("movie not pending: %+v", movie)
 	}
 }
 

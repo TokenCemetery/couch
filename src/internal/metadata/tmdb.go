@@ -266,8 +266,12 @@ func (t *tmdb) movie(ctx context.Context, ids map[string]string, title string, y
 		PosterPath    string      `json:"poster_path"`
 		BackdropPath  string      `json:"backdrop_path"`
 		IMDbID        string      `json:"imdb_id"`
-		Credits       tmdbCredits `json:"credits"`
-		Keywords      struct {
+		Collection    *struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"belongs_to_collection"`
+		Credits  tmdbCredits `json:"credits"`
+		Keywords struct {
 			Keywords []tmdbNamed `json:"keywords"`
 		} `json:"keywords"`
 		ReleaseDates struct {
@@ -289,6 +293,9 @@ func (t *tmdb) movie(ctx context.Context, ids map[string]string, title string, y
 	}
 	setDate(&info, m.ReleaseDate)
 	addID(info.ProviderIDs, "imdb", m.IMDbID)
+	if m.Collection != nil && m.Collection.ID > 0 {
+		info.Set, info.SetTmdbID = clean(m.Collection.Name), strconv.Itoa(m.Collection.ID)
+	}
 	for _, country := range []string{t.lang.country, "US"} {
 		for _, r := range m.ReleaseDates.Results {
 			for _, d := range r.Dates {

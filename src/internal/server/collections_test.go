@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/TokenCemetery/couch/internal/media"
+	"github.com/TokenCemetery/couch/internal/metadata"
 	"github.com/TokenCemetery/couch/internal/state"
 )
 
@@ -162,5 +163,33 @@ func TestCollections(t *testing.T) {
 	expectStatus(t, request(h, "GET", "/Users/"+user+"/Items/"+id, "", "", token), 404)
 	if got := ids(list(views, token)); strings.Contains(got, collectionsViewID) {
 		t.Fatalf("views after deleting every collection: %s", got)
+	}
+}
+
+// TestSetCollections checks that movies naming the same set in their
+// metadata appear as one collection in Emby Web.
+func TestSetCollections(t *testing.T) {
+	store, _, _ := newTestServer(t)
+	one, two := playbackMovie(), playbackMovie()
+	two.ID = "movie2"
+	catalog := &media.Catalog{ID: "movies", Items: []media.Item{one, two}}
+	api := New(store, "test", nil, catalog)
+	h := api.Handler()
+	token := login(t, h)
+	api.SetMetadata(metadata.Library{"movie": {Name: "One", Set: "Saga"}, "movie2": {Name: "Two", Set: "saga"}})
+	w := request(h, "GET", "/Users/"+testUser(store).ID+"/Items?ParentId="+collectionsViewID, "", "", token)
+	expectStatus(t, w, 200)
+	var page struct{ Items []struct{ Name, Type string } }
+	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil || len(page.Items) != 1 || page.Items[0].Name != "Saga" || page.Items[0].Type != "BoxSet" {
+		t.Fatalf("Collections library: %s", w.Body)
+	}
+	c := store.Snapshot().Collections[0]
+	if !slices.Equal(c.Items, []string{"movie", "movie2"}) {
+		t.Fatalf("collection %+v", c)
+	}
+	// Publishing again changes nothing.
+	api.SetMetadata(metadata.Library{"movie": {Name: "One", Set: "Saga"}, "movie2": {Name: "Two", Set: "Saga"}})
+	if got := store.Snapshot().Collections; len(got) != 1 || got[0].ID != c.ID {
+		t.Fatalf("collections after republishing: %+v", got)
 	}
 }

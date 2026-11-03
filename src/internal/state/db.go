@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 13
+const dbSchemaVersion = 14
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,8 +57,19 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + monitorColumn + `
-PRAGMA user_version = 13;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + monitorColumn + setColumns + `
+PRAGMA user_version = 14;
+`
+
+// setColumns were added in version 14: the movie set an automatic
+// collection follows, the members it added and those an administrator
+// declined as JSON arrays, and the sets whose automatic collection an
+// administrator deleted.
+const setColumns = `
+ALTER TABLE collections ADD COLUMN set_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE collections ADD COLUMN set_items TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE collections ADD COLUMN declined TEXT NOT NULL DEFAULT '[]';
+CREATE TABLE dismissed_sets (set_key TEXT PRIMARY KEY) STRICT, WITHOUT ROWID;
 `
 
 // monitorColumn was added in version 13: real-time monitoring, on for
@@ -199,6 +210,8 @@ var migrations = map[int]string{
 	11: maintenanceColumns + "PRAGMA user_version = 12;",
 	// Version 13 stores real-time monitoring per library.
 	12: monitorColumn + "PRAGMA user_version = 13;",
+	// Version 14 stores collections created from movie sets.
+	13: setColumns + "PRAGMA user_version = 14;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are
@@ -250,7 +263,7 @@ func loadDB(ctx context.Context, db *sql.DB) (Data, error) {
 		return Data{}, err
 	}
 	d.Libraries = libraries
-	if d.Collections, err = loadCollections(ctx, db); err != nil {
+	if d.Collections, d.DismissedSets, err = loadCollections(ctx, db); err != nil {
 		return Data{}, err
 	}
 	if d.Playlists, err = loadPlaylists(ctx, db); err != nil {
@@ -664,33 +677,65 @@ func writeLibraries(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 	return nil
 }
 
-func loadCollections(ctx context.Context, db *sql.DB) ([]Collection, error) {
-	rows, err := db.QueryContext(ctx, "SELECT id, name, added, items FROM collections ORDER BY position")
+func loadCollections(ctx context.Context, db *sql.DB) ([]Collection, []string, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, name, added, items, set_key, set_items, declined FROM collections ORDER BY position")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	var collections []Collection
 	for rows.Next() {
 		var c Collection
-		var added, items string
-		if err := rows.Scan(&c.ID, &c.Name, &added, &items); err != nil {
-			return nil, err
+		var added, items, setItems, declined string
+		if err := rows.Scan(&c.ID, &c.Name, &added, &items, &c.Set, &setItems, &declined); err != nil {
+			return nil, nil, err
 		}
 		if err := c.Added.UnmarshalText([]byte(added)); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := json.Unmarshal([]byte(items), &c.Items); err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		if err := json.Unmarshal([]byte(setItems), &c.SetItems); err != nil {
+			return nil, nil, err
+		}
+		if err := json.Unmarshal([]byte(declined), &c.Declined); err != nil {
+			return nil, nil, err
 		}
 		collections = append(collections, c)
 	}
-	return collections, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	dismissed, err := db.QueryContext(ctx, "SELECT set_key FROM dismissed_sets ORDER BY set_key")
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = dismissed.Close() }()
+	var sets []string
+	for dismissed.Next() {
+		var key string
+		if err := dismissed.Scan(&key); err != nil {
+			return nil, nil, err
+		}
+		sets = append(sets, key)
+	}
+	return collections, sets, dismissed.Err()
 }
 
 // writeCollections rewrites the collections when any changed, like the
 // libraries; an administrator edits them rarely.
 func writeCollections(ctx context.Context, tx *sql.Tx, prev, next Data) error {
+	if !slices.Equal(prev.DismissedSets, next.DismissedSets) {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM dismissed_sets"); err != nil {
+			return err
+		}
+		for _, key := range next.DismissedSets {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO dismissed_sets (set_key) VALUES (?)", key); err != nil {
+				return err
+			}
+		}
+	}
 	if reflect.DeepEqual(prev.Collections, next.Collections) {
 		return nil
 	}
@@ -702,12 +747,20 @@ func writeCollections(ctx context.Context, tx *sql.Tx, prev, next Data) error {
 		if err != nil {
 			return err
 		}
+		setItems, err := json.Marshal(c.SetItems)
+		if err != nil {
+			return err
+		}
+		declined, err := json.Marshal(c.Declined)
+		if err != nil {
+			return err
+		}
 		added, err := timeText(c.Added)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO collections (id, position, name, added, items) VALUES (?, ?, ?, ?, ?)",
-			c.ID, n, c.Name, added, string(items)); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO collections (id, position, name, added, items, set_key, set_items, declined) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			c.ID, n, c.Name, added, string(items), c.Set, string(setItems), string(declined)); err != nil {
 			return err
 		}
 	}

@@ -22,11 +22,13 @@ import (
 )
 
 // lookupVersion changes whenever what a lookup fetches does, so stored
-// online metadata is fetched again; nfoVersion likewise for what is read
-// from .nfo files.
+// online metadata is fetched again, and movieLookupVersion when only what a
+// movie lookup fetches does; nfoVersion likewise for what is read from .nfo
+// files.
 const (
-	lookupVersion = "2"
-	nfoVersion    = "2"
+	lookupVersion      = "2"
+	movieLookupVersion = "3"
+	nfoVersion         = "3"
 )
 
 // Config selects the online providers and how long their metadata is kept.
@@ -513,8 +515,11 @@ func (x *run) identified(id string) map[string]string {
 
 func (x *run) publishLibrary() {
 	library := Library{}
-	for id := range x.records {
+	for id, record := range x.records {
 		info := x.info(id)
+		// A new or removed identification drops what was fetched, and a new
+		// item has nothing fetched yet, until the lookup answers.
+		info.Pending = x.Online() && record.OnlineKey == ""
 		library[id] = &info
 	}
 	x.publish(library)
@@ -553,7 +558,11 @@ func idText(ids map[string]string) string {
 }
 
 func (x *run) lookupOf(item media.Item) lookup {
-	prefix := strings.Join([]string{lookupVersion, item.Type(), x.cfg.Language, x.providers()}, "|") + "|"
+	version := lookupVersion
+	if item.Type() == "Movie" {
+		version = movieLookupVersion
+	}
+	prefix := strings.Join([]string{version, item.Type(), x.cfg.Language, x.providers()}, "|") + "|"
 	switch item.Type() {
 	case "Season", "Episode":
 		series := x.info(item.SeriesID).ProviderIDs

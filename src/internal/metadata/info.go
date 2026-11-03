@@ -31,6 +31,13 @@ type Info struct {
 	OfficialRating string            `json:",omitempty"`
 	People         []Person          `json:",omitempty"`
 	ProviderIDs    map[string]string `json:",omitempty"` // Tmdb, Tvdb, Imdb
+	// Set names the movie set, such as a franchise, the movie belongs to,
+	// and SetTmdbID is that set's TMDb collection ID.
+	Set       string `json:",omitempty"`
+	SetTmdbID string `json:",omitempty"`
+	// Pending is true while the item waits for an online lookup, such as
+	// after a new identification; it is not stored.
+	Pending bool `json:"-"`
 	// Images are downloaded provider images by Emby image type.
 	Images map[string]Image `json:",omitempty"`
 }
@@ -85,6 +92,8 @@ func merge(primary, fallback Info) Info {
 	text(&primary.Overview, fallback.Overview)
 	text(&primary.Tagline, fallback.Tagline)
 	text(&primary.OfficialRating, fallback.OfficialRating)
+	text(&primary.Set, fallback.Set)
+	text(&primary.SetTmdbID, fallback.SetTmdbID)
 	if primary.Year == 0 {
 		primary.Year = fallback.Year
 	}

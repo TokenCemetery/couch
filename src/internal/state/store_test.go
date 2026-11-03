@@ -395,7 +395,7 @@ func TestOwnerBecomesAdministrator(t *testing.T) {
 	if !viewer(s.Snapshot()).Policy.IsAdministrator {
 		t.Fatal("-init did not create an administrator")
 	}
-	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown;"+dropPolicyColumns+"ALTER TABLE metadata DROP COLUMN identified; PRAGMA user_version = 2"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE dismissed_sets; DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown;"+dropPolicyColumns+"ALTER TABLE metadata DROP COLUMN identified; PRAGMA user_version = 2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -446,7 +446,7 @@ func TestLibrariesPersist(t *testing.T) {
 		t.Fatalf("reopened libraries %+v", d.Libraries)
 	}
 	// Libraries stored before real-time monitoring get it turned on.
-	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE libraries DROP COLUMN realtime_monitor; PRAGMA user_version = 12"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE collections DROP COLUMN set_key; ALTER TABLE collections DROP COLUMN set_items; ALTER TABLE collections DROP COLUMN declined; DROP TABLE dismissed_sets; ALTER TABLE libraries DROP COLUMN realtime_monitor; PRAGMA user_version = 12"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

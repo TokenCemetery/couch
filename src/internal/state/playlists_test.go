@@ -96,7 +96,7 @@ func TestPlaylists(t *testing.T) {
 	if err := s.DeletePlaylists(owner.ID, []string{p.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE libraries DROP COLUMN realtime_monitor; DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; DROP TABLE playlists; ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 8"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE collections DROP COLUMN set_key; ALTER TABLE collections DROP COLUMN set_items; ALTER TABLE collections DROP COLUMN declined; DROP TABLE dismissed_sets; ALTER TABLE libraries DROP COLUMN realtime_monitor; DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; DROP TABLE playlists; ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 8"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

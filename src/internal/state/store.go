@@ -151,6 +151,9 @@ type Data struct {
 	VacuumOnStartup, OptimizeOnShutdown bool
 	// Collections are the collections in creation order.
 	Collections []Collection
+	// DismissedSets are the movie sets, by SetKey, whose automatic
+	// collection an administrator deleted, so it is not created again.
+	DismissedSets []string
 	// Playlists are every user's playlists in creation order.
 	Playlists []Playlist
 }
