@@ -154,8 +154,8 @@ func TestHomeVideosLibrary(t *testing.T) {
 	}
 
 	// The saved index keeps the photos' size and date.
-	index := filepath.Join(t.TempDir(), "catalog.json")
-	if err := catalog.Save(index); err != nil {
+	index, err := catalog.Index()
+	if err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := loadLibraries([]Library{home, shows}, index, probe)

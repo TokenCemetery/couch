@@ -300,7 +300,7 @@ Couch built from the working tree, run in the `couch:dev` image as root with `-d
 | Data | Order |
 |---|---|
 | Database `couch.db` | SQLite with `journal_mode=DELETE` and `synchronous=FULL`: the journal and the database are synced at every commit |
-| Catalog index `catalog.json` | temporary file, fsync, rename, directory fsync |
+| Catalog index, `catalog` table of `couch.db` (in `catalog.json` before #128) | the database commit, as above |
 | Avatar `user-image-<rev>` | temporary file, fsync, rename, directory fsync, then the database commit |
 | Metadata images `metadata/<hex>.{jpg,png}` | temporary file, fsync, rename, directory fsync, then the database commit |
 | Embedded cover cache `covers/<rev>` | temporary file, fsync, rename. A lost rename is a cache miss |

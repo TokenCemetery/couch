@@ -88,8 +88,8 @@ func TestMusicLibrary(t *testing.T) {
 	if probes != 5 || len(both.Items) != 5 {
 		t.Fatalf("probes %d, items %d", probes, len(both.Items))
 	}
-	index := filepath.Join(t.TempDir(), "catalog.json")
-	if err := both.Save(index); err != nil {
+	index, err := both.Index()
+	if err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := loadLibraries([]Library{music, movies}, index, probe)

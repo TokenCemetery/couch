@@ -80,7 +80,7 @@ func TestHomeSections(t *testing.T) {
 		t.Fatalf("emptied: %#v", emptied)
 	}
 
-	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 9"); err != nil {
+	if _, err := s.db.ExecContext(t.Context(), "DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE users DROP COLUMN home_sections; PRAGMA user_version = 9"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

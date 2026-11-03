@@ -46,7 +46,9 @@ Watching file system events (inotify/kqueue) is not proposed in the first versio
 
 ### 4. Saved index
 
-After each successful publication the catalog is written to `<data>/catalog.json` atomically (temporary file, fsync, rename). The format is versioned; an incompatible or corrupted version is ignored and leads to a full scan, not to a startup failure. The index stores FFprobe results and the time each path was first seen.
+After each successful publication the catalog is written to `<data>/catalog.json` atomically (temporary file, fsync, rename). The format is versioned; an incompatible or corrupted version is ignored and leads to a full scan, not to a startup failure.
+
+Since #128 (2026-11-03) the index is in `couch.db`: `catalog_folders` lists the scanned folders, also empty ones, and `catalog` holds one row per file, so a backup keeps the first-seen dates. The library manager keeps a hash of each saved row and writes only the rows that changed, in one short transaction; a folder still in a library but not scanned (unreachable since the start) keeps its rows. On a start without an index, a `catalog.json` is imported and left in place for a rollback. A row whose probe cannot be read keeps its date added and is probed again; a release whose probe records a new field marks the rows to probe again (`reprobe`) instead of versioning the format. The index stores FFprobe results and the time each path was first seen.
 
 This closes requirement 3, speeds up startup and gives a real date added: `DateCreated` = the time the path was first seen, not mtime (Latest is sorted by date added, as in Emby). For files that already exist, the first run with an index uses mtime so the order does not flip.
 

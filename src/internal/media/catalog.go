@@ -84,7 +84,8 @@ type Item struct {
 	// src is the folder the item was found in.
 	src *source
 	// reprobe marks a video loaded from an index whose probes lack a field
-	// the current one records; the next rescan probes it again.
+	// the current one records, or a file whose saved probe was unreadable;
+	// the next rescan probes it again.
 	reprobe bool
 }
 

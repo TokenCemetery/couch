@@ -67,12 +67,31 @@ type Instance struct {
 
 	cmd    *exec.Cmd
 	args   []string
-	stderr *bytes.Buffer
+	stderr *logBuffer
 	data   string
 	port   string
 }
 
 var instanceCount atomic.Int64
+
+// logBuffer collects an instance's stderr, which the process writes while
+// checks read it.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // NewSuite builds the binary (unless COUCH_BINARY is set), generates media
 // with FFmpeg and initializes the template state under dir.
@@ -113,7 +132,7 @@ func (s *Suite) Start() (*Instance, error) {
 		_ = os.RemoveAll(data)
 		return nil, err
 	}
-	inst := &Instance{URL: "http://127.0.0.1:" + port, stderr: &bytes.Buffer{}, data: data, port: port}
+	inst := &Instance{URL: "http://127.0.0.1:" + port, stderr: &logBuffer{}, data: data, port: port}
 	inst.args = []string{s.Binary, "-listen", "127.0.0.1:" + port, "-data", data, "-media-dir", s.Media}
 	inst.cmd = exec.CommandContext(context.Background(), inst.args[0], inst.args[1:]...) //nolint:gosec // see NewSuite
 	inst.cmd.Stderr = inst.stderr

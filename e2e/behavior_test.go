@@ -400,9 +400,14 @@ var behaviors = []behavior{
 				}
 				return copyDir(backup, data)
 			}
+			before := len(inst.stderr.String())
 			if err := inst.Restart(restore); err != nil {
 				check.Errorf("restore: %v", err)
 				return
+			}
+			// The copy holds the media index, with its dates added (#128).
+			if !strings.Contains(inst.stderr.String()[before:], "Media index loaded") {
+				check.Errorf("after restore: the media index was not loaded from the backup")
 			}
 			// The session of the copy signs in, and its state is back.
 			var item struct {

@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 10
+const dbSchemaVersion = 11
 
 const dbSchema = `
 CREATE TABLE server (
@@ -57,8 +57,29 @@ CREATE TABLE sessions (
 	token_hash TEXT PRIMARY KEY,
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
-` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + `
-PRAGMA user_version = 10;
+` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + `
+PRAGMA user_version = 11;
+`
+
+// catalogSchema was added in version 11: the media index, which until then
+// was catalog.json. catalog_folders lists the library folders it describes,
+// also those without files, and catalog holds one row per file. probe holds
+// the probe results as JSON; a release whose probe records a new field sets
+// reprobe on the rows it should probe again.
+const catalogSchema = `
+CREATE TABLE catalog_folders (
+	folder TEXT PRIMARY KEY
+) STRICT, WITHOUT ROWID;
+CREATE TABLE catalog (
+	folder TEXT NOT NULL,
+	path TEXT NOT NULL,
+	size INTEGER NOT NULL,
+	modified TEXT NOT NULL,
+	added TEXT NOT NULL,
+	reprobe INTEGER NOT NULL,
+	probe TEXT NOT NULL,
+	PRIMARY KEY (folder, path)
+) STRICT, WITHOUT ROWID;
 `
 
 // homeSectionsColumn was added in version 10: the user's home screen as a
@@ -159,6 +180,9 @@ var migrations = map[int]string{
 	8: playlistsSchema + "PRAGMA user_version = 9;",
 	// Version 10 stores home screens arranged in Emby Web.
 	9: homeSectionsColumn + "PRAGMA user_version = 10;",
+	// Version 11 stores the media index; the first start imports
+	// catalog.json.
+	10: catalogSchema + "PRAGMA user_version = 11;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are

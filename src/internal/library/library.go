@@ -1,15 +1,17 @@
 // Package library keeps the media catalogue in step with the stored
 // libraries: it creates them from -media-dir on the first start, checks the
 // folders an administrator adds against the media roots, scans, publishes
-// each new catalogue and saves its index.
+// each new catalogue and saves its index in the database.
 package library
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,8 +49,10 @@ type Result struct {
 type Manager struct {
 	store   *state.Store
 	roots   []string
-	index   string
+	legacy  string
 	publish func(*media.Catalog)
+	// saved is what couch.db holds of the index; only save uses it.
+	saved savedIndex
 
 	mu       sync.Mutex
 	interval time.Duration
@@ -61,9 +65,11 @@ type Manager struct {
 }
 
 // New returns a manager for the libraries in store. roots are the folders
-// below which an administrator may add library folders; index is the saved
-// catalogue file; publish receives every new catalogue.
-func New(store *state.Store, roots []string, index string, publish func(*media.Catalog)) (*Manager, error) {
+// below which an administrator may add library folders; legacy is the
+// catalog.json of earlier releases, imported when the database holds no
+// index and left in place for a rollback; publish receives every new
+// catalogue.
+func New(store *state.Store, roots []string, legacy string, publish func(*media.Catalog)) (*Manager, error) {
 	clean := []string{}
 	for _, root := range roots {
 		if root == "" {
@@ -75,7 +81,7 @@ func New(store *state.Store, roots []string, index string, publish func(*media.C
 		}
 		clean = append(clean, absolute)
 	}
-	return &Manager{store: store, roots: clean, index: index, publish: publish, requests: make(chan struct{}, 1)}, nil
+	return &Manager{store: store, roots: clean, legacy: legacy, publish: publish, requests: make(chan struct{}, 1)}, nil
 }
 
 // Roots returns the media roots.
@@ -120,12 +126,15 @@ func (m *Manager) Open(ctx context.Context, mediaDir string) (loaded bool, err e
 	if len(libraries) == 0 {
 		return false, nil
 	}
-	catalog, err := media.Load(ctx, libraries, m.index)
+	catalog, imported, err := m.load(ctx, libraries)
 	switch {
 	case err == nil:
 		videos, tracks, photos := counts(catalog)
-		slog.Info("Media index loaded; rescanning in the background", "videos", videos, "tracks", tracks, "photos", photos, "folders", len(catalog.Folders))
+		slog.Info("Media index loaded; rescanning in the background", "videos", videos, "tracks", tracks, "photos", photos, "folders", len(catalog.Folders), "imported", imported)
 		m.set(catalog)
+		if imported {
+			m.save(catalog)
+		}
 		return true, nil
 	case errors.Is(err, fs.ErrNotExist):
 	default:
@@ -324,12 +333,116 @@ func (m *Manager) finish(start time.Time, err error) {
 	m.setRunning(false)
 }
 
-// save writes the media index; a failure costs only a full scan at the next
-// start.
-func (m *Manager) save(catalog *media.Catalog) {
-	if err := catalog.Save(m.index); err != nil {
-		slog.Warn("Media index not saved", "error", err)
+// load builds the catalogue from the index in the database or, when it
+// holds none, from catalog.json, which imported then reports.
+func (m *Manager) load(ctx context.Context, libraries []media.Library) (catalog *media.Catalog, imported bool, err error) {
+	index, err := m.store.Catalog(ctx)
+	if err != nil {
+		return nil, false, err
 	}
+	m.saved = newSavedIndex(index)
+	if len(index.Folders) == 0 {
+		if index, err = media.ReadIndexFile(libraries, m.legacy); err != nil {
+			return nil, false, err
+		}
+		imported = true
+	}
+	catalog, err = media.Load(ctx, libraries, index)
+	return catalog, imported, err
+}
+
+// save writes what changed in the media index since the last save. Folders
+// still in a library but not scanned, such as one unreachable since the
+// start, keep their entries. A failure keeps the previous index, which the
+// next save brings up to date.
+func (m *Manager) save(catalog *media.Catalog) {
+	index, err := catalog.Index()
+	if err == nil && m.saved.folders == nil {
+		var stored state.CatalogIndex
+		stored, err = m.store.Catalog(context.Background())
+		m.saved = newSavedIndex(stored)
+	}
+	if err != nil {
+		slog.Warn("Media index not saved", "error", err)
+		return
+	}
+	configured := map[string]bool{}
+	for _, library := range catalog.Libraries() {
+		for _, folder := range library.Paths {
+			configured[folder] = true
+		}
+	}
+	scanned := map[string]bool{}
+	for _, folder := range index.Folders {
+		scanned[folder] = true
+	}
+	change := state.CatalogChange{Folders: index.Folders}
+	next := savedIndex{folders: maps.Clone(m.saved.folders), entries: maps.Clone(m.saved.entries)}
+	for _, folder := range index.Folders {
+		next.folders[folder] = true
+	}
+	present := map[savedKey]bool{}
+	for _, e := range index.Entries {
+		key, s := stamp(e)
+		present[key] = true
+		if old, ok := next.entries[key]; !ok || old != s {
+			change.Write = append(change.Write, e)
+			next.entries[key] = s
+		}
+	}
+	for key := range next.entries {
+		if scanned[key.folder] && !present[key] {
+			change.Delete = append(change.Delete, state.CatalogEntry{Folder: key.folder, Path: key.path})
+			delete(next.entries, key)
+		}
+	}
+	for folder := range next.folders {
+		if !configured[folder] {
+			change.Drop = append(change.Drop, folder)
+			delete(next.folders, folder)
+		}
+	}
+	for key := range next.entries {
+		if !next.folders[key.folder] {
+			delete(next.entries, key)
+		}
+	}
+	if err := m.store.ChangeCatalog(context.Background(), change); err != nil {
+		slog.Warn("Media index not saved", "error", err)
+		return
+	}
+	m.saved = next
+}
+
+// savedIndex is what couch.db holds of the media index: its folders and a
+// stamp of each entry.
+type savedIndex struct {
+	folders map[string]bool
+	entries map[savedKey]savedStamp
+}
+
+type savedKey struct{ folder, path string }
+
+type savedStamp struct {
+	size, modified, added int64
+	reprobe               bool
+	probe                 [sha256.Size]byte
+}
+
+func stamp(e state.CatalogEntry) (savedKey, savedStamp) {
+	return savedKey{e.Folder, e.Path}, savedStamp{e.Size, e.Modified.UnixNano(), e.Added.UnixNano(), e.Reprobe, sha256.Sum256([]byte(e.Probe))}
+}
+
+func newSavedIndex(index state.CatalogIndex) savedIndex {
+	saved := savedIndex{folders: map[string]bool{}, entries: map[savedKey]savedStamp{}}
+	for _, folder := range index.Folders {
+		saved.folders[folder] = true
+	}
+	for _, e := range index.Entries {
+		key, s := stamp(e)
+		saved.entries[key] = s
+	}
+	return saved
 }
 
 func logScan(message string, catalog *media.Catalog, err error) {

@@ -12,22 +12,22 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
-// savedVersion changes whenever the saved form or what a probe records does;
-// an index of another version is rejected and the libraries scanned again.
-// Version 1 held one directory, version 2 no audio files and version 4 no
-// photos; they are still read. Version 3 lacked embedded covers and is
-// scanned again. Versions before 6 lacked the colour properties that tell
-// HDR from SDR: their videos are served at once and probed again by the
-// background rescan.
+// savedVersion is the last version of catalog.json, the index before it was
+// kept in the database; such a file is read once to import it. Version 1
+// held one directory, version 2 no audio files and version 4 no photos;
+// they are still read. Version 3 lacked embedded covers and is not.
+// Versions before 6 lacked the colour properties that tell HDR from SDR:
+// their videos are marked to be probed again by the background rescan.
 const savedVersion = 6
 
 const maxSavedBytes = 256 << 20
 
-// savedCatalog is the index Save writes: what probing found in each library
-// folder and when each path was first seen. Everything derived from a path
-// (ID, name, series and season) is computed again on load.
+// savedCatalog is the form of catalog.json: what probing found in each
+// library folder and when each path was first seen.
 type savedCatalog struct {
 	Version int
 	Folders []savedFolder `json:",omitempty"`
@@ -55,62 +55,86 @@ type savedItem struct {
 	Reprobe bool `json:",omitempty"`
 }
 
-// Save writes the catalog to file atomically, so a crash leaves either the
-// previous index or this one.
-func (c *Catalog) Save(file string) error {
-	saved := savedCatalog{Version: savedVersion, Folders: []savedFolder{}}
-	for _, folder := range slices.Sorted(maps.Keys(c.sources)) {
-		src := c.sources[folder]
-		f := savedFolder{Path: folder, Items: make([]savedItem, len(src.items))}
-		for n, item := range src.items {
-			f.Items[n] = savedItem{Path: item.Path, Size: item.Size, Modified: item.Modified, Added: item.Added,
-				RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags, Cover: item.Cover, Photo: item.Photo, Reprobe: item.reprobe}
-		}
-		saved.Folders = append(saved.Folders, f)
-	}
-	b, err := json.Marshal(saved)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(file), ".catalog-*")
-	if err != nil {
-		return err
-	}
-	// After a successful rename this removal fails harmlessly.
-	defer func() { _ = os.Remove(f.Name()) }()
-	if _, err = f.Write(b); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), file); err != nil {
-		return err
-	}
-	dir, err := os.Open(filepath.Dir(file))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dir.Close() }()
-	return dir.Sync()
+// savedProbe is what a state.CatalogEntry's Probe holds. Everything derived
+// from a path (ID, name, series and season) is computed again on load.
+type savedProbe struct {
+	RunTimeTicks int64
+	Streams      []Stream
+	Tags         Tags  `json:",omitzero"`
+	Cover        Image `json:",omitzero"`
+	Photo        Photo `json:",omitzero"`
 }
 
-// Load returns the catalog Save wrote to file for the libraries, without
-// probing any media. A folder the index lacks, or whose root cannot be opened,
-// stays empty; Rescan to pick it up and the changes made since. A missing
-// file returns an error matching fs.ErrNotExist, and an index with none of
-// the libraries' folders an error.
-func Load(ctx context.Context, libraries []Library, file string) (*Catalog, error) {
+// Index returns the catalog's saved form: the folders it scanned and one
+// entry per file, in folder and ID order, with times in UTC.
+func (c *Catalog) Index() (state.CatalogIndex, error) {
+	index := state.CatalogIndex{Folders: slices.Sorted(maps.Keys(c.sources)), Entries: []state.CatalogEntry{}}
+	for _, folder := range index.Folders {
+		for _, item := range c.sources[folder].items {
+			probe, err := json.Marshal(savedProbe{RunTimeTicks: item.RunTimeTicks, Streams: item.Streams, Tags: item.Tags, Cover: item.Cover, Photo: item.Photo})
+			if err != nil {
+				return state.CatalogIndex{}, err
+			}
+			index.Entries = append(index.Entries, state.CatalogEntry{Folder: folder, Path: item.Path, Size: item.Size, Modified: item.Modified.UTC(), Added: item.Added.UTC(),
+				Reprobe: item.reprobe, Probe: string(probe)})
+		}
+	}
+	return index, nil
+}
+
+// ReadIndexFile returns the index a catalog.json holds for the libraries. A
+// missing file returns an error matching fs.ErrNotExist.
+func ReadIndexFile(libraries []Library, file string) (state.CatalogIndex, error) {
+	f, err := os.Open(file) //nolint:gosec // file is in the operator-selected data directory
+	if err != nil {
+		return state.CatalogIndex{}, err
+	}
+	defer func() { _ = f.Close() }()
+	var saved savedCatalog
+	if err := json.NewDecoder(io.LimitReader(f, maxSavedBytes)).Decode(&saved); err != nil {
+		return state.CatalogIndex{}, errors.New("media index is not readable")
+	}
+	var folders []savedFolder
+	switch saved.Version {
+	case 1:
+		for _, folder := range folderPaths(libraries) {
+			if stableID("movies\x00"+folder) == saved.ID {
+				folders = append(folders, savedFolder{Path: folder, Items: saved.Items})
+			}
+		}
+	case 2, 4, 5, savedVersion:
+		folders = saved.Folders
+	default:
+		return state.CatalogIndex{}, errors.New("media index is for another version")
+	}
+	index := state.CatalogIndex{Folders: []string{}, Entries: []state.CatalogEntry{}}
+	for _, folder := range folders {
+		if slices.Contains(index.Folders, folder.Path) {
+			return state.CatalogIndex{}, errors.New("media index has a folder twice")
+		}
+		index.Folders = append(index.Folders, folder.Path)
+		for _, s := range folder.Items {
+			probe, err := json.Marshal(savedProbe{RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: s.Tags, Cover: s.Cover, Photo: s.Photo})
+			if err != nil {
+				return state.CatalogIndex{}, err
+			}
+			index.Entries = append(index.Entries, state.CatalogEntry{Folder: folder.Path, Path: s.Path, Size: s.Size, Modified: s.Modified.UTC(), Added: s.Added.UTC(),
+				Reprobe: s.Reprobe || saved.Version < 6, Probe: string(probe)})
+		}
+	}
+	return index, nil
+}
+
+// Load returns the catalog of the libraries from the saved index, without
+// probing any media. A folder the index lacks, or whose root cannot
+// be opened, stays empty; Rescan to pick it up and the changes made since.
+// An index with none of the libraries' folders returns an error.
+func Load(ctx context.Context, libraries []Library, index state.CatalogIndex) (*Catalog, error) {
 	probe, stats, err := newProbe(ctx)
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := loadLibraries(libraries, file, probe)
+	catalog, err := loadLibraries(libraries, index, probe)
 	if err != nil {
 		return nil, err
 	}
@@ -120,41 +144,23 @@ func Load(ctx context.Context, libraries []Library, file string) (*Catalog, erro
 }
 
 // load reads the index of one directory's default libraries, for tests.
-func load(directory, file string, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {
+func load(directory string, index state.CatalogIndex, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {
 	libraries, err := DefaultLibraries(directory)
 	if err != nil {
 		return nil, err
 	}
-	return loadLibraries(libraries, file, probe)
+	return loadLibraries(libraries, index, probe)
 }
 
-func loadLibraries(libraries []Library, file string, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {
-	f, err := os.Open(file) //nolint:gosec // file is in the operator-selected data directory
-	if err != nil {
-		return nil, err
+func loadLibraries(libraries []Library, index state.CatalogIndex, probe func(context.Context, *os.File) (Item, error)) (*Catalog, error) {
+	folders := map[string][]state.CatalogEntry{}
+	for _, folder := range index.Folders {
+		folders[folder] = []state.CatalogEntry{}
 	}
-	defer func() { _ = f.Close() }()
-	var saved savedCatalog
-	if err := json.NewDecoder(io.LimitReader(f, maxSavedBytes)).Decode(&saved); err != nil {
-		return nil, errors.New("media index is not readable")
-	}
-	folders := map[string][]savedItem{}
-	switch saved.Version {
-	case 1:
-		for _, folder := range folderPaths(libraries) {
-			if stableID("movies\x00"+folder) == saved.ID {
-				folders[folder] = saved.Items
-			}
+	for _, e := range index.Entries {
+		if _, listed := folders[e.Folder]; listed {
+			folders[e.Folder] = append(folders[e.Folder], e)
 		}
-	case 2, 4, 5, savedVersion:
-		for _, folder := range saved.Folders {
-			if _, duplicate := folders[folder.Path]; duplicate {
-				return nil, errors.New("media index has a folder twice")
-			}
-			folders[folder.Path] = folder.Items
-		}
-	default:
-		return nil, errors.New("media index is for another version")
 	}
 	catalog := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: probe}
 	videos, tracks, photos := 0, 0, 0
@@ -178,7 +184,7 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 			return nil, errors.New("media index has too many media files")
 		}
 		video, audio, photo := folderKinds(libraries, folder)
-		src, err := loadSource(folder, items, video, audio, photo, saved.Version < 6)
+		src, err := loadSource(folder, items, video, audio, photo)
 		if err != nil {
 			_ = catalog.Close()
 			return nil, err
@@ -199,9 +205,10 @@ func loadLibraries(libraries []Library, file string, probe func(context.Context,
 
 // loadSource rebuilds a folder's items from the index, rejecting paths that
 // could leave the folder. Files of a kind the folder's libraries no longer
-// catalog are left for the next rescan, and videos are marked for it to
-// probe again when noColour says their probes predate colour properties.
-func loadSource(folder string, saved []savedItem, video, audio, photo, noColour bool) (*source, error) {
+// catalog are left for the next rescan, and only videos keep a reprobe mark.
+// A file whose probe cannot be read keeps its date added and is marked for
+// the next rescan to probe again.
+func loadSource(folder string, saved []state.CatalogEntry, video, audio, photo bool) (*source, error) {
 	src := &source{path: folder, key: stableID("movies\x00" + folder), items: make([]Item, 0, len(saved)), video: video, audio: audio, photo: photo}
 	seen := make(map[string]bool, len(saved))
 	for _, s := range saved {
@@ -215,7 +222,12 @@ func loadSource(folder string, saved []savedItem, video, audio, photo, noColour 
 		if (music && !audio) || (picture && !photo) || (!music && !picture && !video) {
 			continue
 		}
-		tags, cover, pictured := s.Tags, s.Cover, s.Photo
+		var probe savedProbe
+		unreadable := json.Unmarshal([]byte(s.Probe), &probe) != nil
+		if unreadable {
+			probe = savedProbe{}
+		}
+		tags, cover, pictured := probe.Tags, probe.Cover, probe.Photo
 		if !music {
 			tags, cover = Tags{}, Image{}
 		}
@@ -225,8 +237,8 @@ func loadSource(folder string, saved []savedItem, video, audio, photo, noColour 
 		src.items = append(src.items, Item{
 			ID: stableID(src.key + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
 			Container: containerOf(ext),
-			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: s.RunTimeTicks, Streams: s.Streams, Tags: tags, Cover: cover, Photo: pictured,
-			reprobe: !music && !picture && (noColour || s.Reprobe),
+			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: probe.RunTimeTicks, Streams: probe.Streams, Tags: tags, Cover: cover, Photo: pictured,
+			reprobe: unreadable || (!music && !picture && s.Reprobe),
 		})
 	}
 	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })

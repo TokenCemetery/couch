@@ -8,7 +8,7 @@ The container ([README](../README.md#container)) is the main way to run Couch. T
 
 - `/usr/local/bin/couch`: the binary, checked against its SHA-256 first;
 - the system user and group `couch`, also added to the `render` group for `-hwaccel vaapi`;
-- `/var/lib/couch`: the state (`couch.db`, the catalog index, logs), mode 0700, owned by `couch`;
+- `/var/lib/couch`: the state (`couch.db` with the catalog index, logs), mode 0700, owned by `couch`;
 - `/etc/systemd/system/couch.service`: the unit from [deploy/couch.service](../deploy/couch.service). The service runs as `couch` and can write only `/var/lib/couch`. It sees the rest of the system and `/home` read-only, gets no capabilities and no devices besides `/dev/dri/renderD128`, and restarts after a crash or `SIGKILL`;
 - `/etc/default/couch`: the options, from [deploy/couch.default](../deploy/couch.default). An existing file is kept.
 

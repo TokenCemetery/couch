@@ -2,10 +2,12 @@ package library
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -14,9 +16,10 @@ import (
 	"github.com/TokenCemetery/couch/internal/state"
 )
 
-func testStore(t *testing.T) *state.Store {
+func testStore(t *testing.T) (*state.Store, string) {
 	t.Helper()
-	s, err := state.Open(t.TempDir())
+	dir := t.TempDir()
+	s, err := state.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +27,7 @@ func testStore(t *testing.T) *state.Store {
 	if err := s.Initialize("viewer", "test-only-password"); err != nil {
 		t.Fatal(err)
 	}
-	return s
+	return s, dir
 }
 
 func TestFolder(t *testing.T) {
@@ -41,7 +44,8 @@ func TestFolder(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	m, err := New(testStore(t), []string{root}, filepath.Join(t.TempDir(), "catalog.json"), func(*media.Catalog) {})
+	store, _ := testStore(t)
+	m, err := New(store, []string{root}, filepath.Join(t.TempDir(), "catalog.json"), func(*media.Catalog) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +77,8 @@ func TestFolder(t *testing.T) {
 			t.Errorf("%s: cleaned to %s", tc.path, got)
 		}
 	}
-	none, err := New(testStore(t), nil, "", func(*media.Catalog) {})
+	empty, _ := testStore(t)
+	none, err := New(empty, nil, "", func(*media.Catalog) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +99,7 @@ func TestManager(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Skipf("cannot build fixture: %v %s", err, out)
 	}
-	store := testStore(t)
+	store, storeDir := testStore(t)
 	index := filepath.Join(t.TempDir(), "catalog.json")
 	published := make(chan *media.Catalog, 4)
 	m, err := New(store, nil, index, func(c *media.Catalog) { published <- c })
@@ -169,7 +174,12 @@ func TestManager(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("loop did not stop")
 	}
-	// A restart loads the index, which survives the stored libraries.
+	// A restart loads the index from the database, which survives the
+	// stored libraries.
+	saved, err := store.Catalog(context.Background())
+	if err != nil || len(saved.Entries) != 2 {
+		t.Fatalf("saved index %+v, %v", saved, err)
+	}
 	again, err := New(store, nil, index, func(*media.Catalog) {})
 	if err != nil {
 		t.Fatal(err)
@@ -177,5 +187,95 @@ func TestManager(t *testing.T) {
 	defer again.Close()
 	if loaded, err := again.Open(context.Background(), dir); err != nil || !loaded {
 		t.Fatalf("reopen: loaded %v, %v", loaded, err)
+	}
+
+	// Second.mp4 was found by a rescan, so its date added is that rescan's,
+	// not its mtime, and a backup keeps it.
+	var second state.CatalogEntry
+	for _, e := range saved.Entries {
+		if e.Path == "Second.mp4" {
+			second = e
+		}
+	}
+	if !second.Added.After(second.Modified) {
+		t.Fatalf("Second.mp4 added %v, modified %v", second.Added, second.Modified)
+	}
+	backup := filepath.Join(t.TempDir(), "backup")
+	if err := state.Backup(storeDir, backup); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := state.Open(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = restored.Close() }()
+	fromBackup, err := New(restored, nil, filepath.Join(t.TempDir(), "catalog.json"), func(*media.Catalog) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fromBackup.Close()
+	if loaded, err := fromBackup.Open(context.Background(), dir); err != nil || !loaded {
+		t.Fatalf("open the backup: loaded %v, %v", loaded, err)
+	}
+	if got, err := restored.Catalog(context.Background()); err != nil || !slices.ContainsFunc(got.Entries, func(e state.CatalogEntry) bool {
+		return e.Path == "Second.mp4" && e.Added.Equal(second.Added)
+	}) {
+		t.Fatalf("the backup lost the date added: %+v, %v", got, err)
+	}
+
+	// A folder that cannot be opened at the start keeps its entries while
+	// it stays in a library.
+	gone := dir + ".gone"
+	if err := os.Rename(dir, gone); err != nil {
+		t.Fatal(err)
+	}
+	unreachable, err := New(store, nil, index, func(*media.Catalog) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unreachable.Close()
+	_, _ = unreachable.Open(context.Background(), dir)
+	if err := os.Rename(gone, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Catalog(context.Background()); err != nil || len(got.Entries) != 2 {
+		t.Fatalf("an unreachable folder lost its entries: %+v, %v", got, err)
+	}
+
+	// A catalog.json of an earlier release is imported when the database
+	// holds no index, keeping its dates added, and left for a rollback.
+	added := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	items := []map[string]any{}
+	for _, e := range saved.Entries {
+		var item map[string]any
+		if err := json.Unmarshal([]byte(e.Probe), &item); err != nil {
+			t.Fatal(err)
+		}
+		item["Path"], item["Size"], item["Modified"], item["Added"] = e.Path, e.Size, e.Modified, added
+		items = append(items, item)
+	}
+	legacy, err := json.Marshal(map[string]any{"Version": 6, "Folders": []any{map[string]any{"Path": dir, "Items": items}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(index, legacy, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ChangeCatalog(context.Background(), state.CatalogChange{Drop: []string{dir}}); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := New(store, nil, index, func(*media.Catalog) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer imported.Close()
+	if loaded, err := imported.Open(context.Background(), dir); err != nil || !loaded {
+		t.Fatalf("import: loaded %v, %v", loaded, err)
+	}
+	if saved, err := store.Catalog(context.Background()); err != nil || len(saved.Entries) != 2 || !saved.Entries[0].Added.Equal(added) || !saved.Entries[1].Added.Equal(added) {
+		t.Fatalf("imported index %+v, %v", saved, err)
+	}
+	if _, err := os.Stat(index); err != nil {
+		t.Fatalf("catalog.json not left for a rollback: %v", err)
 	}
 }
