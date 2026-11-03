@@ -4,13 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/TokenCemetery/couch/internal/media"
 	"github.com/TokenCemetery/couch/internal/metadata"
+	"github.com/TokenCemetery/couch/internal/state"
 )
 
 // metadataIndex is a published metadata.Library with the genres, studios,
@@ -225,6 +230,105 @@ func entityDTO(id string, e entity, serverID string) object {
 	dto["IsFolder"] = e.Type != "Person"
 	dto["UserData"] = folderUserData()
 	return dto
+}
+
+// personTypes is Emby's PersonType order, which credit tabs follow.
+var personTypes = []string{"Actor", "Director", "Writer", "Producer", "GuestStar", "Composer", "Conductor", "Lyricist"}
+
+// personCredits answers Persons/{Id}/Credits: the person's filmography by
+// credit type, for the person page's credit tabs. Emby fills it from its
+// metadata provider; Couch lists the items of the user's libraries that
+// credit the person. An episode credits its series, once per type.
+func (s *Server) personCredits(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
+	catalog := s.catalogFor(session)
+	if catalog == nil {
+		fail(w, 404, "NotFound")
+		return
+	}
+	id := r.PathValue("item")
+	if e, found := s.entityIn(catalog, id); !found || e.Type != "Person" {
+		fail(w, 404, "NotFound")
+		return
+	}
+	type credit struct {
+		item   media.Item
+		person metadata.Person
+	}
+	byType := map[string][]credit{}
+	seen := map[string]bool{}
+	// Folders first, so a series' own credit wins over its episodes'.
+	for _, items := range [][]media.Item{catalog.Folders, catalog.Items} {
+		for _, item := range items {
+			for _, person := range s.info(item.ID).People {
+				if metadata.ID("Person", person.Name) != id {
+					continue
+				}
+				credited := item
+				if item.Type() == "Episode" {
+					if series, found := findItem(catalog, item.SeriesID); found {
+						credited = series
+					}
+				}
+				if key := person.Type + "\x00" + credited.ID; !seen[key] {
+					seen[key] = true
+					byType[person.Type] = append(byType[person.Type], credit{credited, person})
+				}
+			}
+		}
+	}
+	// Newest first, as a filmography reads; undated items last.
+	released := func(item media.Item) time.Time {
+		info := s.info(item.ID)
+		if !info.Premiere.IsZero() || info.Year == 0 {
+			return info.Premiere
+		}
+		return time.Date(info.Year, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	types := slices.Sorted(maps.Keys(byType))
+	slices.SortStableFunc(types, func(a, b string) int {
+		rank := func(t string) int {
+			if i := slices.Index(personTypes, t); i >= 0 {
+				return i
+			}
+			return len(personTypes)
+		}
+		return rank(a) - rank(b)
+	})
+	lists := []object{}
+	for _, personType := range types {
+		credits := byType[personType]
+		slices.SortStableFunc(credits, func(a, b credit) int {
+			if c := released(b.item).Compare(released(a.item)); c != 0 {
+				return c
+			}
+			return strings.Compare(s.sortKey(a.item), s.sortKey(b.item))
+		})
+		items := make([]object, 0, len(credits))
+		for _, c := range credits {
+			info := s.info(c.item.ID)
+			ids := map[string]string{}
+			maps.Copy(ids, info.ProviderIDs)
+			dto := object{"Name": s.displayName(c.item), "Type": c.item.Type(), "PersonType": personType, "ProviderIds": ids}
+			if c.person.Role != "" {
+				dto["Role"] = c.person.Role
+			}
+			if info.OriginalTitle != "" && info.OriginalTitle != dto["Name"] {
+				dto["OriginalTitle"] = info.OriginalTitle
+			}
+			if info.Year > 0 {
+				dto["ProductionYear"] = info.Year
+			}
+			if !info.Premiere.IsZero() {
+				dto["PremiereDate"] = embyDate(info.Premiere)
+			}
+			if info.Overview != "" {
+				dto["Overview"] = info.Overview
+			}
+			items = append(items, dto)
+		}
+		lists = append(lists, object{"PersonType": personType, "Items": items})
+	}
+	respond(w, 200, lists)
 }
 
 // imageInfos reports the item's images by type: local files first, then

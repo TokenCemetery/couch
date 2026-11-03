@@ -55,6 +55,8 @@ type Fixtures struct {
 	PlaylistEntry string
 	// The Music library's track, its album, artist and genre.
 	TrackID, AlbumID, ArtistID, GenreID, GenreName string
+	// PersonID is the movie's actor, from its .nfo.
+	PersonID string
 }
 
 // Instance is one running couch process with a logged-in session.
@@ -472,7 +474,16 @@ func (inst *Instance) discover() error {
 	if len(named.Items) > 0 {
 		inst.IDs.GenreID, inst.IDs.GenreName = named.Items[0].Id, named.Items[0].Name
 	}
-	if inst.IDs.MovieID == "" || inst.IDs.SeriesID == "" || inst.IDs.EpisodeID == "" || inst.IDs.AlbumID == "" || inst.IDs.ArtistID == "" || inst.IDs.GenreID == "" {
+	// The .nfo is read in the background after the scan.
+	for deadline := time.Now().Add(30 * time.Second); inst.IDs.PersonID == "" && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if err := inst.Get("/emby/Persons?UserId="+inst.IDs.UserID, &named); err != nil {
+			return err
+		}
+		if len(named.Items) > 0 {
+			inst.IDs.PersonID = named.Items[0].Id
+		}
+	}
+	if inst.IDs.MovieID == "" || inst.IDs.SeriesID == "" || inst.IDs.EpisodeID == "" || inst.IDs.AlbumID == "" || inst.IDs.ArtistID == "" || inst.IDs.GenreID == "" || inst.IDs.PersonID == "" {
 		return fmt.Errorf("media fixtures not found in catalog: %+v", inst.IDs)
 	}
 	return nil

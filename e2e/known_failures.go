@@ -281,8 +281,7 @@ var knownFailures = map[string]knownFailure{
 	"postPartiesLeave":    notCalledByWeb,
 	"postPartiesMessages": notCalledByWeb,
 	// PersonsService
-	"getPersonsByIdCredits": unranked,
-	"getPersonsByName":      notCalledByWeb,
+	"getPersonsByName": notCalledByWeb,
 	// PlaystateService
 	"deleteUsersByUseridPlayingitemsById":       notCalledByWeb,
 	"postSessionsPlayingPing":                   notCalledByWeb,

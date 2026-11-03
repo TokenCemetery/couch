@@ -11,9 +11,10 @@ import (
 const subtitle = "1\n00:00:00,000 --> 00:00:02,000\nCouch e2e subtitle\n"
 
 // generateMedia writes the synthetic library: a movie with two audio tracks,
-// an embedded and an external subtitle and a poster; a series with a regular
-// and a special season; a tagged audio track for the Music library; and a
-// photo, which Couch does not catalog yet but the contract covers.
+// an embedded and an external subtitle, a poster and a .nfo naming an actor;
+// a series with a regular and a special season; a tagged audio track for the
+// Music library; and a photo, which Couch does not catalog yet but the
+// contract covers.
 func generateMedia(root string) error {
 	movieDir := filepath.Join(root, "Movies", "Sample Movie (2024)")
 	showDir := filepath.Join(root, "Sample Show")
@@ -23,6 +24,10 @@ func generateMedia(root string) error {
 		if err := os.MkdirAll(d, 0o750); err != nil {
 			return err
 		}
+	}
+	nfo := `<movie><actor><name>Sample Actor</name><role>Lead</role></actor></movie>`
+	if err := os.WriteFile(filepath.Join(movieDir, "Sample Movie (2024).nfo"), []byte(nfo), 0o600); err != nil {
+		return err
 	}
 	srt := filepath.Join(movieDir, "Sample Movie (2024).eng.srt")
 	if err := os.WriteFile(srt, []byte(subtitle), 0o600); err != nil {

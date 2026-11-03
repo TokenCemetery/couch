@@ -216,6 +216,8 @@ func entityFor(path string, ids Fixtures) string {
 		return ids.ArtistID
 	case strings.HasPrefix(path, "/MusicGenres/"):
 		return ids.GenreID
+	case strings.HasPrefix(path, "/Persons/"):
+		return ids.PersonID
 	case strings.HasPrefix(path, "/Songs/"), strings.HasSuffix(path, "/InstantMix"), strings.HasPrefix(path, "/Audio/{Id}/universal"):
 		return ids.TrackID
 	}

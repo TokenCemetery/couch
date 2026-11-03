@@ -28,7 +28,7 @@ Evidence lives in [COMPATIBILITY](COMPATIBILITY.md) (formats and delivery), [VAL
 | Search, recent searches | Supported | By title, original title or file name |
 | Customizing home sections in Settings → Home Screen | Supported | Add, edit, remove and reorder sections per user, stored in `couch.db`; "Copy Data to Users" copies them with the configuration. Types: My Media, Continue Watching, Continue Listening, Latest Media, Collections, Playlists, a single collection or playlist, Dynamic Media, Recently Released Movies and Episodes. On Now and Active Recordings are refused: there is no Live TV. An administrator cannot edit another user's home screen (#100) |
 | Sorting, paging, A–Z jump bar, filters on technical data (container, codecs, audio layout, languages) | Supported | #78, #79, #124 |
-| Filters and sorts on metadata: genres, studios, tags, parental ratings, years, people; genre, studio and person pages | Supported | Values come from `.nfo` files and online providers; people cannot be marked favorite (#101, #80) |
+| Filters and sorts on metadata: genres, studios, tags, parental ratings, years, people; genre, studio and person pages, person credit tabs | Supported | Values come from `.nfo` files and online providers; people cannot be marked favorite (#101, #80); credit tabs list only items in the user's libraries (#123) |
 | Next Up, Suggestions tab of TV Shows | Supported | Merge order with in-progress items is an assumption, not captured from Emby (#40) |
 | Local images: Primary, Backdrop, Logo, Thumb; series images on seasons and episodes | Supported | #85, #86, #88 |
 | Titles from file names, duration and technical data from FFprobe | Supported | Used when an item has no metadata |

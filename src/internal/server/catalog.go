@@ -141,6 +141,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 		_, err := s.store.SetItems(token, searched, func(_ string, st *state.ItemState) { st.LastSearched = time.Time{} })
 		s.changed(w, err)
 	}))
+	mux.HandleFunc("GET /persons/{item}/credits", s.protect(s.personCredits))
 	s.extrasRoutes(mux)
 	s.seriesRoutes(mux)
 	s.imageRoutes(mux)

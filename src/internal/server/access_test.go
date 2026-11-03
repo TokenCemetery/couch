@@ -26,7 +26,10 @@ func TestLibraryAccess(t *testing.T) {
 	episode.ParentID, episode.SeriesID, episode.SeasonID, episode.SeasonNumber, episode.EpisodeNumber = "season", "series", "season", 1, 1
 	api := New(store, "test", nil, &media.Catalog{ID: "movies", Items: []media.Item{movie, episode}, Folders: []media.Item{series, season}})
 	t.Cleanup(api.Close)
-	api.SetMetadata(metadata.Library{"movie": {Genres: []string{"Drama"}}, "episode": {Genres: []string{"Comedy"}}})
+	api.SetMetadata(metadata.Library{
+		"movie":   {Genres: []string{"Drama"}, People: []metadata.Person{{Name: "Movie Star", Type: "Actor"}, {Name: "Both", Type: "Director"}}},
+		"episode": {Genres: []string{"Comedy"}, People: []metadata.Person{{Name: "Both", Type: "Actor"}}},
+	})
 	m, err := hls.NewManager("ffmpeg", "ffprobe", filepath.Join(dir, "transcode"))
 	if err != nil {
 		t.Fatal(err)
@@ -121,6 +124,7 @@ func TestLibraryAccess(t *testing.T) {
 		{"GET", u + "/Items/movie", ""},
 		{"GET", u + "/Items/movies", ""},
 		{"GET", "/Items/" + metadata.ID("Genre", "Drama"), ""},
+		{"GET", "/Persons/" + metadata.ID("Person", "Movie Star") + "/Credits", ""},
 		{"GET", "/Items/movie/Similar", ""},
 		{"GET", u + "/Sections/latestmedia_movies/Items", ""},
 		{"POST", "/Items/movie/PlaybackInfo", "{}"},
@@ -151,6 +155,15 @@ func TestLibraryAccess(t *testing.T) {
 	}
 	expectStatus(t, request(h, "GET", u+"/Items/episode", "", "", user), 200)
 	expectStatus(t, request(h, "GET", "/Items/"+metadata.ID("Genre", "Comedy"), "", "", user), 200)
+	// A person's credits list only what the guest can see.
+	var credits []struct {
+		PersonType string
+		Items      []struct{ Name string }
+	}
+	decode(request(h, "GET", "/Persons/"+metadata.ID("Person", "Both")+"/Credits", "", "", user).Body.Bytes(), &credits)
+	if len(credits) != 1 || credits[0].PersonType != "Actor" || len(credits[0].Items) != 1 || credits[0].Items[0].Name != "Show" {
+		t.Fatalf("guest credits %+v", credits)
+	}
 	if got := ids("/Users/"+testUser(store).ID+"/Views", admin); len(got) != 2 {
 		t.Fatalf("admin views %v", got)
 	}
