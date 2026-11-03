@@ -233,6 +233,8 @@ func (s *Server) addMetadata(dto object, info *metadata.Info, token string, peop
 		{"Imdb", "IMDb", "https://www.imdb.com/title/"},
 		{"Tmdb", "TheMovieDb", "https://www.themoviedb.org/" + tmdbPath},
 		{"Tvdb", "TheTVDB", "https://thetvdb.com/?tab=series&id="},
+		{"MusicBrainzReleaseGroup", "MusicBrainz Release Group", "https://musicbrainz.org/release-group/"},
+		{"AudioDbAlbum", "TheAudioDb Album", "https://www.theaudiodb.com/album/"},
 	} {
 		id := info.ProviderIDs[provider.key]
 		if id == "" {
@@ -256,8 +258,8 @@ func entityDTO(id string, e entity, serverID string) object {
 	return dto
 }
 
-// addPerson adds what the providers know of a person to their item page:
-// biography, birth date and photo.
+// addPerson adds what the providers know of a person or music artist to
+// their item page: biography, birth date, photo and an artist's fanart.
 func (s *Server) addPerson(dto object, id, token string) {
 	info := s.info(id)
 	if info.Overview != "" {
@@ -275,9 +277,15 @@ func (s *Server) addPerson(dto object, id, token string) {
 	if tag := s.personImageTag(token, id); tag != "" {
 		dto["ImageTags"] = object{"Primary": tag}
 	}
+	if image, found := info.Images["Backdrop"]; found {
+		if tag := s.store.ImageTag(token, id, image.Revision()); tag != "" {
+			dto["BackdropImageTags"] = []string{tag}
+		}
+	}
 }
 
-// personImageTag is the ImageTag of a person's photo, or "" without one.
+// personImageTag is the ImageTag of a person's or artist's photo, or ""
+// without one.
 func (s *Server) personImageTag(token, id string) string {
 	if image, found := s.info(id).Images["Primary"]; found {
 		return s.store.ImageTag(token, id, image.Revision())

@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -34,7 +35,7 @@ const (
 // Config selects the online providers and how long their metadata is kept.
 type Config struct {
 	// An empty key turns its provider off: Couch then sends it nothing.
-	TMDbKey, TVDbKey string
+	TMDbKey, TVDbKey, AudioDBKey string
 	// Language is one of SupportedLanguages.
 	Language string
 	// Refresh fetches online metadata again once it is this old; 0 never does.
@@ -196,7 +197,9 @@ func (r *Refresher) setStatus(running bool, last *Result) {
 }
 
 // Online reports whether any online provider has a key.
-func (r *Refresher) Online() bool { return r.cfg.TMDbKey != "" || r.cfg.TVDbKey != "" }
+func (r *Refresher) Online() bool {
+	return r.cfg.TMDbKey != "" || r.cfg.TVDbKey != "" || r.cfg.AudioDBKey != ""
+}
 
 // Update hands Run a newly published catalogue. A run in progress stops and
 // starts again with it when its items changed, keeping what it fetched;
@@ -287,12 +290,13 @@ func (r *Refresher) Run(ctx context.Context) {
 }
 
 // described lists the catalogue's movies, series, seasons and episodes: the
-// items .nfo files and the providers describe. Music is described by its
-// tags alone, and home videos and photos by their files.
+// items .nfo files and the providers describe; and its albums and tracks,
+// described by their tags and, for albums and their artists, a provider.
+// Home videos and photos are described by their files.
 func described(catalog *media.Catalog) []media.Item {
 	return slices.DeleteFunc(slices.Concat(catalog.Folders, catalog.Items), func(item media.Item) bool {
 		switch item.Type() {
-		case "Audio", "MusicAlbum", "Photo", "PhotoAlbum", "Video":
+		case "Photo", "PhotoAlbum", "Video":
 			return true
 		}
 		return false
@@ -311,9 +315,11 @@ func sameItems(a, b *media.Catalog) bool {
 	return slices.Equal(ids(a.Items), ids(b.Items)) && slices.Equal(ids(a.Folders), ids(b.Folders))
 }
 
-// sidecars reads the files next to the media; *media.Catalog is one.
+// sidecars reads the files next to the media and reports their local
+// images; *media.Catalog is one.
 type sidecars interface {
 	ReadSidecar(item media.Item, name string, limit int64) ([]byte, fs.FileInfo, error)
+	ImageInfos(item media.Item) map[string]media.Image
 }
 
 // run is one refresh: the stored records and their decoded metadata.
@@ -357,6 +363,13 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 	items = sortItems(items)
 	read, bad := 0, 0
 	for _, item := range items {
+		if isMusic(item) {
+			// An album's tags take the place of a .nfo.
+			if item.Type() == "MusicAlbum" {
+				x.nfo[item.ID] = Info{Year: item.Tags.Year, Genres: item.Tags.Genres}
+			}
+			continue
+		}
 		parsed, err := x.readNFO(item)
 		if ctx.Err() != nil {
 			return false
@@ -370,10 +383,15 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 	}
 	known := map[string]bool{}
 	for _, item := range items {
-		known[item.ID] = true
+		// An album's record holds only what TheAudioDB told; it goes with
+		// the key, as its artists' do.
+		known[item.ID] = item.Type() != "MusicAlbum" || x.musicProviders() != ""
 	}
 	for _, p := range x.people(items, nil) {
 		known[p.id] = true
+	}
+	for _, a := range x.artists(items, nil) {
+		known[a.id] = true
 	}
 	remove := []string{}
 	for id := range records {
@@ -409,9 +427,9 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 }
 
 // sortItems puts series first, so seasons and episodes can use their
-// series' provider IDs, then seasons, movies and episodes.
+// series' provider IDs, then seasons, movies, episodes and music.
 func sortItems(items []media.Item) []media.Item {
-	rank := map[string]int{"Series": 0, "Season": 1, "Movie": 2, "Episode": 3}
+	rank := map[string]int{"Series": 0, "Season": 1, "Movie": 2, "Episode": 3, "MusicAlbum": 4, "Audio": 5}
 	items = slices.Clone(items)
 	slices.SortStableFunc(items, func(a, b media.Item) int { return rank[a.Type()] - rank[b.Type()] })
 	return items
@@ -464,6 +482,8 @@ func (x *run) readNFO(item media.Item) (bool, error) {
 	x.records[item.ID], x.nfo[item.ID], x.changed[item.ID] = record, info, true
 	return content != nil, err
 }
+
+func isMusic(item media.Item) bool { return item.Type() == "Audio" || item.Type() == "MusicAlbum" }
 
 func decode(body []byte) Info {
 	var info Info
@@ -519,7 +539,7 @@ func (x *run) publishLibrary() {
 		info := x.info(id)
 		// A new or removed identification drops what was fetched, and a new
 		// item has nothing fetched yet, until the lookup answers.
-		info.Pending = x.Online() && record.OnlineKey == ""
+		info.Pending = x.providers() != "" && record.OnlineKey == ""
 		library[id] = &info
 	}
 	x.publish(library)
@@ -534,6 +554,8 @@ type lookup struct {
 	year            int
 	series          map[string]string
 	season, episode int
+	// artist is an album's album artist.
+	artist string
 }
 
 func (x *run) providers() string {
@@ -547,6 +569,13 @@ func (x *run) providers() string {
 	return strings.Join(names, "+")
 }
 
+func (x *run) musicProviders() string {
+	if x.cfg.AudioDBKey != "" {
+		return "audiodb"
+	}
+	return ""
+}
+
 func idText(ids map[string]string) string {
 	parts := []string{}
 	for _, key := range []string{"Tvdb", "Tmdb", "Imdb"} {
@@ -557,12 +586,31 @@ func idText(ids map[string]string) string {
 	return strings.Join(parts, ",")
 }
 
+// keyPrefix starts the key of a lookup of kind with the given providers.
+func (x *run) keyPrefix(version, kind, providers string) string {
+	return strings.Join([]string{version, kind, x.cfg.Language, providers}, "|") + "|"
+}
+
 func (x *run) lookupOf(item media.Item) lookup {
+	switch item.Type() {
+	case "Audio":
+		return lookup{}
+	case "MusicAlbum":
+		if item.Tags.AlbumArtist == "" || x.musicProviders() == "" {
+			return lookup{}
+		}
+		prefix := x.keyPrefix(lookupVersion, item.Type(), x.musicProviders())
+		return lookup{key: prefix + "q:" + strings.ToLower(item.Tags.AlbumArtist) + "|" + strings.ToLower(item.Name) + "|" + strconv.Itoa(item.Tags.Year),
+			artist: item.Tags.AlbumArtist, title: item.Name, year: item.Tags.Year}
+	}
+	if x.providers() == "" {
+		return lookup{}
+	}
 	version := lookupVersion
 	if item.Type() == "Movie" {
 		version = movieLookupVersion
 	}
-	prefix := strings.Join([]string{version, item.Type(), x.cfg.Language, x.providers()}, "|") + "|"
+	prefix := x.keyPrefix(version, item.Type(), x.providers())
 	switch item.Type() {
 	case "Season", "Episode":
 		series := x.info(item.SeriesID).ProviderIDs
@@ -625,8 +673,12 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 	if x.cfg.TVDbKey != "" {
 		tv = newTVDb(x.cfg.TVDbKey, x.lang)
 	}
+	var ad *audioDB
+	if x.cfg.AudioDBKey != "" {
+		ad = newAudioDB(x.cfg.AudioDBKey, x.lang)
+	}
 	images := &throttle{every: spacing.images}
-	fetched, notFound, failed, failures, people := 0, 0, 0, 0, 0
+	fetched, notFound, failed, failures, people, artists := 0, 0, 0, 0, 0, 0
 	stopped := ""
 	published := time.Now()
 	forced := maps.Clone(x.forced)
@@ -670,24 +722,28 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 		}
 		return true
 	}
-	for _, item := range items {
+	// lookUp reports whether to go on with the next item.
+	lookUp := func(item media.Item) bool {
 		now := time.Now().UTC()
 		l := x.lookupOf(item)
 		if l.key == "" || !x.due(item.ID, l.key, now) {
-			continue
+			return true
 		}
-		info, urls, err := x.fetch(ctx, tm, tv, item, l)
+		info, urls, err := x.fetch(ctx, tm, tv, ad, item, l)
 		info, err = x.downloadImages(ctx, info, urls, err, images)
-		if ctx.Err() != nil {
-			x.save(ctx, nil)
-			return false
-		}
-		if !settle(item.ID, l.key, info, err, now) {
+		return ctx.Err() == nil && settle(item.ID, l.key, info, err, now)
+	}
+	for _, item := range items {
+		if !isMusic(item) && !lookUp(item) {
 			break
 		}
 	}
+	if ctx.Err() != nil {
+		x.save(ctx, nil)
+		return false
+	}
 	for _, p := range x.people(items, forced) {
-		if stopped != "" {
+		if stopped != "" || x.providers() == "" {
 			break
 		}
 		now := time.Now().UTC()
@@ -704,6 +760,38 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 			people++
 		}
 	}
+	// Music has a provider of its own, so its failures stop music alone,
+	// and the video providers' failures leave it to run.
+	videoStopped := stopped
+	stopped, failures = "", 0
+	for _, item := range items {
+		if item.Type() == "MusicAlbum" && !lookUp(item) {
+			break
+		}
+	}
+	if ctx.Err() != nil {
+		x.save(ctx, nil)
+		return false
+	}
+	for _, a := range x.artists(items, forced) {
+		if stopped != "" {
+			break
+		}
+		now := time.Now().UTC()
+		if !x.due(a.id, a.key, now) {
+			continue
+		}
+		info, urls, err := ad.artist(ctx, a.name)
+		info, err = x.downloadImages(ctx, info, urls, err, images)
+		if ctx.Err() != nil {
+			x.save(ctx, nil)
+			return false
+		}
+		if settle(a.id, a.key, info, err, now) && err == nil {
+			artists++
+		}
+	}
+	stopped = cmp.Or(videoStopped, stopped)
 	if stopped == "" && !x.save(ctx, nil) {
 		stopped = "metadata could not be saved"
 	}
@@ -714,15 +802,16 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 		x.removeUnusedImages()
 	}
 	if fetched > 0 || notFound > 0 || failed > 0 {
-		slog.Info("Online metadata fetched", "items", fetched-people, "people", people, "not_found", notFound, "failed", failed)
+		slog.Info("Online metadata fetched", "items", fetched-people-artists, "people", people, "artists", artists, "not_found", notFound, "failed", failed)
 	}
 	return stopped == "" && failed == 0
 }
 
 // fetch asks each provider with a key, TheTVDB before TMDb for series as
 // Emby does, and merges their answers in that order. TMDb looks a series up
-// by the IDs TheTVDB found.
-func (x *run) fetch(ctx context.Context, tm *tmdb, tv *tvdb, item media.Item, l lookup) (Info, map[string]string, error) {
+// by the IDs TheTVDB found. An album with a local or embedded cover takes
+// no provider cover.
+func (x *run) fetch(ctx context.Context, tm *tmdb, tv *tvdb, ad *audioDB, item media.Item, l lookup) (Info, map[string]string, error) {
 	type source func() (Info, map[string]string, error)
 	sources := []source{}
 	var found Info
@@ -754,6 +843,10 @@ func (x *run) fetch(ctx context.Context, tm *tmdb, tv *tvdb, item media.Item, l 
 		if tm != nil && l.series["Tmdb"] != "" {
 			sources = append(sources, func() (Info, map[string]string, error) { return tm.episode(ctx, l.series["Tmdb"], l.season, l.episode) })
 		}
+	case "MusicAlbum":
+		if ad != nil {
+			sources = append(sources, func() (Info, map[string]string, error) { return ad.album(ctx, l.artist, l.title, l.year) })
+		}
 	}
 	urls := map[string]string{}
 	answered := false
@@ -775,6 +868,11 @@ func (x *run) fetch(ctx context.Context, tm *tmdb, tv *tvdb, item media.Item, l 
 	}
 	if !answered {
 		return Info{}, nil, errNotFound
+	}
+	if item.Type() == "MusicAlbum" {
+		if _, local := x.files.ImageInfos(item)["Primary"]; local {
+			delete(urls, "Primary")
+		}
 	}
 	return found, urls, nil
 }
@@ -899,11 +997,45 @@ func (x *run) people(items []media.Item, forced map[string]bool) []personLookup 
 	list = slices.DeleteFunc(list, func(p personLookup) bool {
 		return p.ambiguous || (p.tmdb == "" && p.tvdb == "" && p.thumb == "")
 	})
-	prefix := strings.Join([]string{lookupVersion, "Person", x.cfg.Language, x.providers()}, "|") + "|"
+	prefix := x.keyPrefix(lookupVersion, "Person", x.providers())
 	for n := range list {
 		list[n].key = prefix + idText(list[n].ids()) + "|" + list[n].thumb
 		if list[n].forced {
 			x.forced[list[n].id] = true
+		}
+	}
+	return list
+}
+
+// artistLookup is a music artist to ask TheAudioDB for, by name, and the
+// key of the answer.
+type artistLookup struct {
+	id, name, key string
+}
+
+// artists lists the album artists of the albums and tracks, once each,
+// with a provider key; none without one. Track artists are left out: their
+// credits, such as "A feat. B", are many and rarely an artist TheAudioDB
+// knows. Artists of an item of forced are marked to fetch again.
+func (x *run) artists(items []media.Item, forced map[string]bool) []artistLookup {
+	if x.musicProviders() == "" {
+		return nil
+	}
+	prefix := x.keyPrefix(lookupVersion, "MusicArtist", x.musicProviders()) + "q:"
+	list := []artistLookup{}
+	seen := map[string]bool{}
+	for _, item := range items {
+		name := item.Tags.AlbumArtist
+		if !isMusic(item) || name == "" {
+			continue
+		}
+		id := ID("MusicArtist", name)
+		if forced[item.ID] {
+			x.forced[id] = true
+		}
+		if !seen[id] {
+			seen[id] = true
+			list = append(list, artistLookup{id: id, name: name, key: prefix + strings.ToLower(name)})
 		}
 	}
 	return list

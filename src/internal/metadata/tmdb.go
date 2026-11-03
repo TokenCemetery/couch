@@ -228,7 +228,9 @@ func (t *tmdb) search(ctx context.Context, kind, title string, year int) (string
 	return "", errNotFound
 }
 
-// sameTitle compares titles by their letters and digits only, ignoring case.
+// sameTitle compares titles by their letters and digits only, ignoring case;
+// a title of punctuation alone, such as the band !!!, is compared as
+// written.
 func sameTitle(a, b string) bool {
 	key := func(s string) string {
 		return strings.Map(func(r rune) rune {
@@ -238,7 +240,11 @@ func sameTitle(a, b string) bool {
 			return -1
 		}, s)
 	}
-	return a != "" && key(a) == key(b)
+	if k := key(a); k != "" {
+		return k == key(b)
+	}
+	a = strings.TrimSpace(a)
+	return a != "" && strings.EqualFold(a, strings.TrimSpace(b))
 }
 
 func (t *tmdb) resolve(ctx context.Context, kind string, ids map[string]string, title string, year int) (string, error) {

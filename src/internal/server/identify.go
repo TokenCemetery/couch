@@ -286,6 +286,10 @@ func (s *Server) refreshScope(id string) ([]string, bool) {
 	}
 	item, found := findItem(catalog, id)
 	if !found {
+		// A music artist refreshes their own metadata.
+		if e, ok := s.entity(id); ok && e.Type == "MusicArtist" {
+			return []string{id}, true
+		}
 		return nil, false
 	}
 	ids := []string{item.ID}

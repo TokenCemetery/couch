@@ -183,7 +183,7 @@ func (s *Server) itemImage(w http.ResponseWriter, r *http.Request) {
 	catalog := s.catalogFor(session)
 	item, found := findItem(catalog, r.PathValue("item"))
 	if !found {
-		if e, ok := s.entityIn(catalog, r.PathValue("item")); !ok || e.Type != "Person" {
+		if e, ok := s.entityIn(catalog, r.PathValue("item")); !ok || (e.Type != "Person" && e.Type != "MusicArtist") {
 			fail(w, 404, "NotFound")
 			return
 		}

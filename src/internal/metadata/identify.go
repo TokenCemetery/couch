@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-// ErrNoProvider is returned by Search when no online provider has a key.
+// ErrNoProvider is returned by Search when neither movie and series
+// provider has a key.
 var ErrNoProvider = errors.New("no online metadata provider is configured")
 
 // maxResults caps the matches Search returns per provider.
@@ -31,7 +32,7 @@ type SearchResult struct {
 // any are given, else by name and year. Series are searched with TheTVDB
 // before TMDb, as the refresher asks them; movies with TMDb only.
 func (r *Refresher) Search(ctx context.Context, kind, name string, year int, ids map[string]string) ([]SearchResult, error) {
-	if !r.Online() {
+	if r.cfg.TMDbKey == "" && r.cfg.TVDbKey == "" {
 		return nil, ErrNoProvider
 	}
 	results := []SearchResult{}

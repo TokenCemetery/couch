@@ -6,3 +6,4 @@ COUCH_ARGS=-listen :8097 -media-dir /srv/media -web-dir /opt/emby-webui
 # Online metadata; a provider is used only when its key is set.
 #COUCH_TMDB_API_KEY=
 #COUCH_TVDB_API_KEY=
+#COUCH_AUDIODB_API_KEY=

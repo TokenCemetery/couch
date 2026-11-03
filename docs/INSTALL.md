@@ -33,7 +33,7 @@ sudo scripts/install.sh
 COUCH_ARGS=-listen :8097 -media-dir /srv/media -web-dir /opt/emby-webui
 ```
 
-`-data /var/lib/couch` is added by the unit. The values are split at spaces, so paths must not contain any. The other options are listed in the [README](../README.md#running). `COUCH_TMDB_API_KEY` and `COUCH_TVDB_API_KEY` in the same file turn on online metadata, and the file is readable only by root.
+`-data /var/lib/couch` is added by the unit. The values are split at spaces, so paths must not contain any. The other options are listed in the [README](../README.md#running). `COUCH_TMDB_API_KEY`, `COUCH_TVDB_API_KEY` and `COUCH_AUDIODB_API_KEY` in the same file turn on online metadata, and the file is readable only by root.
 
 The `couch` user must be able to read the media and Emby Web, including every parent folder. A home folder (mode 0750 on Ubuntu) usually blocks it, so keep them in a folder such as `/srv` or `/opt`, or grant read access with an ACL, for example `sudo setfacl -R -m u:couch:rX /srv/media`.
 

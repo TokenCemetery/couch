@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -231,6 +232,88 @@ func TestPersonMetadata(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil || len(page.Items) != 2 || page.Items[0].Id != ann ||
 		page.Items[0].ImageTags["Primary"] == "" || page.Items[1].ImageTags != nil {
 		t.Fatalf("%s", w.Body.String())
+	}
+}
+
+// TestMusicMetadata serves what TheAudioDB gave an album and an artist:
+// the album's description and provider links, and the artist's biography,
+// photo and fanart on their page, in the artist list and as images.
+func TestMusicMetadata(t *testing.T) {
+	store, _, _ := newTestServer(t)
+	catalog := &media.Catalog{ID: "music",
+		Folders: []media.Item{{ID: "album", Name: "Album One", Kind: "MusicAlbum", Tags: media.Tags{Album: "Album One", AlbumArtist: "Artist A", Year: 2001}}},
+		Items:   []media.Item{{ID: "track", Name: "Song", Kind: "Audio", ParentID: "album", Container: "mp3", Tags: media.Tags{Artists: []string{"Artist A"}}}}}
+	images := t.TempDir()
+	var photo, fanart bytes.Buffer
+	if err := png.Encode(&photo, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(&fanart, image.NewRGBA(image.Rect(0, 0, 4, 2))); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string][]byte{"photo.png": photo.Bytes(), "fanart.png": fanart.Bytes()} {
+		if err := os.WriteFile(filepath.Join(images, name), content, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	api := New(store, "test", nil, catalog)
+	api.SetMetadataImages(images)
+	artist := metadata.ID("MusicArtist", "Artist A")
+	api.SetMetadata(metadata.Library{
+		"album": {Year: 2001, Overview: "About the album.", ProviderIDs: map[string]string{"AudioDbAlbum": "20", "MusicBrainzReleaseGroup": "mb-rg"}},
+		artist: {Overview: "Biography.", ProviderIDs: map[string]string{"AudioDbArtist": "7", "MusicBrainzArtist": "mb-a"}, Images: map[string]metadata.Image{
+			"Primary":  {URL: "https://example.test/artist.png", File: "photo.png", Width: 2, Height: 2, MIME: "image/png"},
+			"Backdrop": {URL: "https://example.test/fanart.png", File: "fanart.png", Width: 4, Height: 2, MIME: "image/png"}}},
+	})
+	h := api.Handler()
+	token := login(t, h)
+
+	w := request(h, "GET", "/Items/album", "", "", token)
+	expectStatus(t, w, 200)
+	var album struct {
+		Overview       string
+		ProductionYear int
+		ProviderIds    map[string]string
+		ExternalUrls   []struct{ Name, Url string }
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &album); err != nil || album.Overview != "About the album." || album.ProductionYear != 2001 ||
+		album.ProviderIds["AudioDbAlbum"] != "20" || len(album.ExternalUrls) != 2 ||
+		album.ExternalUrls[0].Url != "https://musicbrainz.org/release-group/mb-rg" || album.ExternalUrls[1].Url != "https://www.theaudiodb.com/album/20" {
+		t.Fatalf("%s", w.Body.String())
+	}
+	w = request(h, "GET", "/Items/"+artist, "", "", token)
+	expectStatus(t, w, 200)
+	var page struct {
+		Overview          string
+		ProviderIds       map[string]string
+		ImageTags         map[string]string
+		BackdropImageTags []string
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil || page.Overview != "Biography." || page.ProviderIds["MusicBrainzArtist"] != "mb-a" ||
+		page.ImageTags["Primary"] == "" || len(page.BackdropImageTags) != 1 {
+		t.Fatalf("%s", w.Body.String())
+	}
+	for kind, want := range map[string][]byte{"Primary/0?tag=" + url.QueryEscape(page.ImageTags["Primary"]): photo.Bytes(),
+		"Backdrop/0?tag=" + url.QueryEscape(page.BackdropImageTags[0]): fanart.Bytes()} {
+		w := request(h, "GET", "/Items/"+artist+"/Images/"+kind, "", "", "")
+		expectStatus(t, w, 200)
+		if !bytes.Equal(w.Body.Bytes(), want) {
+			t.Fatalf("%s: wrong image", kind)
+		}
+	}
+	w = request(h, "GET", "/Artists/AlbumArtists", "", "", token)
+	expectStatus(t, w, 200)
+	var list struct {
+		Items []struct {
+			Id        string
+			ImageTags map[string]string
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || len(list.Items) != 1 || list.Items[0].Id != artist || list.Items[0].ImageTags["Primary"] == "" {
+		t.Fatalf("%s", w.Body.String())
+	}
+	if ids, ok := api.refreshScope(artist); !ok || !slices.Equal(ids, []string{artist}) {
+		t.Fatalf("artist refresh scope: %v %v", ids, ok)
 	}
 }
 

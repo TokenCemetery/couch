@@ -189,7 +189,7 @@ func run() error {
 		slog.Info("FFmpeg not found; HLS remux is disabled")
 	}
 	// An online provider is used only when its key is set (#101).
-	config := metadata.Config{TMDbKey: os.Getenv("COUCH_TMDB_API_KEY"), TVDbKey: os.Getenv("COUCH_TVDB_API_KEY"),
+	config := metadata.Config{TMDbKey: os.Getenv("COUCH_TMDB_API_KEY"), TVDbKey: os.Getenv("COUCH_TVDB_API_KEY"), AudioDBKey: os.Getenv("COUCH_AUDIODB_API_KEY"),
 		Language: *metadataLanguage, Refresh: *metadataRefresh, ImageDir: filepath.Join(*data, "metadata")}
 	refresher, err := metadata.NewRefresher(s, config, api.SetMetadata)
 	if err != nil {
@@ -199,7 +199,7 @@ func run() error {
 	api.SetCoverCache(filepath.Join(*data, "covers"))
 	api.SetRefresher(refresher)
 	api.SetLogDir(logDir)
-	slog.Info("Metadata sources", "nfo", true, "tmdb", config.TMDbKey != "", "tvdb", config.TVDbKey != "", "language", config.Language)
+	slog.Info("Metadata sources", "nfo", true, "tmdb", config.TMDbKey != "", "tvdb", config.TVDbKey != "", "audiodb", config.AudioDBKey != "", "language", config.Language)
 	libraries, err := library.New(s, mediaRoots, filepath.Join(*data, "catalog.json"), func(next *media.Catalog) {
 		api.SetCatalog(next)
 		refresher.Update(next)

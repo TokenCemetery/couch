@@ -124,6 +124,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 					switch e.Type {
 					case "MusicArtist":
 						dto["UserData"] = itemUserData(userOf(snapshot, session).Items[id], 0)
+						s.addPerson(dto, id, token)
 					case "Person":
 						s.addPerson(dto, id, token)
 					}

@@ -44,9 +44,10 @@ var (
 )
 
 // spacing is the least time between two requests to each provider: TMDb
-// allows about 50 a second, TheTVDB publishes no limit, and the image
-// servers serve a CDN. Tests shorten it.
-var spacing = struct{ tmdb, tvdb, images time.Duration }{50 * time.Millisecond, 100 * time.Millisecond, 20 * time.Millisecond}
+// allows about 50 a second, TheTVDB publishes no limit, TheAudioDB allows
+// 30 a minute with its free key, and the image servers serve a CDN. Tests
+// shorten it.
+var spacing = struct{ tmdb, tvdb, audiodb, images time.Duration }{50 * time.Millisecond, 100 * time.Millisecond, 2 * time.Second, 20 * time.Millisecond}
 
 // throttle spaces a provider's requests.
 type throttle struct {
@@ -123,6 +124,10 @@ func readResponse(resp *http.Response, limit int64) ([]byte, error) {
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, errNotFound
+	// Cloudflare, in front of TheAudioDB, answers a bot check with 403: the
+	// address, not the key, was refused.
+	case resp.StatusCode == http.StatusForbidden && resp.Header.Get("Cf-Mitigated") != "":
+		return nil, fmt.Errorf("%w: refused by a bot check", errRequest)
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return nil, errAuth
 	case resp.StatusCode != http.StatusOK:
@@ -279,20 +284,21 @@ func decodeConfig(b []byte) (image.Config, string, error) {
 	return config, format, nil
 }
 
-// language holds what each provider calls a metadata language.
+// language holds what each provider calls a metadata language; audiodb is
+// the suffix of TheAudioDB's localized fields.
 type language struct {
-	tmdb, tvdb, country, tvdbCountry string
+	tmdb, tvdb, country, tvdbCountry, audiodb string
 }
 
 // Languages are the metadata languages Couch supports: those its home
 // screen strings are translated to.
 var languages = map[string]language{
-	"en": {"en-US", "eng", "US", "usa"},
-	"ru": {"ru-RU", "rus", "RU", "rus"},
-	"de": {"de-DE", "deu", "DE", "deu"},
-	"fr": {"fr-FR", "fra", "FR", "fra"},
-	"es": {"es-ES", "spa", "ES", "esp"},
-	"it": {"it-IT", "ita", "IT", "ita"},
+	"en": {"en-US", "eng", "US", "usa", "EN"},
+	"ru": {"ru-RU", "rus", "RU", "rus", "RU"},
+	"de": {"de-DE", "deu", "DE", "deu", "DE"},
+	"fr": {"fr-FR", "fra", "FR", "fra", "FR"},
+	"es": {"es-ES", "spa", "ES", "esp", "ES"},
+	"it": {"it-IT", "ita", "IT", "ita", "IT"},
 }
 
 // SupportedLanguages lists the codes Config.Language accepts.

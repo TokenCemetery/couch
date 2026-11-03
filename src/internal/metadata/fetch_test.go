@@ -2,12 +2,29 @@ package metadata
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"math/rand/v2"
+	"net/http"
+	"strings"
 	"testing"
 )
+
+// A 403 is a rejected key, unless Cloudflare marks it as a bot check.
+func TestReadResponseForbidden(t *testing.T) {
+	for header, want := range map[string]error{"": errAuth, "challenge": errRequest} {
+		resp := &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}
+		if header != "" {
+			resp.Header.Set("Cf-Mitigated", header)
+		}
+		if _, err := readResponse(resp, 1); !errors.Is(err, want) {
+			t.Errorf("Cf-Mitigated %q: %v, want %v", header, err, want)
+		}
+	}
+}
 
 func TestShrink(t *testing.T) {
 	encode := func(w, h int, alpha uint8) []byte {
@@ -57,5 +74,23 @@ func TestShrink(t *testing.T) {
 	config, format, _ := decodeConfig(tiny)
 	if body, _, format := shrink(tiny, config, format); !bytes.Equal(body, tiny) || format != "png" {
 		t.Error("tiny image was re-encoded")
+	}
+}
+
+func TestSameTitle(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		same bool
+	}{
+		{"The Movie!", "the movie", true},
+		{"Кино", "кино", true},
+		{"!!!", "!!!", true},
+		{" ", "!!!", false},
+		{"!!!", "Chk Chk Chk", false},
+		{"", "", false},
+	} {
+		if got := sameTitle(c.a, c.b); got != c.same {
+			t.Errorf("sameTitle(%q, %q) = %v", c.a, c.b, got)
+		}
 	}
 }

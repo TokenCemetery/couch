@@ -219,6 +219,9 @@ func (s *Server) artistList(albumArtists bool) authenticated {
 			id := metadata.ID("MusicArtist", name)
 			dto := entityDTO(id, entity{"MusicArtist", name}, serverID)
 			dto["UserData"] = itemUserData(user.Items[id], 0)
+			if tag := s.personImageTag(token, id); tag != "" {
+				dto["ImageTags"] = object{"Primary": tag}
+			}
 			items = append(items, dto)
 		}
 		respond(w, 200, object{"Items": items, "TotalRecordCount": len(found)})

@@ -10,6 +10,7 @@ services:
     environment:
       COUCH_TMDB_API_KEY: ${COUCH_TMDB_API_KEY:-}
       COUCH_TVDB_API_KEY: ${COUCH_TVDB_API_KEY:-}
+      COUCH_AUDIODB_API_KEY: ${COUCH_AUDIODB_API_KEY:-}
     volumes:
       - data:/data
       - ${COUCH_MEDIA:?set COUCH_MEDIA in .env}:/media:ro

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,14 @@ func (d dirFiles) ReadSidecar(_ media.Item, name string, limit int64) ([]byte, f
 	return b, info, err
 }
 
+// ImageInfos reports a Primary image when the item's folder has cover.jpg.
+func (d dirFiles) ImageInfos(item media.Item) map[string]media.Image {
+	if _, err := os.Stat(filepath.Join(string(d), item.Path, "cover.jpg")); err == nil {
+		return map[string]media.Image{"Primary": {}}
+	}
+	return map[string]media.Image{}
+}
+
 // fakeProviders serves the TMDb, TheTVDB and image requests a refresh makes
 // and records their paths.
 type fakeProviders struct {
@@ -41,11 +50,11 @@ type fakeProviders struct {
 	paths []string
 	// uris holds the paths with their queries.
 	uris []string
-	// down answers 500 to every request; limited answers that many 429s
-	// first; delay slows every answer.
-	down    bool
-	limited int
-	delay   time.Duration
+	// down answers 500 to every request, audioDBDown to TheAudioDB's;
+	// limited answers that many 429s first; delay slows every answer.
+	down, audioDBDown bool
+	limited           int
+	delay             time.Duration
 }
 
 func (f *fakeProviders) set(fn func(*fakeProviders)) {
@@ -74,7 +83,7 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.paths = append(f.paths, r.URL.Path)
 	f.uris = append(f.uris, r.URL.RequestURI())
-	down, limited, delay := f.down, f.limited > 0, f.delay
+	down, limited, delay := f.down || (f.audioDBDown && strings.HasPrefix(r.URL.Path, "/audiodb/")), f.limited > 0, f.delay
 	if limited {
 		f.limited--
 	}
@@ -92,6 +101,10 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.URL.Path, "/img/") {
 		img := image.NewRGBA(image.Rect(0, 0, 2, 3))
 		_ = png.Encode(w, img)
+		return
+	}
+	if body, found := audioDBAnswer(r); found {
+		_, _ = w.Write([]byte(body))
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/tmdb/") && r.URL.Query().Get("api_key") != "tmdb-key" {
@@ -134,6 +147,35 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(body))
 }
 
+// audioDBAnswer answers TheAudioDB's searches by their query, as it does:
+// an empty list is null.
+func audioDBAnswer(r *http.Request) (string, bool) {
+	query := r.URL.Query()
+	host := strings.TrimSuffix(tmdbImages, "/t/p/")
+	switch r.URL.Path {
+	case "/audiodb/audiodb-key/search.php":
+		switch query.Get("s") {
+		case "Artist A":
+			return `{"artists":[{"idArtist":"7","strArtist":"Artist A","strBiographyEN":"Biography.","strBiographyRU":"Биография.",
+				"strArtistThumb":"` + host + `/img/artist.png","strArtistFanart":"` + host + `/img/fanart.png","strMusicBrainzID":"mb-a"}]}`, true
+		case "Guest":
+			return `{"artists":[{"idArtist":"8","strArtist":"The Guest Band","strArtistAlternate":"Guest, G","strBiography":"Guest biography.","strArtistThumb":null}]}`, true
+		}
+		return `{"artists":null}`, true
+	case "/audiodb/audiodb-key/searchalbum.php":
+		if query.Get("s") == "Artist A" && query.Get("a") == "Album One" {
+			return `{"album":[{"idAlbum":"19","strAlbum":"Album One","intYearReleased":"1999","strDescriptionEN":"Original release."},
+				{"idAlbum":"20","strAlbum":"Album One","intYearReleased":"2001","strDescriptionEN":"Description.","strDescriptionFR":"Description française.",
+				"strAlbumThumb":"` + host + `/img/album.png","strMusicBrainzID":"mb-rg"}]}`, true
+		}
+		if query.Get("s") == "Guest" && query.Get("a") == "Covered" {
+			return `{"album":[{"idAlbum":"21","strAlbum":"Covered","strDescriptionEN":"Covered album.","strAlbumThumb":"` + host + `/img/covered.png"}]}`, true
+		}
+		return `{"album":null}`, true
+	}
+	return "", false
+}
+
 func (f *fakeProviders) requestURIs() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -153,11 +195,12 @@ func newRefreshTest(t *testing.T) (*state.Store, *fakeProviders) {
 	fake := &fakeProviders{}
 	server := httptest.NewTLSServer(fake)
 	t.Cleanup(server.Close)
-	saved := []any{tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, httpClient}
+	saved := []any{tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, audioDBAPI, httpClient, spacing.audiodb}
 	tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, httpClient = server.URL+"/tmdb", server.URL+"/t/p/", server.URL+"/tvdb", server.URL, server.Client()
+	audioDBAPI, spacing.audiodb = server.URL+"/audiodb/", time.Millisecond
 	t.Cleanup(func() {
-		tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork = saved[0].(string), saved[1].(string), saved[2].(string), saved[3].(string)
-		httpClient = saved[4].(*http.Client)
+		tmdbAPI, tmdbImages, tvdbAPI, tvdbArtwork, audioDBAPI = saved[0].(string), saved[1].(string), saved[2].(string), saved[3].(string), saved[4].(string)
+		httpClient, spacing.audiodb = saved[5].(*http.Client), saved[6].(time.Duration)
 	})
 	return store, fake
 }
@@ -355,6 +398,160 @@ func TestRefreshPeople(t *testing.T) {
 	}
 	if _, err := os.Stat(photo); !os.IsNotExist(err) {
 		t.Fatalf("unused photo kept: %v", err)
+	}
+}
+
+func TestRefreshMusic(t *testing.T) {
+	store, fake := newRefreshTest(t)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "Artist A", "Covered"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Artist A", "Covered", "cover.jpg"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	items := []media.Item{
+		{ID: "album", Name: "Album One", Kind: "MusicAlbum", Path: "Artist A/Album One",
+			Tags: media.Tags{Album: "Album One", AlbumArtist: "Artist A", Artists: []string{"Artist A", "Featured"}, Year: 2001, Genres: []string{"Rock"}}},
+		{ID: "covered", Name: "Covered", Kind: "MusicAlbum", Path: "Artist A/Covered", Tags: media.Tags{Album: "Covered", AlbumArtist: "Guest", Artists: []string{"Guest"}}},
+		{ID: "track", Name: "Song", Kind: "Audio", Path: "Artist A/Album One/01 Song.mp3", ParentID: "album",
+			Tags: media.Tags{AlbumArtist: "Artist A", Artists: []string{"Artist A", "Featured"}}},
+		{ID: "single", Name: "Single", Kind: "Audio", Path: "Single.mp3", Tags: media.Tags{AlbumArtist: "Solo", Artists: []string{"Solo"}}},
+	}
+	images := t.TempDir()
+	var published Library
+	r, err := NewRefresher(store, Config{AudioDBKey: "audiodb-key", Language: "fr", ImageDir: images}, func(l Library) { published = l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.refresh(t.Context(), items, dirFiles(dir)) {
+		t.Fatal("refresh did not finish")
+	}
+
+	// The release of the tagged year wins; its description is in the
+	// metadata language, its year and genres stay the tags'.
+	album := published["album"]
+	if album == nil || album.Overview != "Description française." || album.Year != 2001 || strings.Join(album.Genres, ",") != "Rock" ||
+		album.ProviderIDs["AudioDbAlbum"] != "20" || album.ProviderIDs["MusicBrainzReleaseGroup"] != "mb-rg" ||
+		!strings.HasSuffix(album.Images["Primary"].URL, "/img/album.png") {
+		t.Fatalf("album: %+v", album)
+	}
+	if _, err := os.Stat(filepath.Join(images, album.Images["Primary"].File)); err != nil {
+		t.Fatal(err)
+	}
+	// A local cover wins: the provider's is not downloaded.
+	if covered := published["covered"]; covered == nil || covered.Overview != "Covered album." || len(covered.Images) != 0 || fake.count("/img/covered.png") != 0 {
+		t.Fatalf("covered: %+v", covered)
+	}
+	// Without a biography in the language, the English one is taken.
+	artist := published[ID("MusicArtist", "Artist A")]
+	if artist == nil || artist.Overview != "Biography." || artist.ProviderIDs["AudioDbArtist"] != "7" || artist.ProviderIDs["MusicBrainzArtist"] != "mb-a" ||
+		!strings.HasSuffix(artist.Images["Primary"].URL, "/img/artist.png") || !strings.HasSuffix(artist.Images["Backdrop"].URL, "/img/fanart.png") {
+		t.Fatalf("artist: %+v", artist)
+	}
+	// An alternate name matches and a biography under the bare field name is
+	// taken; an artist TheAudioDB does not know has no metadata; tracks and
+	// track artists are not looked up.
+	if guest := published[ID("MusicArtist", "Guest")]; guest == nil || guest.Overview != "Guest biography." || len(guest.Images) != 0 {
+		t.Fatalf("guest: %+v", guest)
+	}
+	if solo := published[ID("MusicArtist", "Solo")]; solo == nil || solo.Overview != "" {
+		t.Fatalf("solo: %+v", solo)
+	}
+	if _, found := published["track"]; found {
+		t.Fatal("track was looked up")
+	}
+	if _, found := published[ID("MusicArtist", "Featured")]; found {
+		t.Fatal("track artist was looked up")
+	}
+	if n := fake.count("/audiodb/audiodb-key/search.php"); n != 3 {
+		t.Fatalf("%d artist searches, want one per album artist", n)
+	}
+
+	// An unchanged refresh asks nobody; refreshing an album asks for it and
+	// its artists again.
+	before := len(fake.requests())
+	r.refresh(t.Context(), items, dirFiles(dir))
+	if len(fake.requests()) != before {
+		t.Fatalf("unchanged refresh made %d requests", len(fake.requests())-before)
+	}
+	r.Refresh([]string{"covered"})
+	r.refresh(t.Context(), items, dirFiles(dir))
+	if albums, artists := fake.count("/audiodb/audiodb-key/searchalbum.php"), fake.count("/audiodb/audiodb-key/search.php"); albums != 3 || artists != 4 {
+		t.Fatalf("after refreshing an album: %d album and %d artist searches, want 3 and 4", albums, artists)
+	}
+	// A new year tag looks the album up again, for that year's release.
+	items[0].Tags.Year = 1999
+	r.refresh(t.Context(), items, dirFiles(dir))
+	if album := published["album"]; album == nil || album.Overview != "Original release." || album.ProviderIDs["AudioDbAlbum"] != "19" {
+		t.Fatalf("album retagged 1999: %+v", album)
+	}
+
+	// Without the key nothing is sent and the albums' and artists' metadata
+	// goes: the music index keeps their tags.
+	offline, err := NewRefresher(store, Config{TMDbKey: "tmdb-key", Language: "fr", ImageDir: images}, func(l Library) { published = l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	before = len(fake.requests())
+	offline.refresh(t.Context(), items, dirFiles(dir))
+	if len(fake.requests()) != before {
+		t.Fatalf("refresh without a key made %d requests", len(fake.requests())-before)
+	}
+	if album, found := published["album"]; found {
+		t.Fatalf("album metadata kept without a key: %+v", album)
+	}
+	if _, found := published[ID("MusicArtist", "Artist A")]; found {
+		t.Fatal("artist metadata kept without a key")
+	}
+}
+
+// TheAudioDB failing stops neither the movie nor the people lookups.
+func TestRefreshMusicDown(t *testing.T) {
+	store, fake := newRefreshTest(t)
+	fake.set(func(f *fakeProviders) { f.audioDBDown = true })
+	items := mediaItems()[:1]
+	for n := range maxFailures + 1 {
+		name := "Album " + strconv.Itoa(n)
+		items = append(items, media.Item{ID: name, Name: name, Kind: "MusicAlbum", Path: name, Tags: media.Tags{AlbumArtist: "Artist A"}})
+	}
+	var published Library
+	r, err := NewRefresher(store, Config{TMDbKey: "tmdb-key", AudioDBKey: "audiodb-key", Language: "en", ImageDir: t.TempDir()}, func(l Library) { published = l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.refresh(t.Context(), items, dirFiles(t.TempDir())) {
+		t.Fatal("refresh with TheAudioDB down reported success")
+	}
+	if published["movie"].Name != "Online Movie" || published[ID("Person", "Actor One")].Overview != "Biography from TMDb." {
+		t.Fatalf("movie: %+v, person: %+v", published["movie"], published[ID("Person", "Actor One")])
+	}
+	if n := fake.count("/audiodb/audiodb-key/searchalbum.php"); n != maxFailures {
+		t.Fatalf("%d album searches, want %d before music stops", n, maxFailures)
+	}
+}
+
+// A TheAudioDB key alone looks up music only.
+func TestRefreshMusicKeyOnly(t *testing.T) {
+	store, fake := newRefreshTest(t)
+	var published Library
+	r, err := NewRefresher(store, Config{AudioDBKey: "audiodb-key", Language: "en", ImageDir: t.TempDir()}, func(l Library) { published = l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.refresh(t.Context(), mediaItems(), dirFiles(t.TempDir())) {
+		t.Fatal("refresh did not finish")
+	}
+	if n := len(fake.requests()); n != 0 {
+		t.Fatalf("%d requests for video items", n)
+	}
+	for id, info := range published {
+		if info.Pending {
+			t.Fatalf("%s is pending without a video provider", id)
+		}
+	}
+	if _, err := r.Search(t.Context(), "Movie", "The Movie", 0, nil); !errors.Is(err, ErrNoProvider) {
+		t.Fatalf("Search: %v", err)
 	}
 }
 
