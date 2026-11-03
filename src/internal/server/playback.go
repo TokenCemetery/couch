@@ -244,11 +244,16 @@ func subtitleURL(item media.Item, index int, token string) string {
 	return "/videos/" + item.ID + "/mediasource_" + item.ID + "/subtitles/" + strconv.Itoa(index) + "/stream.vtt?api_key=" + url.QueryEscape(token)
 }
 
-// streamSubtitle serves a sidecar or embedded text subtitle as WebVTT. The start position
-// variant of the route returns the whole file: players seek within it.
+// streamSubtitle serves a sidecar or embedded text subtitle as WebVTT, and a
+// track's lyrics as Stream.js. The start position variant of the route
+// returns the whole file: players seek within it.
 func (s *Server) streamSubtitle(w http.ResponseWriter, r *http.Request, token string, session state.Session) {
 	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
 	index, err := strconv.Atoi(r.PathValue("index"))
+	if found && !item.IsFolder() && err == nil && r.PathValue("source") == "mediasource_"+item.ID && r.PathValue("file") == "stream.js" {
+		s.streamLyrics(w, r, item, index)
+		return
+	}
 	if !found || item.IsFolder() || err != nil || r.PathValue("source") != "mediasource_"+item.ID || r.PathValue("file") != "stream.vtt" {
 		fail(w, 404, "NotFound")
 		return
@@ -259,6 +264,31 @@ func (s *Server) streamSubtitle(w http.ResponseWriter, r *http.Request, token st
 	}
 	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
 	_, _ = w.Write(text) //nolint:gosec // WebVTT served as text/vtt, not HTML
+}
+
+// streamLyrics serves a lyrics stream as Emby's subtitle track events. Lines
+// without times have no StartPositionTicks, which Emby Web's lyrics view
+// shows without following playback.
+func (s *Server) streamLyrics(w http.ResponseWriter, r *http.Request, item media.Item, index int) {
+	lines, err := s.catalog().OpenLyrics(r.Context(), item, index)
+	if errors.Is(err, os.ErrNotExist) {
+		fail(w, 404, "NotFound")
+		return
+	}
+	if err != nil {
+		slog.Warn("Lyrics unavailable", "item", item.ID, "index", index)
+		fail(w, 404, "MediaUnavailable")
+		return
+	}
+	events := make([]object, 0, len(lines))
+	for i, line := range lines {
+		event := object{"Id": strconv.Itoa(i), "Text": line.Text}
+		if line.Start != nil {
+			event["StartPositionTicks"], event["EndPositionTicks"] = *line.Start, *line.End
+		}
+		events = append(events, event)
+	}
+	respond(w, 200, object{"TrackEvents": events})
 }
 
 // subtitleText returns a subtitle stream as WebVTT. On failure the response

@@ -42,7 +42,9 @@ type Catalog struct {
 	sources map[string]*source
 	// extractor delivers embedded text subtitles; nil without FFmpeg.
 	extractor *subtitleExtractor
-	probe     func(context.Context, *os.File) (Item, error)
+	// tags reads embedded lyrics; nil without FFprobe.
+	tags  *tagReader
+	probe func(context.Context, *os.File) (Item, error)
 	// Probes is what FFprobe cost in the scan that built the catalogue;
 	// probeStats collects it and is nil when the probe is not FFprobe.
 	Probes     ProbeStats
@@ -220,6 +222,10 @@ type Stream struct {
 	// Path is set for an external subtitle file, relative to the media
 	// directory. It is never sent to clients.
 	Path string `json:",omitempty"`
+	// Lyrics marks a track's lyrics: the sidecar at Path, or the tag of the
+	// file that LyricsTag names.
+	Lyrics    bool   `json:",omitempty"`
+	LyricsTag string `json:",omitempty"`
 }
 
 func stableID(s string) string {
@@ -258,12 +264,15 @@ func ScanLibraries(ctx context.Context, libraries []Library) (*Catalog, error) {
 	return base.Rescan(ctx, libraries)
 }
 
-// attachExtractor sets up embedded subtitle delivery. FFmpeg is optional:
-// without it only sidecar subtitles are delivered. The extractor and its job
-// limit are shared with rescanned catalogs.
+// attachExtractor sets up embedded subtitle and lyrics delivery. FFmpeg is
+// optional: without it only sidecar subtitles are delivered. The extractor,
+// the tag reader and their job limits are shared with rescanned catalogs.
 func attachExtractor(catalog *Catalog) {
 	if binary, err := exec.LookPath("ffmpeg"); err == nil {
 		catalog.extractor = newSubtitleExtractor(binary)
+	}
+	if binary, err := exec.LookPath("ffprobe"); err == nil {
+		catalog.tags = newTagReader(binary)
 	}
 }
 
@@ -304,7 +313,7 @@ func (c *Catalog) Rescan(ctx context.Context, libraries []Library) (*Catalog, er
 	if c.probeStats != nil {
 		*c.probeStats = ProbeStats{}
 	}
-	next := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: c.probe, probeStats: c.probeStats, extractor: c.extractor}
+	next := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: c.probe, probeStats: c.probeStats, extractor: c.extractor, tags: c.tags}
 	used := &budget{}
 	var failures []error
 	opened := []*os.Root{}
@@ -342,7 +351,7 @@ func (c *Catalog) Rescan(ctx context.Context, libraries []Library) (*Catalog, er
 // without walking them; a folder c has not scanned stays empty until the next
 // Rescan. It publishes a library change at once.
 func (c *Catalog) Reassign(libraries []Library) *Catalog {
-	next := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: c.probe, probeStats: c.probeStats, extractor: c.extractor, Probes: c.Probes}
+	next := &Catalog{libraries: slices.Clone(libraries), sources: map[string]*source{}, probe: c.probe, probeStats: c.probeStats, extractor: c.extractor, tags: c.tags, Probes: c.Probes}
 	for _, path := range folderPaths(libraries) {
 		if src := c.sources[path]; src != nil {
 			next.sources[path] = src
@@ -393,7 +402,10 @@ func (c *Catalog) walk(ctx context.Context, src *source, known map[string]Item, 
 	visit := func(path string, entry fs.DirEntry) error {
 		ext := strings.ToLower(filepath.Ext(path))
 		if sidecarCodec(ext) != "" {
-			subtitles = append(subtitles, path)
+			// Lyrics files can only belong to tracks.
+			if !isLyricsFile(ext) || src.audio {
+				subtitles = append(subtitles, path)
+			}
 			return nil
 		}
 		music, picture := isAudio(ext), isPhoto(ext)

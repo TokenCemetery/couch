@@ -16,7 +16,7 @@ import (
 )
 
 // dbSchemaVersion is stored in PRAGMA user_version; 0 means no schema yet.
-const dbSchemaVersion = 15
+const dbSchemaVersion = 16
 
 const dbSchema = `
 CREATE TABLE server (
@@ -58,7 +58,17 @@ CREATE TABLE sessions (
 	body TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 ` + metadataSchema + librariesSchema + activitySchema + identifiedColumn + collectionsSchema + playlistsSchema + homeSectionsColumn + catalogSchema + maintenanceColumns + monitorColumn + setColumns + imageColumns + `
-PRAGMA user_version = 15;
+PRAGMA user_version = 16;
+`
+
+// lyricsReprobe was run in version 16: tracks, the files whose probe has an
+// audio stream and no video stream, are probed again for their lyrics tags,
+// which earlier probes did not read.
+const lyricsReprobe = `
+UPDATE catalog SET reprobe = 1 WHERE CASE WHEN json_valid(probe) THEN
+	EXISTS (SELECT 1 FROM json_each(probe, '$.Streams') WHERE value ->> 'Type' = 'Audio')
+	AND NOT EXISTS (SELECT 1 FROM json_each(probe, '$.Streams') WHERE value ->> 'Type' = 'Video')
+END;
 `
 
 // imageColumns were added in version 15: the Primary image uploaded for a
@@ -227,6 +237,8 @@ var migrations = map[int]string{
 	13: setColumns + "PRAGMA user_version = 14;",
 	// Version 15 stores images uploaded for collections and playlists.
 	14: imageColumns + "PRAGMA user_version = 15;",
+	// Version 16 probes audio files again for their lyrics.
+	15: lyricsReprobe + "PRAGMA user_version = 16;",
 }
 
 // openDB opens the database file, creating it private to the owner. Reads are

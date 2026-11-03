@@ -20,21 +20,33 @@ const (
 	maxSubtitleBytes    = 10 << 20
 )
 
-// sidecarCodec returns the codec of a subtitle file Couch can deliver, or "".
+// sidecarCodec returns the codec of a subtitle or lyrics file Couch can
+// deliver, or "".
 func sidecarCodec(ext string) string {
 	switch ext {
 	case ".srt":
 		return "srt"
 	case ".vtt":
 		return "webvtt"
+	case ".lrc":
+		return "lrc"
+	case ".txt":
+		return "txt"
 	}
 	return ""
 }
 
+// isLyricsFile reports whether a sidecar extension, in lower case, is a
+// track's lyrics rather than a video's subtitles.
+func isLyricsFile(ext string) bool {
+	return ext == ".lrc" || ext == ".txt"
+}
+
 // attachSidecars adds subtitle files to the video they sit next to, as Emby
 // names them: "Movie.srt", "Movie.en.srt", "Movie.en.forced.srt" belong to
-// "Movie.mp4". A file whose name extends two videos' names goes to the longer
-// one; videos that share that name ("Movie.mp4", "Movie.mkv") all get it. External streams are numbered after the embedded ones, in path order,
+// "Movie.mp4". Lyrics files go to tracks the same way: "Song.lrc" and
+// "Song.en.txt" belong to "Song.mp3". A file whose name extends two videos'
+// names goes to the longer one; videos that share that name ("Movie.mp4", "Movie.mkv") all get it. External streams are numbered after the embedded ones, in path order,
 // so indexes stay stable across scans.
 // embeddedStreams drops sidecar streams, which attachSidecars appends.
 func embeddedStreams(streams []Stream) []Stream {
@@ -45,13 +57,14 @@ func attachSidecars(items []Item, subtitles []string) {
 	slices.Sort(subtitles)
 	for _, subtitle := range subtitles {
 		dir, name := path.Dir(subtitle), path.Base(subtitle)
+		lyrics := isLyricsFile(strings.ToLower(path.Ext(name)))
 		name = strings.TrimSuffix(name, path.Ext(name))
 		// Every video with the longest matching name gets the file, so
 		// "Movie.mp4" and "Movie.mkv" both get "Movie.en.srt". Case is
 		// ignored, as media folders often mix it.
 		matches, bestLen := []int{}, 0
 		for i := range items {
-			if path.Dir(items[i].Path) != dir || isAudio(strings.ToLower(path.Ext(items[i].Path))) {
+			if path.Dir(items[i].Path) != dir || isAudio(strings.ToLower(path.Ext(items[i].Path))) != lyrics {
 				continue
 			}
 			base := path.Base(items[i].Path)
@@ -92,7 +105,8 @@ func sidecarStream(item Item, subtitle, tags string) Stream {
 	for _, s := range item.Streams {
 		index = max(index, s.Index+1)
 	}
-	stream := Stream{Index: index, Type: "Subtitle", Codec: sidecarCodec(strings.ToLower(path.Ext(subtitle))), Path: subtitle}
+	ext := strings.ToLower(path.Ext(subtitle))
+	stream := Stream{Index: index, Type: "Subtitle", Codec: sidecarCodec(ext), Path: subtitle, Lyrics: isLyricsFile(ext)}
 	for _, tag := range strings.Split(strings.ToLower(tags), ".") {
 		switch {
 		case tag == "forced":
@@ -110,9 +124,10 @@ func sidecarStream(item Item, subtitle, tags string) Stream {
 
 // SubtitleDeliverable reports whether OpenSubtitle can serve the stream:
 // a sidecar file, or an embedded text track when FFmpeg is available.
+// Lyrics are served by OpenLyrics instead.
 func (c *Catalog) SubtitleDeliverable(item Item, index int) bool {
 	i := slices.IndexFunc(item.Streams, func(s Stream) bool { return s.Index == index && s.Type == "Subtitle" })
-	if i < 0 {
+	if i < 0 || item.Streams[i].Lyrics {
 		return false
 	}
 	return item.Streams[i].Path != "" || (c != nil && c.extractor != nil && textSubtitleCodec(item.Streams[i].Codec))
@@ -178,16 +193,24 @@ func (c *Catalog) OpenSubtitle(ctx context.Context, item Item, index int) ([]byt
 
 var srtTiming = regexp.MustCompile(`\b(\d{1,2}):(\d{2}):(\d{2}),(\d{3})\b`)
 
-// toWebVTT converts SRT to WebVTT and passes WebVTT through. Only UTF-8 (with
-// or without a byte order mark) is accepted: guessing a legacy code page would
-// show the wrong letters rather than fail visibly.
-func toWebVTT(data []byte, codec string) ([]byte, error) {
+// decodeText reads a subtitle or lyrics text with "\n" line ends. Only UTF-8
+// (with or without a byte order mark) is accepted: guessing a legacy code
+// page would show the wrong letters rather than fail visibly. Old files may
+// end lines with a bare CR.
+func decodeText(data []byte) (string, error) {
 	data = bytes.TrimPrefix(data, []byte("\ufeff"))
 	if !utf8.Valid(data) {
+		return "", errors.New("text is not UTF-8")
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(string(data), "\r\n", "\n"), "\r", "\n"), nil
+}
+
+// toWebVTT converts SRT to WebVTT and passes WebVTT through.
+func toWebVTT(data []byte, codec string) ([]byte, error) {
+	text, err := decodeText(data)
+	if err != nil {
 		return nil, errors.New("subtitle file is not UTF-8")
 	}
-	// Old SRT files may end lines with a bare CR.
-	text := strings.ReplaceAll(strings.ReplaceAll(string(data), "\r\n", "\n"), "\r", "\n")
 	if codec == "webvtt" {
 		if !strings.HasPrefix(text, "WEBVTT") {
 			return nil, errors.New("subtitle file is not WebVTT")

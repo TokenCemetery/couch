@@ -86,6 +86,26 @@ func TestCatalog(t *testing.T) {
 		t.Fatalf("backup holds %+v", got)
 	}
 
+	// Version 16 probes audio files again for their lyrics; videos keep their mark.
+	c.Probe = `{"Streams":[{"Type":"Audio"}]}`
+	d := CatalogEntry{Folder: "/music", Path: "D.mp3", Size: 4, Modified: at, Added: at, Probe: `{"Streams":[{"Type":"Audio"}]}`}
+	e := CatalogEntry{Folder: "/music", Path: "E.mkv", Size: 5, Modified: at, Added: at, Probe: `{"Streams":[{"Type":"Video"},{"Type":"Audio"}]}`}
+	f := CatalogEntry{Folder: "/music", Path: "F.flac", Size: 6, Modified: at, Added: at, Probe: `{`}
+	changes(CatalogChange{Folders: []string{"/music"}, Write: []CatalogEntry{c, d, e, f}})
+	if _, err := s.db.ExecContext(t.Context(), "PRAGMA user_version = 15"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	c.Reprobe, d.Reprobe = true, true
+	if got := saved(s); !reflect.DeepEqual(got, want([]string{"/empty", "/media", "/music"}, b, c, d, e, f)) {
+		t.Fatalf("version 15 migrated to %+v", got)
+	}
+
 	// A database written before the index was stored is migrated on open.
 	if _, err := s.db.ExecContext(t.Context(), "ALTER TABLE collections DROP COLUMN image_revision; ALTER TABLE collections DROP COLUMN image_mime; ALTER TABLE collections DROP COLUMN image_width; ALTER TABLE collections DROP COLUMN image_height; ALTER TABLE playlists DROP COLUMN image_revision; ALTER TABLE playlists DROP COLUMN image_mime; ALTER TABLE playlists DROP COLUMN image_width; ALTER TABLE playlists DROP COLUMN image_height; ALTER TABLE collections DROP COLUMN set_key; ALTER TABLE collections DROP COLUMN set_items; ALTER TABLE collections DROP COLUMN declined; DROP TABLE dismissed_sets; ALTER TABLE libraries DROP COLUMN realtime_monitor; DROP TABLE catalog; DROP TABLE catalog_folders; ALTER TABLE server DROP COLUMN vacuum_on_startup; ALTER TABLE server DROP COLUMN optimize_on_shutdown; PRAGMA user_version = 10"); err != nil {
 		t.Fatal(err)

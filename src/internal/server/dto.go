@@ -569,6 +569,10 @@ func mediaSource(item media.Item, streams []object) object {
 	if mime := containerMIME(item.Container); mime != "" {
 		source["MimeType"] = mime
 	}
+	// Emby Web's lyrics view shows the source's default subtitle stream.
+	if lyrics := media.LyricsIndex(item); lyrics >= 0 {
+		source["DefaultSubtitleStreamIndex"] = lyrics
+	}
 	return source
 }
 

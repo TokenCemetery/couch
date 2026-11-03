@@ -151,7 +151,7 @@ func (c *Catalog) Only(ids []string) *Catalog {
 		return c.Reassign(libraries)
 	}
 	// A catalogue built without libraries keeps its items in place.
-	view := &Catalog{ID: c.ID, libraries: libraries, extractor: c.extractor, Items: []Item{}, Folders: []Item{}}
+	view := &Catalog{ID: c.ID, libraries: libraries, extractor: c.extractor, tags: c.tags, Items: []Item{}, Folders: []Item{}}
 	for _, item := range c.Items {
 		if slices.Contains(ids, c.LibraryOf(item)) {
 			view.Items = append(view.Items, item)

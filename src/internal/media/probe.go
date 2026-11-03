@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -80,6 +81,12 @@ func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error
 	}
 	stats := &ProbeStats{}
 	return func(ctx context.Context, file *os.File) (Item, error) {
+		// An audio file's tags are all shown: an ID3 lyrics tag is named
+		// after its language, as lyrics-eng. A video's are not needed.
+		formatTags, streamTags := "format_tags="+audioTags, "stream_tags=language,"+audioTags
+		if isAudio(strings.ToLower(filepath.Ext(file.Name()))) {
+			formatTags, streamTags = "format_tags", "stream_tags"
+		}
 		data, err := runProbe(ctx, binary, stats, file, "-v", "error", "-max_alloc", "67108864",
 			"-protocol_whitelist", "fd", "-threads", "1", "-probesize", "5000000", "-analyzeduration", "5000000",
 			// The fd protocol reads in unbounded blocks by default, so each
@@ -90,7 +97,7 @@ func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error
 			// format, so those are probed alongside the basic descriptors.
 			// Audio files keep their tags in the format, or in the stream
 			// for Ogg and Opus.
-			"-show_entries", "format=duration,bit_rate:format_tags="+audioTags+":stream=index,codec_type,codec_name,codec_tag_string,profile,level,width,height,channels,channel_layout,sample_rate,bit_rate,pix_fmt,bits_per_raw_sample,bits_per_sample,refs,avg_frame_rate,r_frame_rate,time_base,field_order,color_transfer,color_primaries,color_space:stream_tags=language,"+audioTags+":stream_disposition=default,forced,attached_pic,hearing_impaired:stream_side_data=rotation,dv_profile,dv_bl_signal_compatibility_id")
+			"-show_entries", "format=duration,bit_rate:"+formatTags+":stream=index,codec_type,codec_name,codec_tag_string,profile,level,width,height,channels,channel_layout,sample_rate,bit_rate,pix_fmt,bits_per_raw_sample,bits_per_sample,refs,avg_frame_rate,r_frame_rate,time_base,field_order,color_transfer,color_primaries,color_space:"+streamTags+":stream_disposition=default,forced,attached_pic,hearing_impaired:stream_side_data=rotation,dv_profile,dv_bl_signal_compatibility_id")
 		if err != nil {
 			return Item{}, err
 		}
@@ -98,8 +105,8 @@ func newProbe(ctx context.Context) (func(context.Context, *os.File) (Item, error
 	}, stats, nil
 }
 
-// audioTags are the tags read from audio files; FFprobe matches them
-// ignoring case.
+// audioTags are the tags read from a video file's format and streams; FFprobe
+// matches them ignoring case.
 const audioTags = "title,artist,album_artist,album,genre,track,disc,date"
 
 // parseTags reads an audio file's tags, whose keys may be in any case.
@@ -294,6 +301,15 @@ func parseProbe(data []byte) (Item, error) {
 	// audio file's only stream takes the file's.
 	if only := &item.Streams[0]; len(item.Streams) == 1 && only.Type == "Audio" && only.BitRate == 0 {
 		only.BitRate, _ = strconv.ParseInt(result.Format.BitRate, 10, 64)
+	}
+	if !hasStream(item, "Video") {
+		tags := []map[string]string{result.Format.Tags}
+		for _, raw := range result.Streams {
+			if raw.CodecType == "audio" {
+				tags = append(tags, raw.Tags)
+			}
+		}
+		item.Streams = append(item.Streams, lyricsStreams(item.Streams, tags...)...)
 	}
 	return item, nil
 }

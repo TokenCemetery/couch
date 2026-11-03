@@ -205,7 +205,8 @@ func loadLibraries(libraries []Library, index state.CatalogIndex, probe func(con
 
 // loadSource rebuilds a folder's items from the index, rejecting paths that
 // could leave the folder. Files of a kind the folder's libraries no longer
-// catalog are left for the next rescan, and only videos keep a reprobe mark.
+// catalog are left for the next rescan, and only videos and tracks keep a
+// reprobe mark.
 // A file whose probe cannot be read keeps its date added and is marked for
 // the next rescan to probe again.
 func loadSource(folder string, saved []state.CatalogEntry, video, audio, photo bool) (*source, error) {
@@ -238,7 +239,7 @@ func loadSource(folder string, saved []state.CatalogEntry, video, audio, photo b
 			ID: stableID(src.key + "\x00" + s.Path), Name: strings.TrimSuffix(name, path.Ext(name)), Path: s.Path,
 			Container: containerOf(ext),
 			Size:      s.Size, Modified: s.Modified, Added: s.Added, RunTimeTicks: probe.RunTimeTicks, Streams: probe.Streams, Tags: tags, Cover: cover, Photo: pictured,
-			reprobe: unreadable || (!music && !picture && s.Reprobe),
+			reprobe: unreadable || (!picture && s.Reprobe),
 		})
 	}
 	slices.SortFunc(src.items, func(a, b Item) int { return strings.Compare(a.ID, b.ID) })
