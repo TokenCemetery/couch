@@ -160,8 +160,8 @@ func metadataNames(info *metadata.Info, kind string) []string {
 }
 
 // addMetadata adds the item's descriptive metadata to its DTO in the
-// reference Emby's field shapes.
-func addMetadata(dto object, info *metadata.Info) {
+// reference Emby's field shapes; the cast and crew only with people.
+func (s *Server) addMetadata(dto object, info *metadata.Info, token string, people bool) {
 	if info.OriginalTitle != "" && info.OriginalTitle != dto["Name"] {
 		dto["OriginalTitle"] = info.OriginalTitle
 	}
@@ -198,15 +198,21 @@ func addMetadata(dto object, info *metadata.Info) {
 	dto["GenreItems"] = named("Genre", info.Genres)
 	dto["Studios"] = named("Studio", info.Studios)
 	dto["TagItems"] = named("Tag", info.Tags)
-	people := make([]object, 0, len(info.People))
-	for _, p := range info.People {
-		person := object{"Name": p.Name, "Id": metadata.ID("Person", p.Name), "Type": p.Type}
-		if p.Role != "" {
-			person["Role"] = p.Role
+	if people {
+		list := make([]object, 0, len(info.People))
+		for _, p := range info.People {
+			id := metadata.ID("Person", p.Name)
+			person := object{"Name": p.Name, "Id": id, "Type": p.Type}
+			if p.Role != "" {
+				person["Role"] = p.Role
+			}
+			if tag := s.personImageTag(token, id); tag != "" {
+				person["PrimaryImageTag"] = tag
+			}
+			list = append(list, person)
 		}
-		people = append(people, person)
+		dto["People"] = list
 	}
-	dto["People"] = people
 	tmdbPath := "movie/"
 	if dto["Type"] == "Series" {
 		tmdbPath = "tv/"
@@ -237,6 +243,35 @@ func entityDTO(id string, e entity, serverID string) object {
 	dto["IsFolder"] = e.Type != "Person"
 	dto["UserData"] = folderUserData()
 	return dto
+}
+
+// addPerson adds what the providers know of a person to their item page:
+// biography, birth date and photo.
+func (s *Server) addPerson(dto object, id, token string) {
+	info := s.info(id)
+	if info.Overview != "" {
+		dto["Overview"] = info.Overview
+	}
+	if !info.Premiere.IsZero() {
+		dto["PremiereDate"] = embyDate(info.Premiere)
+		dto["ProductionYear"] = info.Year
+	}
+	if len(info.ProviderIDs) > 0 {
+		ids := map[string]string{}
+		maps.Copy(ids, info.ProviderIDs)
+		dto["ProviderIds"] = ids
+	}
+	if tag := s.personImageTag(token, id); tag != "" {
+		dto["ImageTags"] = object{"Primary": tag}
+	}
+}
+
+// personImageTag is the ImageTag of a person's photo, or "" without one.
+func (s *Server) personImageTag(token, id string) string {
+	if image, found := s.info(id).Images["Primary"]; found {
+		return s.store.ImageTag(token, id, image.Revision())
+	}
+	return ""
 }
 
 // personTypes is Emby's PersonType order, which credit tabs follow.
@@ -361,10 +396,19 @@ func (s *Server) openImage(ctx context.Context, catalog *media.Catalog, item med
 			return file, info, nil
 		}
 	}
-	if s.metadataImages == "" {
-		return file, info, err
+	if file, info, err := s.openProviderImage(item.ID, kind); err == nil {
+		return file, info, nil
 	}
-	for name, image := range s.info(item.ID).Images {
+	return nil, media.Image{}, err
+}
+
+// openProviderImage opens an item's or a person's image of a type that a
+// provider supplied.
+func (s *Server) openProviderImage(id, kind string) (*os.File, media.Image, error) {
+	if s.metadataImages == "" {
+		return nil, media.Image{}, os.ErrNotExist
+	}
+	for name, image := range s.info(id).Images {
 		if !strings.EqualFold(name, kind) || filepath.Base(image.File) != image.File {
 			continue
 		}

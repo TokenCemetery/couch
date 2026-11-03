@@ -309,7 +309,7 @@ func (s *Server) sectionItems(w http.ResponseWriter, r *http.Request, token stri
 			return strings.Compare(a.ID, b.ID)
 		})
 		for _, item := range latest[:min(limit, len(latest))] {
-			items = append(items, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token))
+			items = append(items, s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token, wantsPeople(r)))
 		}
 	}
 	if len(items) > limit {

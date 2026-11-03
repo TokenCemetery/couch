@@ -176,7 +176,13 @@ func (s *Server) metadataValueList(kind string) authenticated {
 			if kind != "OfficialRating" && kind != "Year" {
 				id = metadata.ID(kind, v)
 			}
-			items = append(items, object{"Name": v, "Id": id, "Type": kind})
+			item := object{"Name": v, "Id": id, "Type": kind}
+			if kind == "Person" {
+				if tag := s.personImageTag(token, id); tag != "" {
+					item["ImageTags"] = object{"Primary": tag}
+				}
+			}
+			items = append(items, item)
 		}
 		respond(w, 200, object{"Items": items, "TotalRecordCount": len(found)})
 	}

@@ -36,11 +36,14 @@ type Info struct {
 }
 
 // Person is a cast or crew member. Type is Actor, GuestStar, Director or
-// Writer, as Emby names them.
+// Writer, as Emby names them. TmdbID, TvdbID and Thumb, the URL of their
+// photo, are as the credit gives them.
 type Person struct {
-	Name string
-	Role string `json:",omitempty"`
-	Type string
+	Name           string
+	Role           string `json:",omitempty"`
+	Type           string
+	TmdbID, TvdbID string `json:",omitempty"`
+	Thumb          string `json:",omitempty"`
 }
 
 // Image is a provider image saved under the data directory.
@@ -135,6 +138,7 @@ func (i *Info) Directors() []string {
 	return names
 }
 
-// Library is the published metadata of a catalogue by item ID. It is not
-// changed after it is published.
+// Library is the published metadata of a catalogue by item ID, and of the
+// people its items credit by their person ID. It is not changed after it
+// is published.
 type Library map[string]*Info

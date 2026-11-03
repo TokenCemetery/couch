@@ -38,8 +38,9 @@ type nfo struct {
 	Directors     []string    `xml:"director"`
 	Credits       []string    `xml:"credits"`
 	Actors        []struct {
-		Name string `xml:"name"`
-		Role string `xml:"role"`
+		Name  string `xml:"name"`
+		Role  string `xml:"role"`
+		Thumb string `xml:"thumb"`
 	} `xml:"actor"`
 	UniqueIDs []struct {
 		Type  string `xml:"type,attr"`
@@ -125,7 +126,7 @@ func parseNFO(content []byte) (Info, error) {
 	}
 	for _, a := range n.Actors {
 		if name := clean(a.Name); name != "" {
-			info.People = append(info.People, Person{Name: name, Role: clean(a.Role), Type: "Actor"})
+			info.People = append(info.People, Person{Name: name, Role: clean(a.Role), Type: "Actor", Thumb: clean(a.Thumb)})
 		}
 	}
 	for _, name := range list(n.Directors) {

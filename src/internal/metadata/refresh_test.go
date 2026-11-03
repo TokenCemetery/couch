@@ -108,15 +108,18 @@ func (f *fakeProviders) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"/tmdb/search/movie": `{"results":[{"id":2,"title":"The Movie: Making Of","popularity":1.5},{"id":1,"title":"Le Film","original_title":"The Movie","popularity":40}]}`,
 		"/tmdb/movie/1": `{"title":"Online Movie","original_title":"Film en ligne","overview":"From TMDb.","release_date":"2010-05-01",
 			"vote_average":7.2,"genres":[{"name":"Comedy"}],"production_companies":[{"name":"Studio A"}],"poster_path":"/img/poster.png",
-			"imdb_id":"tt0000001","credits":{"cast":[{"name":"Actor One","character":"Hero"}],"crew":[{"name":"Dir One","job":"Director","department":"Directing"}]},
+			"imdb_id":"tt0000001","credits":{"cast":[{"id":11,"name":"Actor One","character":"Hero","profile_path":"/img/actor.png"},{"id":97,"name":"Same Name"}],"crew":[{"name":"Dir One","job":"Director","department":"Directing"}]},
 			"keywords":{"keywords":[{"name":"heist"}]},"release_dates":{"results":[{"iso_3166_1":"US","release_dates":[{"certification":"PG"}]}]}}`,
 		"/tmdb/movie/55":      `{"title":"TMDb Title","overview":"Overview of 55.","release_date":"2001-01-01","genres":[{"name":"Action"}]}`,
 		"/tmdb/tv/9":          `{"name":"TMDb Show","overview":"TMDb overview.","vote_average":8.1,"networks":[{"name":"Net"}],"backdrop_path":"/img/show-backdrop.png"}`,
-		"/tmdb/tv/9/season/1": `{"id":90,"name":"Season 1","overview":"TMDb season overview.","air_date":"2008-01-21","poster_path":"/img/season.png","episodes":[{"episode_number":2,"name":"TMDb Episode","overview":"TMDb episode overview.","air_date":"2008-02-01","vote_average":8.5}]}`,
-		"/tvdb/login":         `{"data":{"token":"tvdb-token"}}`,
-		"/tvdb/search":        `{"data":[{"tvdb_id":"7"}]}`,
+		"/tmdb/tv/9/season/1": `{"id":90,"name":"Season 1","overview":"TMDb season overview.","air_date":"2008-01-21","poster_path":"/img/season.png","episodes":[{"episode_number":2,"name":"TMDb Episode","overview":"TMDb episode overview.","air_date":"2008-02-01","vote_average":8.5,"guest_stars":[{"id":98,"name":"Same Name"}]}]}`,
+		"/tmdb/person/11":     `{"biography":"Biography from TMDb.","birthday":"1970-02-03","profile_path":"/img/person.png"}`,
+		"/tvdb/people/22/extended": `{"data":{"image":"/img/people.png","birth":"1960-04-05",
+			"biographies":[{"biography":"Biographie.","language":"fra"},{"biography":"Biography from TheTVDB.","language":"eng"}]}}`,
+		"/tvdb/login":  `{"data":{"token":"tvdb-token"}}`,
+		"/tvdb/search": `{"data":[{"tvdb_id":"7"}]}`,
 		"/tvdb/series/7/extended": `{"data":{"name":"Original Show","overview":"Original overview.","firstAired":"2008-01-20","image":"/img/show.png",
-			"genres":[{"name":"Drama"}],"characters":[{"name":"Walter","personName":"Actor Two","peopleType":"Actor"}],
+			"genres":[{"name":"Drama"}],"characters":[{"name":"Walter","personName":"Actor Two","peopleType":"Actor","peopleId":22}],
 			"remoteIds":[{"id":"9","sourceName":"TheMovieDB.com"}],
 			"seasons":[{"id":71,"number":1,"type":{"type":"dvd"}},{"id":70,"number":1,"year":"2008","image":"/img/season-tvdb.png","type":{"type":"official"},"nameTranslations":["eng"]}]}}`,
 		"/tvdb/seasons/70/translations/eng":   `{"data":{"name":"Translated Season"}}`,
@@ -189,7 +192,7 @@ func TestRefresh(t *testing.T) {
 	movie := published["movie"]
 	if movie.Name != "Online Movie" || movie.OriginalTitle != "Film en ligne" || movie.Year != 2010 || movie.OfficialRating != "PG" ||
 		movie.Community != 7.2 || strings.Join(movie.Genres, ",") != "Comedy" || strings.Join(movie.Tags, ",") != "heist" ||
-		len(movie.People) != 2 || movie.ProviderIDs["Imdb"] != "tt0000001" {
+		len(movie.People) != 3 || movie.ProviderIDs["Imdb"] != "tt0000001" {
 		t.Fatalf("movie: %+v", movie)
 	}
 	poster := movie.Images["Primary"]
@@ -269,6 +272,88 @@ func TestRefresh(t *testing.T) {
 	offline.refresh(t.Context(), items, dirFiles(dir))
 	if len(fake.requests()) != before || published["series"].Name != "Translated Show" || published["movie"].Name != "" {
 		t.Fatalf("offline: %d requests, %+v", len(fake.requests())-before, published["series"])
+	}
+}
+
+func TestRefreshPeople(t *testing.T) {
+	store, fake := newRefreshTest(t)
+	dir := t.TempDir()
+	host := strings.TrimSuffix(tmdbImages, "/t/p/")
+	// Actor One is credited again here, without IDs; Local Actor has only
+	// the .nfo's photo; Actor Two's http photo is not used.
+	nfo := `<movie><title>Other</title><uniqueid type="tmdb">55</uniqueid>
+		<actor><name>Actor One</name></actor>
+		<actor><name>Local Actor</name><thumb>` + host + `/img/local.png</thumb></actor>
+		<actor><name>Actor Two</name><thumb>http://example.test/two.jpg</thumb></actor>
+		<actor><name>Nobody</name></actor></movie>`
+	if err := os.MkdirAll(filepath.Join(dir, "Other (2001)"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Other (2001)", "Other (2001).nfo"), []byte(nfo), 0600); err != nil {
+		t.Fatal(err)
+	}
+	items := mediaItems()
+	images := t.TempDir()
+	var published Library
+	r, err := NewRefresher(store, Config{TMDbKey: "tmdb-key", TVDbKey: "tvdb-key", Language: "en", ImageDir: images}, func(l Library) { published = l })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.refresh(t.Context(), items, dirFiles(dir))
+
+	// TMDb fills the biography; the credit's photo wins over the person's.
+	one := published[ID("Person", "Actor One")]
+	if one == nil || one.Overview != "Biography from TMDb." || one.Premiere.Format(time.DateOnly) != "1970-02-03" ||
+		one.ProviderIDs["Tmdb"] != "11" || !strings.HasSuffix(one.Images["Primary"].URL, "/img/actor.png") {
+		t.Fatalf("Actor One: %+v", one)
+	}
+	if _, err := os.Stat(filepath.Join(images, one.Images["Primary"].File)); err != nil {
+		t.Fatal(err)
+	}
+	// TheTVDB's biography is taken in the metadata language, else English,
+	// with its photo when no credit has an https one.
+	two := published[ID("Person", "Actor Two")]
+	if two == nil || two.Overview != "Biography from TheTVDB." || two.Year != 1960 || !strings.HasSuffix(two.Images["Primary"].URL, "/img/people.png") {
+		t.Fatalf("Actor Two: %+v", two)
+	}
+	local := published[ID("Person", "Local Actor")]
+	if local == nil || local.Overview != "" || !strings.HasSuffix(local.Images["Primary"].URL, "/img/local.png") {
+		t.Fatalf("Local Actor: %+v", local)
+	}
+	for _, name := range []string{"Nobody", "Same Name"} {
+		if _, found := published[ID("Person", name)]; found {
+			t.Fatalf("%s was looked up", name)
+		}
+	}
+	if n := fake.count("/tmdb/person/11"); n != 1 {
+		t.Fatalf("Actor One fetched %d times, want once", n)
+	}
+
+	// An unchanged refresh asks nobody; refreshing an item asks for its
+	// people again.
+	before := len(fake.requests())
+	r.refresh(t.Context(), items, dirFiles(dir))
+	if len(fake.requests()) != before {
+		t.Fatalf("unchanged refresh made %d requests", len(fake.requests())-before)
+	}
+	r.Refresh([]string{"movie"})
+	r.refresh(t.Context(), items, dirFiles(dir))
+	if n := fake.count("/tmdb/person/11"); n != 2 {
+		t.Fatalf("Actor One fetched %d times after a forced refresh, want twice", n)
+	}
+	if n := fake.count("/tvdb/people/22/extended"); n != 1 {
+		t.Fatalf("Actor Two fetched %d times, want once", n)
+	}
+
+	// Without the series, Actor Two's credit gives no ID or https photo,
+	// so the record and photo go.
+	photo := filepath.Join(images, two.Images["Primary"].File)
+	r.refresh(t.Context(), items[:2], dirFiles(dir))
+	if _, found := published[ID("Person", "Actor Two")]; found {
+		t.Fatal("uncredited person still published")
+	}
+	if _, err := os.Stat(photo); !os.IsNotExist(err) {
+		t.Fatalf("unused photo kept: %v", err)
 	}
 }
 

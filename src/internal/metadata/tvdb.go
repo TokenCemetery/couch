@@ -159,6 +159,8 @@ func (t *tvdb) series(ctx context.Context, ids map[string]string, title string, 
 				Name       string `json:"name"`
 				PersonName string `json:"personName"`
 				PeopleType string `json:"peopleType"`
+				PeopleID   int    `json:"peopleId"`
+				PersonImg  string `json:"personImgURL"`
 			} `json:"characters"`
 			Artworks []struct {
 				Type  int     `json:"type"`
@@ -216,14 +218,21 @@ func (t *tvdb) series(ctx context.Context, ids map[string]string, title string, 
 		if name == "" {
 			continue
 		}
+		person := Person{Name: name, Role: clean(c.Name), Thumb: tvdbImage(c.PersonImg)}
+		if c.PeopleID > 0 {
+			person.TvdbID = strconv.Itoa(c.PeopleID)
+		}
 		switch c.PeopleType {
 		case "Actor":
-			info.People = append(info.People, Person{Name: name, Role: clean(c.Name), Type: "Actor"})
+			person.Type = "Actor"
 		case "Guest Star":
-			info.People = append(info.People, Person{Name: name, Role: clean(c.Name), Type: "GuestStar"})
+			person.Type = "GuestStar"
 		case "Director", "Writer":
-			info.People = append(info.People, Person{Name: name, Role: c.PeopleType, Type: c.PeopleType})
+			person.Role, person.Type = c.PeopleType, c.PeopleType
+		default:
+			continue
 		}
+		info.People = append(info.People, person)
 	}
 	for _, r := range d.RemoteIDs {
 		switch r.SourceName {
@@ -333,4 +342,32 @@ func (t *tvdb) episode(ctx context.Context, seriesID string, season, episode int
 		return info, map[string]string{"Primary": tvdbImage(e.Image)}, nil
 	}
 	return Info{}, nil, errNotFound
+}
+
+// person returns a person's biography, in the metadata language or else in
+// English, birth date and photo.
+func (t *tvdb) person(ctx context.Context, id string) (Info, string, error) {
+	var p struct {
+		Data struct {
+			Image       string `json:"image"`
+			Birth       string `json:"birth"`
+			Biographies []struct {
+				Biography string `json:"biography"`
+				Language  string `json:"language"`
+			} `json:"biographies"`
+		} `json:"data"`
+	}
+	if err := t.get(ctx, "/people/"+url.PathEscape(id)+"/extended", nil, &p); err != nil {
+		return Info{}, "", err
+	}
+	info := Info{}
+	for _, lang := range []string{t.lang.tvdb, "eng"} {
+		for _, b := range p.Data.Biographies {
+			if b.Language == lang && info.Overview == "" {
+				info.Overview = clean(b.Biography)
+			}
+		}
+	}
+	setDate(&info, p.Data.Birth)
+	return info, tvdbImage(p.Data.Image), nil
 }

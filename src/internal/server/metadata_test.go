@@ -154,6 +154,86 @@ func TestItemMetadata(t *testing.T) {
 	}
 }
 
+func TestPersonMetadata(t *testing.T) {
+	store, _, _ := newTestServer(t)
+	catalog := &media.Catalog{ID: "movies", Items: []media.Item{{ID: "a", Name: "a.file", Container: "mkv"}}}
+	images := t.TempDir()
+	var photo bytes.Buffer
+	if err := png.Encode(&photo, image.NewRGBA(image.Rect(0, 0, 2, 3))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(images, "photo.png"), photo.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	api := New(store, "test", nil, catalog)
+	api.SetMetadataImages(images)
+	ann, dee := metadata.ID("Person", "Ann Actor"), metadata.ID("Person", "Dee Director")
+	api.SetMetadata(metadata.Library{
+		"a": {People: []metadata.Person{{Name: "Ann Actor", Role: "Hero", Type: "Actor"}, {Name: "Dee Director", Type: "Director"}}},
+		ann: {Overview: "Born somewhere.", Year: 1970, Premiere: time.Date(1970, 2, 3, 0, 0, 0, 0, time.UTC), ProviderIDs: map[string]string{"Tmdb": "11"},
+			Images: map[string]metadata.Image{"Primary": {URL: "https://example.test/ann.png", File: "photo.png", Width: 2, Height: 3, MIME: "image/png"}}},
+	})
+	h := api.Handler()
+	token := login(t, h)
+
+	// The cast row shows Ann's photo; Dee has none.
+	w := request(h, "GET", "/Items/a", "", "", token)
+	expectStatus(t, w, 200)
+	var item struct {
+		People []struct{ Id, PrimaryImageTag string }
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &item); err != nil || len(item.People) != 2 || item.People[0].PrimaryImageTag == "" || item.People[1].PrimaryImageTag != "" {
+		t.Fatalf("%s", w.Body.String())
+	}
+	// A list carries the cast only when Fields asks for it, or names no
+	// fields.
+	for fields, want := range map[string]bool{"": true, "&Fields=Overview,People": true, "&Fields=PrimaryImageAspectRatio": false} {
+		w := request(h, "GET", "/Items?Recursive=true"+fields, "", "", token)
+		expectStatus(t, w, 200)
+		var page struct{ Items []map[string]json.RawMessage }
+		if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil || len(page.Items) != 1 {
+			t.Fatalf("%s", w.Body.String())
+		}
+		if _, found := page.Items[0]["People"]; found != want {
+			t.Errorf("%q: People present %v, want %v", fields, found, want)
+		}
+	}
+	// The person page shows the biography, birth date and photo.
+	w = request(h, "GET", "/Items/"+ann, "", "", token)
+	expectStatus(t, w, 200)
+	var person struct {
+		Overview, PremiereDate string
+		ProductionYear         int
+		ProviderIds            map[string]string
+		ImageTags              map[string]string
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &person); err != nil || person.Overview != "Born somewhere." ||
+		person.PremiereDate != "1970-02-03T00:00:00.0000000Z" || person.ProductionYear != 1970 || person.ProviderIds["Tmdb"] != "11" ||
+		person.ImageTags["Primary"] != item.People[0].PrimaryImageTag {
+		t.Fatalf("%s", w.Body.String())
+	}
+	w = request(h, "GET", "/Items/"+ann+"/Images/Primary?tag="+url.QueryEscape(person.ImageTags["Primary"]), "", "", "")
+	expectStatus(t, w, 200)
+	if !bytes.Equal(w.Body.Bytes(), photo.Bytes()) || w.Header().Get("Content-Type") != "image/png" {
+		t.Fatal("photo not served")
+	}
+	expectStatus(t, request(h, "GET", "/Items/"+dee+"/Images/Primary", "", "", token), 404)
+	expectStatus(t, request(h, "GET", "/Items/"+metadata.ID("Person", "Uncredited")+"/Images/Primary", "", "", token), 404)
+	// The people list carries the photo too.
+	w = request(h, "GET", "/Persons", "", "", token)
+	expectStatus(t, w, 200)
+	var page struct {
+		Items []struct {
+			Id        string
+			ImageTags map[string]string
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &page); err != nil || len(page.Items) != 2 || page.Items[0].Id != ann ||
+		page.Items[0].ImageTags["Primary"] == "" || page.Items[1].ImageTags != nil {
+		t.Fatalf("%s", w.Body.String())
+	}
+}
+
 func TestPersonCredits(t *testing.T) {
 	store, _, _ := newTestServer(t)
 	episode := func(id string, number int) media.Item {

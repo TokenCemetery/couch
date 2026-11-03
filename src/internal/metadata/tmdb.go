@@ -59,18 +59,33 @@ type tmdbNamed struct {
 	Name string `json:"name"`
 }
 
+// tmdbPerson is the person in a credit.
+type tmdbPerson struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	ProfilePath string `json:"profile_path"`
+}
+
+func (p tmdbPerson) credit(role, kind string) Person {
+	person := Person{Name: p.Name, Role: role, Type: kind, Thumb: tmdbImage(tmdbProfile, p.ProfilePath)}
+	if p.ID > 0 {
+		person.TmdbID = strconv.Itoa(p.ID)
+	}
+	return person
+}
+
 type tmdbCredits struct {
 	Cast []struct {
-		Name      string `json:"name"`
+		tmdbPerson
 		Character string `json:"character"`
 	} `json:"cast"`
 	Crew []struct {
-		Name       string `json:"name"`
+		tmdbPerson
 		Job        string `json:"job"`
 		Department string `json:"department"`
 	} `json:"crew"`
 	GuestStars []struct {
-		Name      string `json:"name"`
+		tmdbPerson
 		Character string `json:"character"`
 	} `json:"guest_stars"`
 }
@@ -81,17 +96,17 @@ func (c tmdbCredits) people() []Person {
 		if n == maxCast {
 			break
 		}
-		people = append(people, Person{Name: p.Name, Role: p.Character, Type: "Actor"})
+		people = append(people, p.credit(p.Character, "Actor"))
 	}
 	for _, p := range c.GuestStars {
-		people = append(people, Person{Name: p.Name, Role: p.Character, Type: "GuestStar"})
+		people = append(people, p.credit(p.Character, "GuestStar"))
 	}
 	for _, p := range c.Crew {
 		switch {
 		case p.Job == "Director":
-			people = append(people, Person{Name: p.Name, Role: "Director", Type: "Director"})
+			people = append(people, p.credit("Director", "Director"))
 		case p.Department == "Writing":
-			people = append(people, Person{Name: p.Name, Role: p.Job, Type: "Writer"})
+			people = append(people, p.credit(p.Job, "Writer"))
 		}
 	}
 	return people
@@ -124,6 +139,7 @@ func unique(values []string) []string {
 const (
 	tmdbPoster   = "w780"
 	tmdbBackdrop = "w1280"
+	tmdbProfile  = "h632"
 )
 
 func tmdbImage(size, path string) string {
@@ -397,6 +413,21 @@ func (t *tmdb) episode(ctx context.Context, seriesID string, season, episode int
 		return info, map[string]string{"Primary": tmdbImage(tmdbPoster, e.StillPath)}, nil
 	}
 	return Info{}, nil, errNotFound
+}
+
+// person returns a person's biography, birth date and photo.
+func (t *tmdb) person(ctx context.Context, id string) (Info, string, error) {
+	var p struct {
+		Biography   string `json:"biography"`
+		Birthday    string `json:"birthday"`
+		ProfilePath string `json:"profile_path"`
+	}
+	if err := t.get(ctx, "/person/"+url.PathEscape(id), nil, &p); err != nil {
+		return Info{}, "", err
+	}
+	info := Info{Overview: clean(p.Biography)}
+	setDate(&info, p.Birthday)
+	return info, tmdbImage(tmdbProfile, p.ProfilePath), nil
 }
 
 func setDate(info *Info, text string) {

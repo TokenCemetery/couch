@@ -5,8 +5,9 @@ import (
 	"time"
 )
 
-// MetadataRecord is the stored metadata of one catalogue item. The state
-// package keeps the bodies opaque; package metadata encodes them.
+// MetadataRecord is the stored metadata of one catalogue item, or of a
+// person the items credit, keyed by the person's ID. The state package
+// keeps the bodies opaque; package metadata encodes them.
 type MetadataRecord struct {
 	ItemID string
 	// NFORevision identifies the .nfo file NFO was read from; empty when

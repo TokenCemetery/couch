@@ -695,6 +695,15 @@ The `internal/metadata` tests also run the providers against a local TLS server 
 - `-metadata-language ru` on an emptied metadata table: Russian titles and overviews ("Матрица", "Во все тяжкие", "Тьма", episode "Пилотная серия") and Russian certifications ("16+", "18+"). Spirited Away first matched a 2001 TV special: in Russian, TMDb ranks the special, whose Russian title is its Japanese one, above the film for the query "Spirited Away". Fixed in this change by preferring a result whose title or original title equals the query, else the most popular; it then matched TMDb 129, "Унесённые призраками", 12+.
 - Genres of series come from TheTVDB, which has no translations of them, so they stay in English under `ru`; movie genres come from TMDb in Russian.
 
+## People from TMDb and TheTVDB (2026-11-03, #131)
+
+`-web-dir ../emby-webui` setup, Chromium, TheTVDB key only: TMDb was unreachable from the host (its API name resolved to localhost), and with both keys every lookup failed. Library: `The Matrix (1999)/The Matrix (1999).mkv` and `Breaking Bad/Season 01/Breaking Bad.S01E01.mkv`.
+
+- First start: `Online metadata fetched items=3 people=9 not_found=1 failed=0`: the series, season and episode, and the series' nine credited actors; the movie needs TMDb.
+- All nine got a TheTVDB photo (22–32 KiB JPEG) and a birth date. Four have an English biography at TheTVDB, and Couch showed exactly those four; the other five have an empty one there.
+- Emby Web: the Breaking Bad page's Cast & Crew row shows the photos; Aaron Paul's page shows the photo, "Born: August 27, 1979" and the biography. The console logged only the blocked `mb3admin.com` check (#89).
+- Not checked live: TMDb people (biography, `h632` photo) and a `.nfo` `<actor><thumb>`. Both are covered by tests against recorded answers.
+
 ## Metadata lookup limits (2026-11-01, #109)
 
 - **Scale:** a generated library of 10,000 movies against a local stand-in for TMDb (20 actors, 3 genres and 2 keywords each, request spacing off).

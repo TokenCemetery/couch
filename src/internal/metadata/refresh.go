@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -21,8 +22,12 @@ import (
 )
 
 // lookupVersion changes whenever what a lookup fetches does, so stored
-// online metadata is fetched again.
-const lookupVersion = "1"
+// online metadata is fetched again; nfoVersion likewise for what is read
+// from .nfo files.
+const (
+	lookupVersion = "2"
+	nfoVersion    = "2"
+)
 
 // Config selects the online providers and how long their metadata is kept.
 type Config struct {
@@ -365,6 +370,9 @@ func (r *Refresher) refresh(ctx context.Context, items []media.Item, files sidec
 	for _, item := range items {
 		known[item.ID] = true
 	}
+	for _, p := range x.people(items, nil) {
+		known[p.id] = true
+	}
 	remove := []string{}
 	for id := range records {
 		if !known[id] {
@@ -435,7 +443,7 @@ func (x *run) readNFO(item media.Item) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		revision = name + "\x00" + strconv.FormatInt(info.Size(), 10) + "\x00" + strconv.FormatInt(info.ModTime().UnixNano(), 10)
+		revision = nfoVersion + "\x00" + name + "\x00" + strconv.FormatInt(info.Size(), 10) + "\x00" + strconv.FormatInt(info.ModTime().UnixNano(), 10)
 		content = b
 		break
 	}
@@ -609,36 +617,11 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 		tv = newTVDb(x.cfg.TVDbKey, x.lang)
 	}
 	images := &throttle{every: spacing.images}
-	fetched, notFound, failed, failures := 0, 0, 0, 0
+	fetched, notFound, failed, failures, people := 0, 0, 0, 0, 0
 	stopped := ""
 	published := time.Now()
-	for _, item := range items {
-		now := time.Now().UTC()
-		l := x.lookupOf(item)
-		if l.key == "" || !x.due(item.ID, l.key, now) {
-			continue
-		}
-		info, urls, err := x.fetch(ctx, tm, tv, item, l)
-		for _, kind := range []string{"Primary", "Backdrop"} {
-			if err != nil || urls[kind] == "" {
-				continue
-			}
-			var image Image
-			image, err = download(ctx, x.cfg.ImageDir, urls[kind], images)
-			switch {
-			case err == nil:
-				if info.Images == nil {
-					info.Images = map[string]Image{}
-				}
-				info.Images[kind] = image
-			case errors.Is(err, errNotFound), errors.Is(err, errUnusable):
-				err = nil
-			}
-		}
-		if ctx.Err() != nil {
-			x.save(ctx, nil)
-			return false
-		}
+	forced := maps.Clone(x.forced)
+	settle := func(id, key string, info Info, err error, now time.Time) bool {
 		switch {
 		case errors.Is(err, errAuth):
 			stopped = "an API key was rejected"
@@ -650,10 +633,10 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 			}
 		}
 		if stopped != "" {
-			break
+			return false
 		}
 		if err != nil && !errors.Is(err, errNotFound) {
-			continue
+			return true
 		}
 		failures = 0
 		if errors.Is(err, errNotFound) {
@@ -661,20 +644,55 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 		} else {
 			fetched++
 		}
-		delete(x.forced, item.ID)
-		record := x.records[item.ID]
-		record.ItemID, record.OnlineKey, record.FetchedAt = item.ID, l.key, now
+		delete(x.forced, id)
+		record := x.records[id]
+		record.ItemID, record.OnlineKey, record.FetchedAt = id, key, now
 		record.Online, _ = json.Marshal(info)
-		x.records[item.ID], x.online[item.ID], x.changed[item.ID] = record, info, true
+		x.records[id], x.online[id], x.changed[id] = record, info, true
 		if len(x.changed) >= 25 && !x.save(ctx, nil) {
 			stopped = "metadata could not be saved"
-			break
+			return false
 		}
 		// Rebuilding the library costs a pass over every item, so a long
 		// lookup publishes what it has at intervals, not per batch.
 		if time.Since(published) >= publishEvery {
 			x.publishLibrary()
 			published = time.Now()
+		}
+		return true
+	}
+	for _, item := range items {
+		now := time.Now().UTC()
+		l := x.lookupOf(item)
+		if l.key == "" || !x.due(item.ID, l.key, now) {
+			continue
+		}
+		info, urls, err := x.fetch(ctx, tm, tv, item, l)
+		info, err = x.downloadImages(ctx, info, urls, err, images)
+		if ctx.Err() != nil {
+			x.save(ctx, nil)
+			return false
+		}
+		if !settle(item.ID, l.key, info, err, now) {
+			break
+		}
+	}
+	for _, p := range x.people(items, forced) {
+		if stopped != "" {
+			break
+		}
+		now := time.Now().UTC()
+		if !x.due(p.id, p.key, now) {
+			continue
+		}
+		info, urls, err := x.fetchPerson(ctx, tm, tv, p)
+		info, err = x.downloadImages(ctx, info, urls, err, images)
+		if ctx.Err() != nil {
+			x.save(ctx, nil)
+			return false
+		}
+		if settle(p.id, p.key, info, err, now) && err == nil {
+			people++
 		}
 	}
 	if stopped == "" && !x.save(ctx, nil) {
@@ -687,7 +705,7 @@ func (x *run) fetchAll(ctx context.Context, items []media.Item) bool {
 		x.removeUnusedImages()
 	}
 	if fetched > 0 || notFound > 0 || failed > 0 {
-		slog.Info("Online metadata fetched", "items", fetched, "not_found", notFound, "failed", failed)
+		slog.Info("Online metadata fetched", "items", fetched-people, "people", people, "not_found", notFound, "failed", failed)
 	}
 	return stopped == "" && failed == 0
 }
@@ -752,7 +770,151 @@ func (x *run) fetch(ctx context.Context, tm *tmdb, tv *tvdb, item media.Item, l 
 	return found, urls, nil
 }
 
-// removeUnusedImages deletes downloaded images no item uses any more.
+// fetchPerson asks TMDb, then TheTVDB, for a person by the IDs their
+// credits give. The photo of a credit wins over the providers', so a
+// .nfo's thumb is used even when no provider knows the person.
+func (x *run) fetchPerson(ctx context.Context, tm *tmdb, tv *tvdb, p personLookup) (Info, map[string]string, error) {
+	type source func() (Info, string, error)
+	sources := []source{}
+	if tm != nil && p.tmdb != "" {
+		sources = append(sources, func() (Info, string, error) { return tm.person(ctx, p.tmdb) })
+	}
+	if tv != nil && p.tvdb != "" {
+		sources = append(sources, func() (Info, string, error) { return tv.person(ctx, p.tvdb) })
+	}
+	found := Info{}
+	urls := map[string]string{"Primary": p.thumb}
+	answered := p.thumb != ""
+	for _, source := range sources {
+		info, image, err := source()
+		if errors.Is(err, errNotFound) {
+			continue
+		}
+		if err != nil {
+			return Info{}, nil, err
+		}
+		answered = true
+		found = merge(found, info)
+		if urls["Primary"] == "" {
+			urls["Primary"] = image
+		}
+	}
+	if !answered {
+		return Info{}, nil, errNotFound
+	}
+	found.ProviderIDs = p.ids()
+	return found, urls, nil
+}
+
+// downloadImages saves the images of a lookup that succeeded into info. An
+// image missing or unusable at the provider is left out; another failure
+// fails the lookup.
+func (x *run) downloadImages(ctx context.Context, info Info, urls map[string]string, err error, pace *throttle) (Info, error) {
+	for _, kind := range []string{"Primary", "Backdrop"} {
+		if err != nil || urls[kind] == "" {
+			continue
+		}
+		var image Image
+		image, err = download(ctx, x.cfg.ImageDir, urls[kind], pace)
+		switch {
+		case err == nil:
+			if info.Images == nil {
+				info.Images = map[string]Image{}
+			}
+			info.Images[kind] = image
+		case errors.Is(err, errNotFound), errors.Is(err, errUnusable):
+			err = nil
+		}
+	}
+	return info, err
+}
+
+// personLookup is what to ask the providers for a person: the provider IDs
+// and the photo URL of their credits, and the key of the answer.
+type personLookup struct {
+	id, key    string
+	tmdb, tvdb string
+	thumb      string
+	forced     bool
+	// ambiguous is set when credits of this name give different IDs of a
+	// provider: people who share a name, whom Couch tells apart by name
+	// alone.
+	ambiguous bool
+}
+
+func (p personLookup) ids() map[string]string {
+	ids := map[string]string{}
+	if p.tmdb != "" {
+		ids["Tmdb"] = p.tmdb
+	}
+	if p.tvdb != "" {
+		ids["Tvdb"] = p.tvdb
+	}
+	return ids
+}
+
+// people lists the people the items credit, once each, with the provider
+// IDs and the first https photo URL of their credits in item order: a
+// .nfo's before a provider's. A person whose credits give neither, or give
+// different IDs of a provider, is left out. People credited by an item of
+// forced are marked to fetch again.
+func (x *run) people(items []media.Item, forced map[string]bool) []personLookup {
+	list := []personLookup{}
+	index := map[string]int{}
+	for _, item := range items {
+		for _, credit := range x.credits(item.ID) {
+			id := ID("Person", credit.Name)
+			n, seen := index[id]
+			if !seen {
+				n, index[id] = len(list), len(list)
+				list = append(list, personLookup{id: id})
+			}
+			p := &list[n]
+			for _, pair := range []struct {
+				have   *string
+				credit string
+			}{{&p.tmdb, credit.TmdbID}, {&p.tvdb, credit.TvdbID}} {
+				switch {
+				case *pair.have == "":
+					*pair.have = pair.credit
+				case pair.credit != "" && pair.credit != *pair.have:
+					p.ambiguous = true
+				}
+			}
+			if p.thumb == "" && strings.HasPrefix(credit.Thumb, "https://") {
+				p.thumb = credit.Thumb
+			}
+			p.forced = p.forced || forced[item.ID]
+		}
+	}
+	list = slices.DeleteFunc(list, func(p personLookup) bool {
+		return p.ambiguous || (p.tmdb == "" && p.tvdb == "" && p.thumb == "")
+	})
+	prefix := strings.Join([]string{lookupVersion, "Person", x.cfg.Language, x.providers()}, "|") + "|"
+	for n := range list {
+		list[n].key = prefix + idText(list[n].ids()) + "|" + list[n].thumb
+		if list[n].forced {
+			x.forced[list[n].id] = true
+		}
+	}
+	return list
+}
+
+// credits returns the item's cast and crew as info merges them, without
+// merging the rest.
+func (x *run) credits(id string) []Person {
+	first, second := x.nfo[id].People, x.online[id].People
+	if len(x.records[id].Identified) > 0 {
+		first, second = second, first
+	}
+	if len(first) > 0 {
+		return first
+	}
+	return second
+}
+
+// removeUnusedImages deletes downloaded images no item or person uses any
+// more.
 func (x *run) removeUnusedImages() {
 	used := map[string]bool{}
 	for id := range x.records {

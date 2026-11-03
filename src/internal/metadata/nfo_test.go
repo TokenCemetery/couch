@@ -31,7 +31,7 @@ func TestParseNFO(t *testing.T) {
   <director>Frank Darabont</director>
   <credits>Stephen King</credits>
   <premiered>1994-09-23</premiered>
-  <actor><name>Tim Robbins</name><role>Andy</role></actor>
+  <actor><name>Tim Robbins</name><role>Andy</role><thumb>https://image.tmdb.org/t/p/original/tim.jpg</thumb></actor>
 </movie>
 https://www.themoviedb.org/movie/999`
 	got, err := parseNFO([]byte(movie))
@@ -43,7 +43,8 @@ https://www.themoviedb.org/movie/999`
 		Year: 1994, Premiere: time.Date(1994, 9, 23, 0, 0, 0, 0, time.UTC),
 		Genres: []string{"Drama", "Crime"}, Studios: []string{"Castle Rock"}, Tags: []string{"prison"},
 		Community: 7.5, Critic: 85, OfficialRating: "PG-13",
-		People: []Person{{"Tim Robbins", "Andy", "Actor"}, {"Frank Darabont", "Director", "Director"}, {"Stephen King", "Writer", "Writer"}},
+		People: []Person{{Name: "Tim Robbins", Role: "Andy", Type: "Actor", Thumb: "https://image.tmdb.org/t/p/original/tim.jpg"},
+			{Name: "Frank Darabont", Role: "Director", Type: "Director"}, {Name: "Stephen King", Role: "Writer", Type: "Writer"}},
 		// The <uniqueid> wins over the trailing URL.
 		ProviderIDs: map[string]string{"Imdb": "tt0111161", "Tmdb": "278"},
 	}

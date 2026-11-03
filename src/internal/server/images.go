@@ -115,17 +115,27 @@ func (s *Server) itemImage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	item, found := findItem(s.catalogFor(session), r.PathValue("item"))
-	if !found {
-		fail(w, 404, "NotFound")
-		return
-	}
 	kind := imageKind(r)
+	catalog := s.catalogFor(session)
+	item, found := findItem(catalog, r.PathValue("item"))
+	if !found {
+		if e, ok := s.entityIn(catalog, r.PathValue("item")); !ok || e.Type != "Person" {
+			fail(w, 404, "NotFound")
+			return
+		}
+	}
 	if kind == "" {
 		fail(w, 404, "NotFound")
 		return
 	}
-	file, info, err := s.openImage(r.Context(), s.catalog(), item, kind)
+	var file *os.File
+	var info media.Image
+	var err error
+	if found {
+		file, info, err = s.openImage(r.Context(), s.catalog(), item, kind)
+	} else {
+		file, info, err = s.openProviderImage(r.PathValue("item"), kind)
+	}
 	if err != nil {
 		fail(w, 404, "ImageUnavailable")
 		return

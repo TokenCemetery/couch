@@ -43,6 +43,14 @@ func boolRank(b bool) int {
 	return 0
 }
 
+// wantsPeople reports whether a list request asks for its items' People.
+// Emby lists carry them only when Fields names them, as Emby Web does where
+// it shows them; a list without Fields keeps them.
+func wantsPeople(r *http.Request) bool {
+	fields := values(r, "Fields")
+	return len(fields) == 0 || slices.ContainsFunc(fields, func(f string) bool { return member(f, "People") })
+}
+
 func member(list, value string) bool {
 	for _, item := range strings.Split(list, ",") {
 		if strings.EqualFold(strings.TrimSpace(item), value) {
@@ -108,13 +116,16 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 					return
 				}
 				if item, found := findItem(catalog, id); found {
-					respond(w, 200, s.movieDTO(item, snapshot.ServerID, userOf(snapshot, session).Items, token))
+					respond(w, 200, s.movieDTO(item, snapshot.ServerID, userOf(snapshot, session).Items, token, true))
 					return
 				}
 				if e, found := s.entityIn(catalog, id); found {
 					dto := entityDTO(id, e, snapshot.ServerID)
-					if e.Type == "MusicArtist" {
+					switch e.Type {
+					case "MusicArtist":
 						dto["UserData"] = itemUserData(userOf(snapshot, session).Items[id], 0)
+					case "Person":
+						s.addPerson(dto, id, token)
 					}
 					respond(w, 200, dto)
 					return
@@ -779,6 +790,7 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 	total := len(items)
 	start = min(start, total)
 	items = items[start : start+min(limit, total-start)]
+	people := wantsPeople(r)
 	result := make([]object, 0, len(items))
 	for _, item := range items {
 		switch {
@@ -793,7 +805,7 @@ func (s *Server) listItemsIn(w http.ResponseWriter, r *http.Request, session sta
 		case isCollection(item):
 			result = append(result, s.collectionDTO(item.ID, serverID, false))
 		default:
-			dto := s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token)
+			dto := s.movieDTO(*item, serverID, userOf(snapshot, session).Items, token, people)
 			if entry, ok := entryOf[item]; ok {
 				dto["PlaylistItemId"] = entry
 			}

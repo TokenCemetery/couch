@@ -177,7 +177,7 @@ func (s *Server) childCount(id string) int {
 	return s.catalog().ChildCount(id)
 }
 
-func (s *Server) movieDTO(item media.Item, serverID string, items map[string]state.ItemState, token string) object {
+func (s *Server) movieDTO(item media.Item, serverID string, items map[string]state.ItemState, token string, people bool) object {
 	catalog := s.catalog()
 	dto := baseFields(item.ID, s.displayName(item), item.Type(), serverID)
 	dto["SortName"] = s.sortName(item)
@@ -249,7 +249,7 @@ func (s *Server) movieDTO(item media.Item, serverID string, items map[string]sta
 		dto["IndexNumber"], dto["ParentIndexNumber"] = item.EpisodeNumber, item.SeasonNumber
 		dto["SeasonId"], dto["SeasonName"] = item.SeasonID, s.seasonName(item)
 	}
-	addMetadata(dto, s.info(item.ID))
+	s.addMetadata(dto, s.info(item.ID), token, people)
 	music := isMusic(item)
 	if music {
 		s.addMusic(dto, catalog, item, token)

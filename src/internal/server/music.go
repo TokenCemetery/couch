@@ -335,7 +335,7 @@ func (s *Server) instantMix(w http.ResponseWriter, r *http.Request, token string
 	snapshot := s.store.Snapshot()
 	result := make([]object, 0, len(mix))
 	for _, item := range mix {
-		result = append(result, s.movieDTO(*item, snapshot.ServerID, userOf(snapshot, session).Items, token))
+		result = append(result, s.movieDTO(*item, snapshot.ServerID, userOf(snapshot, session).Items, token, wantsPeople(r)))
 	}
 	respond(w, 200, object{"Items": result, "TotalRecordCount": len(result)})
 }
