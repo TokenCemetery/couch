@@ -10,11 +10,17 @@ permissions:
   contents: read
 
 jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint docs
+        run: make lint-docs
+
   build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      # go.mod declares the Go version; the image and the test container build with the same one.
       - uses: actions/setup-go@v7
         with:
           go-version-file: src/go.mod
@@ -36,13 +42,11 @@ jobs:
   test:
     needs: build
     runs-on: ubuntu-24.04
-    # FFmpeg 8.1, as in the image.
     container: golang:1.26-alpine3.24
     steps:
       - uses: actions/checkout@v7
       - name: Install FFmpeg and the race detector toolchain
         run: apk add --no-cache ffmpeg gcc musl-dev make
-      # File permission tests do not hold for root.
       - name: Add a non-root user
         run: adduser -D ci && chown -R ci .
       - name: Unit tests
