@@ -1,6 +1,6 @@
 # Running Couch as a systemd service
 
-The container ([README](../README.md#quick-start-docker-compose)) is the main way to run Couch. This manual covers the alternative: the static binary as a systemd service on Linux amd64 or arm64, written for Ubuntu 26.04. The unit is verified with `systemd-analyze`, but the install has not yet been run on the target host ([VALIDATION](VALIDATION.md#install-114-117), #117). Couch serves plain HTTP on port 8097 for the LAN; TLS and a reverse proxy are not covered.
+The container ([README](../README.md#quick-start-docker-compose)) is the main way to run Couch. This manual covers the alternative: the static binary as a systemd service on Linux amd64 or arm64, written for Ubuntu 26.04. Packages for [Synology DSM](#synology-dsm) and a [macOS](#macos) disk image are covered at the end. The unit is verified with `systemd-analyze`, but the install has not yet been run on the target host ([VALIDATION](VALIDATION.md#install-114-117), #117). Couch serves plain HTTP on port 8097 for the LAN; TLS and a reverse proxy are not covered.
 
 ## What gets installed
 
@@ -121,6 +121,35 @@ sudo systemctl daemon-reload
 ```
 
 The state stays in `/var/lib/couch`. To delete it and the user as well, after keeping a backup if needed: `sudo rm -r /var/lib/couch` and `sudo userdel couch`.
+
+## Synology DSM
+
+`couch-VERSION-synology-x86_64.spk` (Intel and AMD models) and `couch-VERSION-synology-armv8.spk` (Realtek RTD1296 and RTD1619B, Marvell Armada 37xx) install Couch from Package Center on DSM 7.1 or later, without Container Manager. They are built from [deploy/synology](../deploy/synology) but have not yet been installed on a NAS (#144). The package has no web client, since there is no way to give it a copy of Emby Web on DSM: Couch serves only the API on port 8097 until it has a web client of its own, and `http://NAS:8097/` answers with `"WebClientConfigured": false` once it runs.
+
+FFmpeg 8 comes from SynoCommunity and is optional: without it Couch runs, but HLS remux and transcoding are disabled. To add it, open **Package Center → Settings → Package Sources**, add SynoCommunity with the location `https://packages.synocommunity.com`, then install **FFmpeg 8** from the **Community** tab. If it is installed after Couch, stop and run Couch in Package Center to use it. `-hwaccel` is not supported in the package.
+
+The packages are not signed: set **Package Center → Settings → General → Trust Level** to **Any publisher**, then use **Manual Install** with the file for your model. The wizard asks for:
+
+- the shared folder with the media (default `video`), which becomes the Movies and TV Shows libraries. The package's user `couch` gets read-only access to it, and a shared folder that does not exist yet is created;
+- the first user and its password, which can be left blank to sign in without one;
+- optionally the API keys for TMDb, TheTVDB and TheAudioDB, which turn on online metadata.
+
+The wizard also lists the FFmpeg steps above while FFmpeg 8 is missing. With the DSM firewall on, allow **Couch** in **Control Panel → Security → Firewall**.
+
+The package keeps its files in `/var/packages/couch`:
+
+- `target/bin/couch`: the binary;
+- `var/data`: the state, as `/var/lib/couch` above;
+- `var/couch.conf`: the options, written once by the wizard. The variables are those of `/etc/default/couch`, with `COUCH_ARGS` in double quotes because the file is read by the shell; `-data /var/packages/couch/var/data` is added. Stop and run Couch after a change. To add or change an API key later, edit it over SSH as an administrator with `sudo vi /var/packages/couch/var/couch.conf`, for example `COUCH_TMDB_API_KEY=...`;
+- `var/couch.out`: the output of the last start, which explains a start that failed.
+
+An upgrade is a manual install of the newer file and keeps the options and the state. Take a backup first, over SSH as an administrator:
+
+```sh
+sudo -u couch /var/packages/couch/target/bin/couch -data /var/packages/couch/var/data -backup /var/packages/couch/var/backup-$(date +%F)
+```
+
+Uninstalling asks whether to keep the data for a later reinstall or delete it; the media is never touched. A reinstall that kept the data keeps its users and options and ignores the wizard's answers.
 
 ## macOS
 

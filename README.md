@@ -50,7 +50,7 @@ docker compose up -d
 
 Open `http://HOST:8097/` and sign in. The media folder becomes the Movies and TV Shows libraries; add more libraries in **Manage Emby Server → Library**.
 
-To run Couch as a systemd service instead, see [docs/INSTALL.md](docs/INSTALL.md).
+To run Couch as a systemd service or a Synology package instead, see [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Build from source
 
@@ -149,7 +149,7 @@ make release    # static Linux amd64 and arm64 binaries with their SHA-256 (VERS
 make install-hooks # pre-commit: lint, compile; pre-push: branch and tag names, lint, compile, test
 ```
 
-Pushing a tag such as `0.2.0` runs `.github/workflows/release.yml`: it builds Linux archives, deb and rpm packages for amd64 and arm64 and a macOS disk image, and publishes them with `SHA256SUMS.txt` as a GitHub release, with the commits since the previous tag as notes. The pre-push hook accepts the branches `main` and `<type>/<issue>-<slug>` (`feature`, `fix`, `refactor`, `chore`, `docs`, `security`) and tags `x.x.x`; skip the hooks with `--no-verify`.
+Pushing a tag such as `0.2.0` runs `.github/workflows/release.yml`: it builds Linux archives, deb and rpm packages for amd64 and arm64, Synology packages for x86_64 and armv8 and a macOS disk image, and publishes them with `SHA256SUMS.txt` as a GitHub release, with the commits since the previous tag as notes. The pre-push hook accepts the branches `main` and `<type>/<issue>-<slug>` (`feature`, `fix`, `refactor`, `chore`, `docs`, `security`) and tags `x.x.x`; skip the hooks with `--no-verify`.
 
 `make lint` needs [golangci-lint](https://golangci-lint.run/) v2. For a load test, run `cd e2e && COUCH_SOAK=10m go test -run TestSoak -timeout 30m ./...`.
 
@@ -166,7 +166,7 @@ Pushing a tag such as `0.2.0` runs `.github/workflows/release.yml`: it builds Li
 |`src/internal/state`|SQLite state|
 |`api/openapi.yaml`|API contract, derived from Emby 4.10.0.40's OpenAPI document|
 |`e2e/`|Contract, behaviour and soak tests|
-|`deploy/`|Compose files and systemd unit|
+|`deploy/`|Compose files, systemd unit, deb/rpm and Synology package files|
 
 Contributions are tracked in [GitHub issues](https://github.com/TokenCemetery/couch/issues); see [AGENTS.md](AGENTS.md) for the conventions.
 
@@ -176,7 +176,7 @@ Contributions are tracked in [GitHub issues](https://github.com/TokenCemetery/co
 - [Compatibility matrix](docs/COMPATIBILITY.md)
 - [Validation](docs/VALIDATION.md)
 - [Resource baseline](docs/BASELINE.md)
-- [Install as a systemd service](docs/INSTALL.md)
+- [Install as a systemd service or Synology package](docs/INSTALL.md)
 - [Requirements](docs/PRD.md) and [roadmap](docs/ROADMAP.md)
 
 ## License

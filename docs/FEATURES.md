@@ -83,4 +83,5 @@ Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium only
 |Database settings page|Supported|Vacuum on start, optimize on stop (#129)|
 |Container image (Linux amd64, FFmpeg 8.1)|Supported|Verified on the target host; reboot and LAN sign-in unchecked (#114, #117)|
 |Native systemd install|Partial|[INSTALL](INSTALL.md); deb, rpm and archives for amd64 and arm64 (#142); not yet run on the target host (#117)|
+|Synology DSM package (DSM 7.1+, x86_64, armv8)|Partial|[INSTALL](INSTALL.md#synology-dsm); no web client, so only the API is served; FFmpeg 8 from SynoCommunity is optional, without it no remux or transcoding; no `-hwaccel`; not yet installed on a NAS (#144)|
 |macOS disk image|Partial|Universal unsigned binary, no launchd service; built on the release runner only, not run on a Mac yet (#142)|

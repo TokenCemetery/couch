@@ -1,0 +1,8 @@
+#!/bin/sh
+# Deletes the data when the uninstall wizard asked for it; an upgrade keeps it.
+set -e
+
+if [ "$SYNOPKG_PKG_STATUS" = UNINSTALL ] && [ "$wizard_delete_data" = true ] && [ -d "$SYNOPKG_PKGVAR" ]; then
+	find "$SYNOPKG_PKGVAR" -mindepth 1 -delete
+fi
+exit 0
