@@ -78,7 +78,7 @@ Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium only
 |Real-time monitoring|Partial|Linux inotify, rescan 10 s after changes stop; not macOS, not changes made by other hosts on network mounts (#130)|
 |Catalog kept across restarts|Supported|In `couch.db`; served at once, rescanned in the background; date added kept (#39, #128)|
 |Library unreachable at startup|Partial|Saved catalog kept; on a first start the folder stays empty until a rescan reaches it (#31, #39)|
-|Backup and restore|Partial|`-backup` or copying the data directory; no Emby backup API (#32)|
+|Backup and restore|Partial|`-backup` or copying the data directory; no Emby backup API (#32, #155)|
 |Administration: dashboard, users, libraries, tasks, activity, logs, devices, metadata refresh and identify|Supported|Only the server name is a setting (#113, #115)|
 |Database settings page|Supported|Vacuum on start, optimize on stop (#129)|
 |Container image (Linux amd64, FFmpeg 8.1)|Supported|Verified on the target host; reboot and LAN sign-in unchecked (#114, #117)|

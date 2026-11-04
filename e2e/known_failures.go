@@ -27,6 +27,10 @@ var (
 	offlineSync     = knownFailure{152, "offline sync and downloads are not implemented"}
 	identifyOthers  = knownFailure{139, "Identify is not implemented for albums, artists, collections and people"}
 	remoteImages    = knownFailure{140, "searching for and downloading images from online providers is not implemented"}
+	embyBackup      = knownFailure{155, "Emby's backup API is not served; -backup is"}
+	codecParameters = knownFailure{156, "codec parameters cannot be read or saved"}
+	apiDocument     = knownFailure{157, "no OpenAPI or Swagger document is served"}
+	releaseNotes    = knownFailure{158, "release notes are not served"}
 	unranked        = knownFailure{34, "not implemented; not ranked by real usage yet"}
 	notCalledByWeb  = knownFailure{34, "Emby Web 4.10.0.40 does not call it; use by other clients is not ranked yet"}
 	notOfferedByWeb = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags, user policy flags or media types Couch does not send; not ranked yet"}
@@ -44,14 +48,14 @@ var knownFailures = map[string]knownFailure{
 	// ArtistsService
 	"getArtistsByName": notCalledByWeb,
 	// BackupApi
-	"getBackuprestoreBackupinfo":   outOfScope,
-	"postBackuprestoreRestore":     outOfScope,
-	"postBackuprestoreRestoredata": outOfScope,
+	"getBackuprestoreBackupinfo":   embyBackup,
+	"postBackuprestoreRestore":     embyBackup,
+	"postBackuprestoreRestoredata": embyBackup,
 	// BifService
 	"getVideosByIdIndexBif": notCalledByWeb,
 	// CodecParameterService
-	"getEncodingCodecparameters":  outOfScope,
-	"postEncodingCodecparameters": outOfScope,
+	"getEncodingCodecparameters":  codecParameters,
+	"postEncodingCodecparameters": codecParameters,
 	// CollectionService
 	"getCollectionsByIdProvideritems": notCalledByWeb,
 	// ConfigurationService
@@ -263,10 +267,10 @@ var knownFailures = map[string]knownFailure{
 	"postNotificationsAdmin": outOfScope,
 	// OfficialRatingService
 	// OpenApiService
-	"getOpenapi":     outOfScope,
-	"getOpenapiJson": outOfScope,
-	"getSwagger":     outOfScope,
-	"getSwaggerJson": outOfScope,
+	"getOpenapi":     apiDocument,
+	"getOpenapiJson": apiDocument,
+	"getSwagger":     apiDocument,
+	"getSwaggerJson": apiDocument,
 	// PackageService
 	"deletePackagesInstallingById":     outOfScope,
 	"getPackages":                      outOfScope,
@@ -367,7 +371,7 @@ var knownFailures = map[string]knownFailure{
 	// SystemService
 	"getSystemLogsByName":      refusedAdmin,
 	"getSystemLogsByNameLines": refusedAdmin,
-	"getSystemReleasenotes":    outOfScope,
+	"getSystemReleasenotes":    releaseNotes,
 	"postSystemRestart":        refusedAdmin,
 	"postSystemShutdown":       refusedAdmin,
 	// TagService
