@@ -68,24 +68,24 @@ Couch listens on `127.0.0.1:8097` by default. Use `-listen :8097` to serve the L
 
 ## Configuration
 
-| Flag | Default | Description |
+|Flag|Default|Description|
 |---|---|---|
-| `-listen` | `127.0.0.1:8097` | HTTP listen address |
-| `-data` | `./data` | State directory (database, logs, caches) |
-| `-name` | `Couch` | Server name; can be changed later in Emby Web |
-| `-web-dir` | | Local Emby Web folder containing `index.html` |
-| `-web-upstream` | | Emby origin to fetch `/web/` files from instead, e.g. `http://emby:8096` |
-| `-media-dir` | | Folder whose Movies and TV Shows libraries are created on first start |
-| `-media-root` | `-media-dir` | Folder below which libraries may be added in Emby Web; repeatable |
-| `-rescan-interval` | `0` (off) | Periodic rescan, e.g. `30m` |
-| `-metadata-language` | `en` | `en`, `ru`, `de`, `fr`, `es` or `it` |
-| `-metadata-refresh` | `0` (never) | Fetch online metadata again once it is this old, e.g. `720h` |
-| `-ffmpeg-threads` | `0` | Thread cap per transcode; `0` follows the container's CPU quota |
-| `-hwaccel` | | GPU encoder: `vaapi`, `qsv`, `nvenc` or `amf` |
-| `-hwaccel-device` | `/dev/dri/renderD128` | Render node for `vaapi` and `qsv` |
-| `-tonemap` | `auto` | HDR to SDR: `auto` (libplacebo on Vulkan), `software` (zscale), `off` |
-| `-init -username NAME` | | Create the administrator (password on stdin) and exit |
-| `-backup DIR` | | Write a consistent copy of the state and exit; safe while running |
+|`-listen`|`127.0.0.1:8097`|HTTP listen address|
+|`-data`|`./data`|State directory (database, logs, caches)|
+|`-name`|`Couch`|Server name; can be changed later in Emby Web|
+|`-web-dir`||Local Emby Web folder containing `index.html`|
+|`-web-upstream`||Emby origin to fetch `/web/` files from instead, e.g. `http://emby:8096`|
+|`-media-dir`||Folder whose Movies and TV Shows libraries are created on first start|
+|`-media-root`|`-media-dir`|Folder below which libraries may be added in Emby Web; repeatable|
+|`-rescan-interval`|`0` (off)|Periodic rescan, e.g. `30m`|
+|`-metadata-language`|`en`|`en`, `ru`, `de`, `fr`, `es` or `it`|
+|`-metadata-refresh`|`0` (never)|Fetch online metadata again once it is this old, e.g. `720h`|
+|`-ffmpeg-threads`|`0`|Thread cap per transcode; `0` follows the container's CPU quota|
+|`-hwaccel`||GPU encoder: `vaapi`, `qsv`, `nvenc` or `amf`|
+|`-hwaccel-device`|`/dev/dri/renderD128`|Render node for `vaapi` and `qsv`|
+|`-tonemap`|`auto`|HDR to SDR: `auto` (libplacebo on Vulkan), `software` (zscale), `off`|
+|`-init -username NAME`||Create the administrator (password on stdin) and exit|
+|`-backup DIR`||Write a consistent copy of the state and exit; safe while running|
 
 Online metadata is enabled per provider by setting its key in the environment: `COUCH_TMDB_API_KEY`, `COUCH_TVDB_API_KEY`, `COUCH_AUDIODB_API_KEY`. Without a key, Couch sends that provider nothing.
 
@@ -111,12 +111,12 @@ Couch never writes to the media folders.
 
 **Artwork** (`.jpg`, `.jpeg`, `.png` next to the item):
 
-| Image | Per item | Per folder |
+|Image|Per item|Per folder|
 |---|---|---|
-| Poster | `<name>-poster`, `<name>` | `poster`, `folder`, `cover` |
-| Backdrop | `<name>-fanart`, `<name>-backdrop` | `backdrop`, `fanart` |
-| Logo | `<name>-clearlogo`, `<name>-logo` | `clearlogo`, `logo` |
-| Thumb | `<name>-landscape` | `landscape`, `thumb` |
+|Poster|`<name>-poster`, `<name>`|`poster`, `folder`, `cover`|
+|Backdrop|`<name>-fanart`, `<name>-backdrop`|`backdrop`, `fanart`|
+|Logo|`<name>-clearlogo`, `<name>-logo`|`clearlogo`, `logo`|
+|Thumb|`<name>-landscape`|`landscape`, `thumb`|
 
 Seasons and episodes fall back to the series' images.
 
@@ -150,18 +150,18 @@ make release    # static Linux amd64 binary with its SHA-256
 
 `e2e/known_failures.go` lists the API operations that are expected to fail, each with its issue. A listed operation that starts passing fails the run, so remove its entry when you implement it.
 
-| Path | Contents |
+|Path|Contents|
 |---|---|
-| `src/cmd/couch` | Entry point and flags |
-| `src/internal/server` | HTTP API, WebSocket, Emby DTOs |
-| `src/internal/media` | Scanning, FFprobe, catalog |
-| `src/internal/hls` | Remux and transcoding jobs |
-| `src/internal/library` | Library management, rescans, monitoring |
-| `src/internal/metadata` | `.nfo` and online providers |
-| `src/internal/state` | SQLite state |
-| `api/openapi.yaml` | API contract, derived from Emby 4.10.0.40's OpenAPI document |
-| `e2e/` | Contract, behaviour and soak tests |
-| `deploy/` | Compose files and systemd unit |
+|`src/cmd/couch`|Entry point and flags|
+|`src/internal/server`|HTTP API, WebSocket, Emby DTOs|
+|`src/internal/media`|Scanning, FFprobe, catalog|
+|`src/internal/hls`|Remux and transcoding jobs|
+|`src/internal/library`|Library management, rescans, monitoring|
+|`src/internal/metadata`|`.nfo` and online providers|
+|`src/internal/state`|SQLite state|
+|`api/openapi.yaml`|API contract, derived from Emby 4.10.0.40's OpenAPI document|
+|`e2e/`|Contract, behaviour and soak tests|
+|`deploy/`|Compose files and systemd unit|
 
 Contributions are tracked in [GitHub issues](https://github.com/TokenCemetery/couch/issues); see [AGENTS.md](AGENTS.md) for the conventions.
 

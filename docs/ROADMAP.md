@@ -4,15 +4,15 @@ Work order and completion criteria; requirements are in the [PRD](PRD.md), evide
 
 Mandatory clients: Emby Web (first), Android/Android TV, iOS/Apple TV. Kodi and DLNA are out of scope.
 
-| Milestone | Status |
+|Milestone|Status|
 |---|---|
-| M0. Compatibility target | Done: contract captured, baseline measured, budgets approved (#15) |
-| M1. Sign-in through Emby Web | Accepted 2026-09-19 |
-| M2. Library and Direct Play | Accepted 2026-10-03 |
-| M3. Playback on target devices | In progress: Emby Web done; Android and iOS not started (#26, #27) |
-| M4. Resources, recovery, operations | In progress: open items below |
-| M5. Compatibility expansion | In progress: [FEATURES](FEATURES.md) |
-| M6. Custom frontend | Not started |
+|M0. Compatibility target|Done: contract captured, baseline measured, budgets approved (#15)|
+|M1. Sign-in through Emby Web|Accepted 2026-09-19|
+|M2. Library and Direct Play|Accepted 2026-10-03|
+|M3. Playback on target devices|In progress: Emby Web done; Android and iOS not started (#26, #27)|
+|M4. Resources, recovery, operations|In progress: open items below|
+|M5. Compatibility expansion|In progress: [FEATURES](FEATURES.md)|
+|M6. Custom frontend|Not started|
 
 ## M0. Compatibility target
 
@@ -22,16 +22,16 @@ Reference: Emby Server and Emby Web 4.10.0.40, captured fixtures in [fixtures/](
 
 Each budget is Emby's figure on the [BASELINE](BASELINE.md) bench (small / average / large containers). Couch meets one when it is no higher on every profile, measured with `scripts/baseline.sh`.
 
-| Phase | Measure | Budget (Emby) | Couch |
+|Phase|Measure|Budget (Emby)|Couch|
 |---|---|---|---|
-| Idle 60 s | anon. memory / RSS / CPU | 67–70 MiB / 201–205 MiB / 0.13–0.36 s | met |
-| Startup + scan, 18 files | wall / CPU / reads | 3.4–5.1 s / 2.3–2.5 s / 25 MiB | met |
-| API, seven endpoints | p95 | 0.8–4.8 ms | met |
-| Direct Stream | CPU / memory / seek | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms | met |
-| Remux, 120 s | CPU / memory / first segment / seek | 1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.20–0.22 s | memory met; CPU +0.2–0.3 s (FFmpeg build); first segment over on small by 0.03 s; seek over on average and large by 0.01 s |
-| Transcode HEVC 720p, 120 s | CPU / memory / reads / temp folder | 33.7–34.8 s / 368 MiB / 39 MiB / 94–100 MiB | met |
-| | first segment / seek | 0.47–1.39 s / 0.40–1.75 s | first segment met; seek over on large by 0.11 s (`libx264`) or 0.01 s (VA-API) |
-| 4K HEVC 10-bit | first segment / CPU / memory (large) | 4.4 s / 91 s / 2602 MiB | met; also runs on small and average, where Emby runs out of memory |
+|Idle 60 s|anon. memory / RSS / CPU|67–70 MiB / 201–205 MiB / 0.13–0.36 s|met|
+|Startup + scan, 18 files|wall / CPU / reads|3.4–5.1 s / 2.3–2.5 s / 25 MiB|met|
+|API, seven endpoints|p95|0.8–4.8 ms|met|
+|Direct Stream|CPU / memory / seek|0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms|met|
+|Remux, 120 s|CPU / memory / first segment / seek|1.9–2.0 s / 74–88 MiB / 0.32–0.34 s / 0.20–0.22 s|memory met; CPU +0.2–0.3 s (FFmpeg build); first segment over on small by 0.03 s; seek over on average and large by 0.01 s|
+|Transcode HEVC 720p, 120 s|CPU / memory / reads / temp folder|33.7–34.8 s / 368 MiB / 39 MiB / 94–100 MiB|met|
+||first segment / seek|0.47–1.39 s / 0.40–1.75 s|first segment met; seek over on large by 0.11 s (`libx264`) or 0.01 s (VA-API)|
+|4K HEVC 10-bit|first segment / CPU / memory (large)|4.4 s / 91 s / 2602 MiB|met; also runs on small and average, where Emby runs out of memory|
 
 Quality condition: a transcode change stays within 0.01 SSIM of the previous Couch encode on R06.
 

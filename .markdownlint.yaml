@@ -18,8 +18,18 @@ MD025:
   # Heading level
   level: 1
 
+# MD033/no-inline-html : Inline HTML : https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md033.md
+MD033:
+  # The README's centered logo, title and badges
+  allowed_elements: [a, h1, img, p]
+
 # MD040/fenced-code-language : Fenced code blocks should have a language specified : https://github.com/DavidAnson/markdownlint/blob/v0.40.0/doc/md040.md
 MD040: false
+
+# MD041/first-line-heading/first-line-h1 : First line in a file should be a top-level heading : https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md
+MD041:
+  # The README's logo comes before its title
+  allow_preamble: true
 
 # MD060/table-column-style : Table column style : https://github.com/DavidAnson/markdownlint/blob/v0.40.0/doc/md060.md
 MD060:

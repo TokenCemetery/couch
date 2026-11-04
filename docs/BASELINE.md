@@ -20,22 +20,22 @@ Bench: AMD Ryzen 7 255 (16 threads), 22 GiB, Linux 7.0, Docker 29.9, cgroup v2, 
 
 Couch: eighth run, two runs per profile, with transcode threads at the CPU quota and remux keyframes from the container index. Emby: sixth run. Small / average / large where they differ.
 
-| Phase | Measure | Couch | Emby |
+|Phase|Measure|Couch|Emby|
 |---|---|---|---|
-| Startup + scan of 18 files | wall / CPU / reads | 1.2 s / 0.8–0.9 s / 18.6 MiB | 5.1 / 3.5 / 3.4 s / 2.3–2.5 s / 25 MiB |
-| Idle 60 s | anon. memory / server RSS / CPU | 4 MiB / 11–12 MiB / 0 s | 67–70 MiB / 201–205 MiB / 0.13–0.36 s |
-| 700 API requests | reads | 0 MiB | 0 MiB |
-| Direct Stream of R04 | CPU / memory / seek to first byte | 0.31–0.34 s / 7 MiB / 0.5–0.7 ms | 0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms |
-| Remux of R03, 120 s | CPU / memory | 2.1–2.3 s / 22 MiB | 1.9–2.0 s / 74–88 MiB |
-| | first segment | 0.37 / 0.27 / 0.27 s | 0.34 / 0.33 / 0.32 s |
-| | seek to 50 % | 0.21 s | 0.22 / 0.20 / 0.20 s |
-| Transcode of R06, 120 s | CPU | 29.1 / 28.9 / 31.4 s | 34.8 / 33.7 / 33.8 s |
-| | memory | 139–163 MiB | 368 MiB |
-| | first segment | 1.01–1.13 / 0.65 / 0.41 s | 1.39 / 0.79 / 0.47 s |
-| | seek to 50 % | 1.33–1.42 / 0.81 / 0.51 s | 1.75 / 0.88 / 0.40 s |
-| | reads / temp folder peak | 39.0 MiB / 3.9–4.9 MiB | 38.9–39.0 MiB / 94–100 MiB |
-| 4K transcode of R09, 18 s | first segment | 7.8 / 4.1 / 2.9 s | out of memory / out of memory / 4.4 s |
-| | CPU / memory | 61 / 61 / 68 s; 922 / 922 / 1142 MiB | 91 s / 2602 MiB on large |
+|Startup + scan of 18 files|wall / CPU / reads|1.2 s / 0.8–0.9 s / 18.6 MiB|5.1 / 3.5 / 3.4 s / 2.3–2.5 s / 25 MiB|
+|Idle 60 s|anon. memory / server RSS / CPU|4 MiB / 11–12 MiB / 0 s|67–70 MiB / 201–205 MiB / 0.13–0.36 s|
+|700 API requests|reads|0 MiB|0 MiB|
+|Direct Stream of R04|CPU / memory / seek to first byte|0.31–0.34 s / 7 MiB / 0.5–0.7 ms|0.53–0.74 s / 74–88 MiB / 1.9–2.7 ms|
+|Remux of R03, 120 s|CPU / memory|2.1–2.3 s / 22 MiB|1.9–2.0 s / 74–88 MiB|
+||first segment|0.37 / 0.27 / 0.27 s|0.34 / 0.33 / 0.32 s|
+||seek to 50 %|0.21 s|0.22 / 0.20 / 0.20 s|
+|Transcode of R06, 120 s|CPU|29.1 / 28.9 / 31.4 s|34.8 / 33.7 / 33.8 s|
+||memory|139–163 MiB|368 MiB|
+||first segment|1.01–1.13 / 0.65 / 0.41 s|1.39 / 0.79 / 0.47 s|
+||seek to 50 %|1.33–1.42 / 0.81 / 0.51 s|1.75 / 0.88 / 0.40 s|
+||reads / temp folder peak|39.0 MiB / 3.9–4.9 MiB|38.9–39.0 MiB / 94–100 MiB|
+|4K transcode of R09, 18 s|first segment|7.8 / 4.1 / 2.9 s|out of memory / out of memory / 4.4 s|
+||CPU / memory|61 / 61 / 68 s; 922 / 922 / 1142 MiB|91 s / 2602 MiB on large|
 
 API p95 is 0.4–2.6 ms for Couch against 0.8–4.8 ms for Emby; every endpoint is at or below Emby's on every profile.
 
@@ -51,14 +51,14 @@ API p95 is 0.4–2.6 ms for Couch against 0.8–4.8 ms for Emby; every endpoint 
 
 Radeon 780M, image built with `--build-arg VAAPI=1`, render node passed in, one run per profile. The container's figures exclude GPU work and video memory.
 
-| Phase | Measure | Couch VA-API | Couch `libx264` | Emby |
+|Phase|Measure|Couch VA-API|Couch `libx264`|Emby|
 |---|---|---|---|---|
-| Transcode of R06, 120 s | CPU | 13.5 / 13.2 / 14.7 s | 29.1 / 28.9 / 31.4 s | 34.8 / 33.7 / 33.8 s |
-| | memory | 65 / 65 / 76 MiB | 139–163 MiB | 368 MiB |
-| | first segment | 0.61 / 0.41 / 0.41 s | 1.01–1.13 / 0.65 / 0.41 s | 1.39 / 0.79 / 0.47 s |
-| | seek to 50 % | 0.94 / 0.52 / 0.41 s | 1.33–1.42 / 0.81 / 0.51 s | 1.75 / 0.88 / 0.40 s |
-| 4K transcode of R09, 18 s | first segment | 3.4 / 1.9 / 1.3 s | 7.8 / 4.1 / 2.9 s | 4.4 s on large only |
-| | CPU / memory | 27 / 26 / 33 s; 291 / 292 / 426 MiB | 61–68 s; 922–1142 MiB | 91 s / 2602 MiB |
+|Transcode of R06, 120 s|CPU|13.5 / 13.2 / 14.7 s|29.1 / 28.9 / 31.4 s|34.8 / 33.7 / 33.8 s|
+||memory|65 / 65 / 76 MiB|139–163 MiB|368 MiB|
+||first segment|0.61 / 0.41 / 0.41 s|1.01–1.13 / 0.65 / 0.41 s|1.39 / 0.79 / 0.47 s|
+||seek to 50 %|0.94 / 0.52 / 0.41 s|1.33–1.42 / 0.81 / 0.51 s|1.75 / 0.88 / 0.40 s|
+|4K transcode of R09, 18 s|first segment|3.4 / 1.9 / 1.3 s|7.8 / 4.1 / 2.9 s|4.4 s on large only|
+||CPU / memory|27 / 26 / 33 s; 291 / 292 / 426 MiB|61–68 s; 922–1142 MiB|91 s / 2602 MiB|
 
 Every transcode budget is met except the seek on large (0.41 against 0.40 s). Most remaining CPU is software HEVC decoding. Quality, first 120 s of R06 at the source's 1.35 Mbit/s cap: `libx264` SSIM 0.9789, `h264_vaapi` 0.9765, within the 0.01 SSIM condition.
 
@@ -66,12 +66,12 @@ Every transcode budget is met except the seek on large (0.41 against 0.40 s). Mo
 
 FFmpeg alone in the VA-API image, first 18 s of R09 at source size, video only, threads at the CPU count:
 
-| Encoder, tone mapping | 2 CPUs: wall / CPU / RSS | 4 CPUs: wall / CPU / RSS |
+|Encoder, tone mapping|2 CPUs: wall / CPU / RSS|4 CPUs: wall / CPU / RSS|
 |---|---|---|
-| `h264_vaapi`, off | 13.1 s / 26.0 s / 364 MiB | 8.3 s / 32.5 s / 499 MiB |
-| `h264_vaapi`, libplacebo | 15.6 s / 30.8 s / 456 MiB | 11.0 s / 40.3 s / 566 MiB |
-| `libx264`, off | 28.8 s / 57.2 s / 945 MiB | 18.9 s / 63.5 s / 1164 MiB |
-| `libx264`, `zscale` + `mobius` | 55.7 s / 111.2 s / 1254 MiB | 36.1 s / 143.2 s / 1478 MiB |
+|`h264_vaapi`, off|13.1 s / 26.0 s / 364 MiB|8.3 s / 32.5 s / 499 MiB|
+|`h264_vaapi`, libplacebo|15.6 s / 30.8 s / 456 MiB|11.0 s / 40.3 s / 566 MiB|
+|`libx264`, off|28.8 s / 57.2 s / 945 MiB|18.9 s / 63.5 s / 1164 MiB|
+|`libx264`, `zscale` + `mobius`|55.7 s / 111.2 s / 1254 MiB|36.1 s / 143.2 s / 1478 MiB|
 
 libplacebo keeps a VA-API encode faster than real time on 2 CPUs; `zscale` runs 4K at 0.3–0.5× real time, so it stalls in playback. `tonemap_vaapi` fails on the 780M and there is no OpenCL platform. The reference Emby does not tone-map with its settings.
 
