@@ -41,7 +41,10 @@ func TestUserManagement(t *testing.T) {
 		_ = json.Unmarshal(w.Body.Bytes(), &result)
 		return result.AccessToken, w.Code
 	}
-	if _, code := signIn("Guest", ""); code != 401 {
+	if _, code := signIn("Guest", "any-password"); code != 401 {
+		t.Fatalf("passwordless sign-in with a password: %d", code)
+	}
+	if _, code := signIn("Guest", ""); code != 200 {
 		t.Fatalf("passwordless sign-in: %d", code)
 	}
 	// The administrator sets the password without knowing a current one.

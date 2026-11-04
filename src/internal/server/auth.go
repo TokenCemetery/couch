@@ -163,10 +163,12 @@ func (s *Server) verifying(w http.ResponseWriter, r *http.Request) (release func
 }
 
 // changePassword serves the password forms, which post CurrentPw and NewPw,
-// or ResetPassword. A user changes their own password with the current one;
-// an administrator sets another user's without it, or resets it, which
-// removes it until a new one is set. manage has checked the caller may act
-// on target.
+// or ResetPassword. As in Emby from 4.8.0.38, the session suffices: a user
+// sets their own password without the current one, which is verified only
+// when a client sends it, and an administrator sets a user's. Another
+// administrator's password is theirs alone. An empty NewPw or ResetPassword
+// removes the password, and the user signs in with a blank one. manage has
+// checked the caller may act on target.
 func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token string, session state.Session, target state.User) {
 	release, ok := s.verifying(w, r)
 	if !ok {
@@ -180,29 +182,28 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, token st
 	self := target.ID == session.UserID
 	var revoked []string
 	var err error
-	switch current, next := fields["currentpw"], fields["newpw"]; {
-	case fields["resetpassword"] == "true" && self:
-		failText(w, 400, "Couch does not remove your own password: you could not sign in again.")
+	current, next := fields["currentpw"], fields["newpw"]
+	if fields["resetpassword"] == "true" {
+		next = ""
+	}
+	switch {
+	// The client's error dialog shows a plain-text answer as written.
+	case !self && target.Policy.IsAdministrator:
+		failText(w, 403, "Only that administrator can change an administrator's password.")
 		return
-	case fields["resetpassword"] == "true":
-		revoked, err = s.store.SetPassword(token, target.ID, "")
-	case !self:
-		revoked, err = s.store.SetPassword(token, target.ID, next)
 	case len(current) > 1024:
 		fail(w, 400, "InvalidRequest")
 		return
 	// Emby Web hides the current-password field for servers from 4.8.0.38 and
-	// sends it empty. Couch still requires it (#46), and answers in plain text,
-	// which the client's error dialog shows as written.
-	case current == "":
-		failText(w, 400, "Couch requires the current password to change it, and this client did not send one.")
-		return
-	default:
+	// sends it empty.
+	case self && current != "" && fields["resetpassword"] != "true":
 		revoked, err = s.store.ChangePassword(token, current, next)
+	default:
+		revoked, err = s.store.SetPassword(token, target.ID, next)
 	}
 	switch {
 	case errors.Is(err, state.ErrPassword):
-		failText(w, 400, "The new password must contain 12 to 1024 bytes.")
+		failText(w, 400, "The new password must contain at most 1024 bytes.")
 		return
 	case errors.Is(err, state.ErrCredentials):
 		failText(w, 401, "The current password is incorrect.")

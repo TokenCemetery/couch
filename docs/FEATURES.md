@@ -12,7 +12,7 @@ Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium only
 |---|---|---|
 |Connect by address; stable ServerId|Supported||
 |Sign in, sign out, session survives restart, revoked token refused|Supported|Sign-in is rate limited|
-|User accounts and management|Partial|`-init` creates the administrator; Users pages create, edit, disable, hide, delete, set passwords, copy data (#111), restrict libraries (#116)|
+|User accounts and management|Partial|`-init` creates the administrator; Users pages create, edit, disable, hide, delete, set and remove passwords: users change or remove their own without the current one and administrators those of other users, not of other administrators, as in Emby; a user without one signs in with a blank password (#146), copy data (#111), restrict libraries (#116)|
 |Emby Connect, Emby Premiere|Unsupported|Premiere check blocked by CSP; "Get Emby Premiere" stays (#89)|
 
 ## Browsing

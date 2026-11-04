@@ -57,7 +57,7 @@ The `couch` user must be able to read the media and Emby Web, including every pa
 
 ## First start
 
-Create the first user, the administrator, with the password on standard input, at least 12 bytes. The input is hidden and does not end up in the shell history:
+Create the first user, the administrator, with the password on standard input, at most 1024 bytes; an empty one leaves it without a password. The input is hidden and does not end up in the shell history:
 
 ```sh
 read -rsp 'New Couch user password: ' couch_password; printf '\n'
