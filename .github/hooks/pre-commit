@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Pre-commit hook: lint Markdown and Go, then compile.
+# Skip with: git commit --no-verify
+
+set -euo pipefail
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+RST='\033[0m'
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+if make lint compile; then
+  printf "\n${GRN}✓${RST} Lint and compile passed.\n\n"
+else
+  printf "\n${RED}✗${RST} pre-commit gate failed — see above.\n\n" >&2
+  exit 1
+fi

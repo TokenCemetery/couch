@@ -1,32 +1,40 @@
 BIN := bin/couch
+ARCHES := amd64 arm64
 E2E_RESULTS := e2e/allure-results
+# VERSION (a release tag such as 0.2.0).
+VERSION ?=
+LDFLAGS := -s -w$(if $(VERSION), -X github.com/TokenCemetery/couch/internal/server.Version=$(VERSION))
 
-.PHONY: all build build-linux release test vet lint check e2e e2e-report clean
+.PHONY: all compile build-linux release test lint lint-code lint-docs check e2e e2e-report install-hooks clean
 
-all: lint test build
+all: lint test compile
 
-build:
+compile:
 	cd src && go build -o ../$(BIN) ./cmd/couch
 
 build-linux:
 	cd src && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../$(BIN)-linux-amd64 ./cmd/couch
 
-# The binary for the native install (docs/INSTALL.md), built as in the image.
-release:
-	cd src && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o ../$(BIN)-linux-amd64 ./cmd/couch
-	cd bin && sha256sum couch-linux-amd64 > couch-linux-amd64.sha256
+# The binaries for the native install (docs/INSTALL.md), built as in the image.
+release: $(ARCHES:%=release-%)
+
+release-%:
+	cd src && CGO_ENABLED=0 GOOS=linux GOARCH=$* go build -trimpath -ldflags='$(LDFLAGS)' -o ../$(BIN)-linux-$* ./cmd/couch
+	cd bin && sha256sum couch-linux-$* > couch-linux-$*.sha256
 
 test:
 	cd src && go test -race ./...
 
-vet:
-	cd src && go vet ./...
+lint: lint-docs lint-code
 
-lint:
+lint-code:
 	cd src && golangci-lint run --config ../.golangci.yml ./...
 	cd e2e && golangci-lint run --config ../.golangci.yml ./...
 
-check: build
+lint-docs:
+	npx --yes markdownlint-cli2 "**/*.md" "#node_modules"
+
+check: compile
 	node scripts/check-emby-client.mjs
 
 e2e:
@@ -36,6 +44,9 @@ e2e:
 e2e-report:
 	allure generate $(E2E_RESULTS) --output e2e/allure-report
 
+install-hooks:
+	git config core.hooksPath .github/hooks
+
 clean:
-	rm -f $(BIN) $(BIN)-linux-amd64 $(BIN)-linux-amd64.sha256 coverage.out
+	rm -f $(BIN) $(BIN)-* coverage.out
 	rm -rf $(E2E_RESULTS) e2e/allure-report

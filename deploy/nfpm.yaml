@@ -1,0 +1,37 @@
+# deb and rpm packages of Couch, built by .github/workflows/release.yml (docs/INSTALL.md).
+name: couch
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: video
+priority: optional
+maintainer: Oleg Shulyakov <olegshulyakov@users.noreply.github.com>
+description: Lightweight media server that speaks the Emby API, so the unmodified Emby Web client works against it.
+vendor: TokenCemetery
+homepage: https://github.com/TokenCemetery/couch
+license: GPL-2.0-only
+recommends:
+  - ffmpeg
+contents:
+  - src: dist/package/couch
+    dst: /usr/bin/couch
+    file_info:
+      mode: 0755
+  - src: dist/package/couch.service
+    dst: /usr/lib/systemd/system/couch.service
+    file_info:
+      mode: 0644
+  - src: deploy/couch.default
+    dst: /etc/default/couch
+    type: config|noreplace
+    file_info:
+      mode: 0600
+  - src: LICENSE
+    dst: /usr/share/doc/couch/LICENSE
+    file_info:
+      mode: 0644
+scripts:
+  preinstall: deploy/package/preinstall.sh
+  postinstall: deploy/package/postinstall.sh
+  preremove: deploy/package/preremove.sh
+  postremove: deploy/package/postremove.sh

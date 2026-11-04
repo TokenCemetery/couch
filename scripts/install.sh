@@ -1,16 +1,22 @@
 #!/bin/sh
 # Installs or upgrades Couch as a systemd service; see docs/INSTALL.md.
-# Usage: sudo scripts/install.sh [BINARY]  (default bin/couch-linux-amd64,
+# Usage: sudo scripts/install.sh [BINARY]  (default bin/couch-linux-ARCH for the host,
 # built by make release, with its .sha256 next to it).
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-binary=${1:-$root/bin/couch-linux-amd64}
 
 fail() {
 	echo "install.sh: $*" >&2
 	exit 1
 }
+
+case "$(uname -m)" in
+	x86_64) arch=amd64 ;;
+	aarch64 | arm64) arch=arm64 ;;
+	*) arch=$(uname -m) ;;
+esac
+binary=${1:-$root/bin/couch-linux-$arch}
 
 [ "$(id -u)" = 0 ] || fail "run as root, for example with sudo"
 [ -f "$binary" ] || fail "$binary not found; build it with make release"

@@ -25,7 +25,7 @@ import (
 const CompatibilityVersion = "4.10.0.40"
 
 // Version is the Couch product version.
-const Version = "0.1.0"
+var Version = "0.1.0"
 
 type object map[string]any
 

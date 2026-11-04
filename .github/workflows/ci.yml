@@ -31,7 +31,7 @@ jobs:
           working-directory: e2e
           args: --config ../.golangci.yml
       - name: Build
-        run: make build build-linux
+        run: make compile build-linux
 
   test:
     needs: build

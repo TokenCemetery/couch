@@ -7,7 +7,10 @@ COPY src/go.mod src/go.sum ./
 RUN go mod download
 COPY src/cmd ./cmd
 COPY src/internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/couch ./cmd/couch
+ARG VERSION=
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w ${VERSION:+-X github.com/TokenCemetery/couch/internal/server.Version=$VERSION}" \
+    -o /out/couch ./cmd/couch
 
 FROM docker.io/library/alpine:3.24
 # VAAPI=1 adds Mesa's VA-API drivers (AMD) for -hwaccel vaapi, about 320 MB, and its

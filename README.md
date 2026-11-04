@@ -57,7 +57,7 @@ To run Couch as a systemd service instead, see [docs/INSTALL.md](docs/INSTALL.md
 Requires Go 1.26+ on Linux or macOS. FFprobe is needed to scan libraries, and FFmpeg for remux, transcoding and embedded subtitles.
 
 ```sh
-make build
+make compile
 read -rsp 'Password: ' pw; printf '\n'
 printf '%s\n' "$pw" | ./bin/couch -init -username admin
 unset pw
@@ -138,13 +138,18 @@ Seasons and episodes fall back to the series' images.
 ## Development
 
 ```sh
-make            # lint, test, build
+make            # lint, test, compile
+make lint       # lint-docs (markdownlint, Node.js) and lint-code (golangci-lint)
+make compile    # bin/couch
 make test       # go test -race
 make e2e        # contract and behaviour tests against api/openapi.yaml (needs FFmpeg with libx264)
 make e2e-report # Allure report in e2e/allure-report
 make check      # Emby Web's own API modules against Couch (Node.js; COUCH_WEB_DIR=../emby-webui, else fetched from EMBY_REFERENCE)
-make release    # static Linux amd64 binary with its SHA-256
+make release    # static Linux amd64 and arm64 binaries with their SHA-256 (VERSION=0.2.0 sets the reported version)
+make install-hooks # pre-commit: lint, compile; pre-push: branch and tag names, lint, compile, test
 ```
+
+Pushing a tag such as `0.2.0` runs `.github/workflows/release.yml`: it builds Linux archives, deb and rpm packages for amd64 and arm64 and a macOS disk image, and publishes them with `SHA256SUMS.txt` as a GitHub release, with the commits since the previous tag as notes. The pre-push hook accepts the branches `main` and `<type>/<issue>-<slug>` (`feature`, `fix`, `refactor`, `chore`, `docs`, `security`) and tags `x.x.x`; skip the hooks with `--no-verify`.
 
 `make lint` needs [golangci-lint](https://golangci-lint.run/) v2. For a load test, run `cd e2e && COUCH_SOAK=10m go test -run TestSoak -timeout 30m ./...`.
 

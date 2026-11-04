@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Pre-push hook: check the pushed branch and tag names, then lint, compile and test.
+# Skip with: git push --no-verify
+#
+# Branches: main or <type>/<issue>-<slug>, with the issue types of AGENTS.md
+# (fix for bug), for example feature/142-release-packages.
+# Tags: x.x.x, which the release workflow publishes.
+
+set -euo pipefail
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+RST='\033[0m'
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+BRANCH='^(main|(feature|fix|refactor|chore|docs|security)/[0-9]+-[a-z0-9-]+)$'
+TAG='^[0-9]+\.[0-9]+\.[0-9]+$'
+
+bad=0
+while read -r _ local_sha remote_ref _; do
+  # A deletion pushes the all-zero object name.
+  [[ $local_sha =~ ^0+$ ]] && continue
+  case "$remote_ref" in
+    refs/heads/*) name=${remote_ref#refs/heads/} pattern=$BRANCH ;;
+    refs/tags/*) name=${remote_ref#refs/tags/} pattern=$TAG ;;
+    *) continue ;;
+  esac
+  if ! [[ $name =~ $pattern ]]; then
+    printf "${RED}✗${RST} %s does not match %s\n" "$remote_ref" "$pattern" >&2
+    bad=1
+  fi
+done
+if [ "$bad" -ne 0 ]; then
+  exit 1
+fi
+
+if make lint compile test; then
+  printf "\n${GRN}✓${RST} All gates passed.\n\n"
+else
+  printf "\n${RED}✗${RST} pre-push gate failed — see above.\n\n" >&2
+  exit 1
+fi

@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Build Linux archives, deb and rpm
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/go.mod
+
+      # Static binaries, so one runner cross-builds both architectures.
+      - name: Build the binaries
+        run: make release VERSION="$GITHUB_REF_NAME"
+
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
+
+      # Per architecture: an archive with what scripts/install.sh needs, and deb and rpm packages.
+      - name: Package
+        run: |
+          mkdir -p dist/package
+          sed 's,/usr/local/bin/couch,/usr/bin/couch,; s,installed by scripts/install.sh,installed by the couch package,' \
+            deploy/couch.service > dist/package/couch.service
+          for arch in amd64 arm64; do
+            name="couch-$GITHUB_REF_NAME-linux-$arch"
+            tar -czf "dist/$name.tar.gz" --transform "s,^,$name/," LICENSE docs/INSTALL.md scripts/install.sh \
+              deploy/couch.service deploy/couch.default "bin/couch-linux-$arch" "bin/couch-linux-$arch.sha256"
+            cp "bin/couch-linux-$arch" dist/package/couch
+            for format in deb rpm; do
+              ARCH="$arch" VERSION="$GITHUB_REF_NAME" "$(go env GOPATH)/bin/nfpm" package \
+                --config deploy/nfpm.yaml --packager "$format" --target dist/
+            done
+          done
+          rm -r dist/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+          if-no-files-found: error
+
+  macos:
+    name: Build the macOS disk image
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: src/go.mod
+
+      # A universal binary for Apple silicon and Intel Macs.
+      - name: Build the disk image
+        run: |
+          for arch in amd64 arm64; do
+            (cd src && CGO_ENABLED=0 GOOS=darwin GOARCH="$arch" go build -trimpath \
+              -ldflags="-s -w -X github.com/TokenCemetery/couch/internal/server.Version=$GITHUB_REF_NAME" \
+              -o "../bin/couch-darwin-$arch" ./cmd/couch)
+          done
+          mkdir -p dist/dmg
+          lipo -create -output dist/dmg/couch bin/couch-darwin-amd64 bin/couch-darwin-arm64
+          cp LICENSE docs/INSTALL.md dist/dmg/
+          hdiutil create -volname Couch -srcfolder dist/dmg -ov -format UDZO "dist/couch-$GITHUB_REF_NAME-macos.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: [linux, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Write the release notes
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            git log --oneline "${PREV}..HEAD" > "$RUNNER_TEMP/release_notes.txt"
+          else
+            git log --oneline -30 > "$RUNNER_TEMP/release_notes.txt"
+          fi
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Couch $GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release_notes.txt" \
+            dist/*
