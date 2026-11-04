@@ -31,6 +31,9 @@ var (
 	codecParameters = knownFailure{156, "codec parameters cannot be read or saved"}
 	apiDocument     = knownFailure{157, "no OpenAPI or Swagger document is served"}
 	releaseNotes    = knownFailure{158, "release notes are not served"}
+	toneMapOptions  = knownFailure{159, "tone-mapping options cannot be read or saved"}
+	userRoutes      = knownFailure{160, "typed settings, item access, user prefixes and authenticate by ID are not served"}
+	webApp          = knownFailure{161, "configuration pages and web strings are not served"}
 	unranked        = knownFailure{34, "not implemented; not ranked by real usage yet"}
 	notCalledByWeb  = knownFailure{34, "Emby Web 4.10.0.40 does not call it; use by other clients is not ranked yet"}
 	notOfferedByWeb = knownFailure{34, "Emby Web 4.10.0.40 offers it only for item flags, user policy flags or media types Couch does not send; not ranked yet"}
@@ -379,10 +382,10 @@ var knownFailures = map[string]knownFailure{
 	"postItemsByIdTagsAdd":    readOnlyItems,
 	"postItemsByIdTagsDelete": readOnlyItems,
 	// ToneMapOptionsService
-	"getEncodingFulltonemapoptions":    outOfScope,
-	"getEncodingPublictonemapoptions":  notCalledByWeb,
-	"postEncodingFulltonemapoptions":   outOfScope,
-	"postEncodingPublictonemapoptions": notCalledByWeb,
+	"getEncodingFulltonemapoptions":    toneMapOptions,
+	"getEncodingPublictonemapoptions":  toneMapOptions,
+	"postEncodingFulltonemapoptions":   toneMapOptions,
+	"postEncodingPublictonemapoptions": toneMapOptions,
 	// TrailersService
 	"getTrailers": outOfScope,
 	// UniversalAudioService
@@ -403,17 +406,17 @@ var knownFailures = map[string]knownFailure{
 	"postNotificationsServicesTest":    outOfScope,
 	// UserService
 	"deleteUsersById":                               refusedUserEdit,
-	"deleteUsersByIdRecentlysearched":               outOfScope,
-	"deleteUsersByIdTrackselectionsByTracktype":     outOfScope,
-	"getUsersByUseridTypedsettingsByKey":            outOfScope,
-	"getUsersItemaccess":                            outOfScope,
-	"getUsersPrefixes":                              outOfScope,
-	"postUsersByIdAuthenticate":                     outOfScope,
+	"deleteUsersByIdRecentlysearched":               userRoutes,
+	"deleteUsersByIdTrackselectionsByTracktype":     trackReset,
+	"getUsersByUseridTypedsettingsByKey":            userRoutes,
+	"getUsersItemaccess":                            userRoutes,
+	"getUsersPrefixes":                              userRoutes,
+	"postUsersByIdAuthenticate":                     userRoutes,
 	"postUsersByIdDelete":                           refusedUserEdit,
 	"postUsersByIdPolicy":                           refusedUserEdit,
 	"postUsersByIdTrackselectionsByTracktypeDelete": trackReset,
 	"postUsersByUseridCopydata":                     refusedUserEdit,
-	"postUsersByUseridTypedsettingsByKey":           outOfScope,
+	"postUsersByUseridTypedsettingsByKey":           userRoutes,
 	"postUsersForgotpassword":                       forgotPassword,
 	"postUsersForgotpasswordPin":                    forgotPassword,
 	"postUsersNew":                                  refusedUserEdit,
@@ -425,7 +428,7 @@ var knownFailures = map[string]knownFailure{
 	"postVideosByIdAlternatesourcesDelete": outOfScope,
 	"postVideosMergeversions":              outOfScope,
 	// WebAppService
-	"getWebConfigurationpage": outOfScope,
-	"getWebStrings":           outOfScope,
-	"getWebStringset":         outOfScope,
+	"getWebConfigurationpage": webApp,
+	"getWebStrings":           webApp,
+	"getWebStringset":         webApp,
 }
