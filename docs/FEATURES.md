@@ -37,7 +37,7 @@ Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium only
 |Lyrics from `.lrc`, `.txt` and tags|Partial|Served; Emby Web's view needs Premiere (#135, #89)|
 |Instant Mix|Supported|Seed tracks, then shared artist or genre; at most 200 (#119)|
 |Missing and upcoming episodes, recommendations|Unsupported|Empty lists (#34)|
-|Books, games, Live TV, DVR, channels|Unsupported|#34|
+|Books, games, Live TV, DVR, channels|Unsupported|Out of scope (#153)|
 
 ## Watching
 
@@ -56,7 +56,7 @@ Reference: Emby Server and Emby Web 4.10.0.40. Client: Emby Web in Chromium only
 |Auto-advance, play a whole series|Supported||
 |Music playback with seek and saved position|Supported|MP3, FLAC, AAC, Vorbis, Opus, WAV as is; WMA, ALAC, AIFF encoded once to AAC, 2 at a time (#104)|
 |Casting, remote control|Unsupported|#34|
-|Offline sync and downloads|Unsupported|#34|
+|Offline sync and downloads|Unsupported|#152|
 
 ## Tracks and subtitles
 
