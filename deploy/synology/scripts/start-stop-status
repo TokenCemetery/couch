@@ -1,0 +1,59 @@
+#!/bin/sh
+# Starts, stops and reports Couch for Package Center (docs/INSTALL.md#synology-dsm).
+# Options are in couch.conf; FFmpeg 8 from SynoCommunity is used when installed,
+# otherwise Couch runs without remux and transcoding.
+
+CONF="$SYNOPKG_PKGVAR/couch.conf"
+PID_FILE="$SYNOPKG_PKGVAR/couch.pid"
+OUT_FILE="$SYNOPKG_PKGVAR/couch.out"
+FFMPEG_BIN=/var/packages/ffmpeg8/target/bin
+
+# The PID file survives a reboot, so its PID counts only while it is this Couch.
+running() {
+	[ -r "$PID_FILE" ] && tr '\0' ' ' 2>/dev/null <"/proc/$(cat "$PID_FILE")/cmdline" | grep -q -- "-data $SYNOPKG_PKGVAR/data "
+}
+
+start() {
+	running && return 0
+	if [ ! -r "$CONF" ]; then
+		echo "$CONF is missing; reinstall Couch" | tee "$OUT_FILE" >&2
+		return 1
+	fi
+	set -a
+	. "$CONF"
+	set +a
+	if [ -x "$FFMPEG_BIN/ffmpeg" ] && [ -x "$FFMPEG_BIN/ffprobe" ]; then
+		PATH="$FFMPEG_BIN:$PATH"
+	fi
+	# Couch logs to its own files in -data too; this keeps errors from before that.
+	# shellcheck disable=SC2086 # COUCH_ARGS holds several options
+	"$SYNOPKG_PKGDEST/bin/couch" -data "$SYNOPKG_PKGVAR/data" $COUCH_ARGS >"$OUT_FILE" 2>&1 &
+	echo $! >"$PID_FILE"
+	sleep 2
+	if ! running; then
+		rm -f "$PID_FILE"
+		echo "Couch stopped right after starting; see $OUT_FILE" >&2
+		return 1
+	fi
+}
+
+stop() {
+	running || return 0
+	pid=$(cat "$PID_FILE")
+	kill -TERM "$pid"
+	i=0
+	while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 30 ]; do
+		sleep 1
+		i=$((i + 1))
+	done
+	kill -KILL "$pid" 2>/dev/null || true
+	rm -f "$PID_FILE"
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	status) running || exit 3 ;;
+	prestart | prestop) ;;
+	*) exit 1 ;;
+esac

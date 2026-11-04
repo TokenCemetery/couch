@@ -1,0 +1,39 @@
+#!/bin/sh
+# Writes the options and creates the first user from the install wizard.
+# An upgrade, or a reinstall that kept the data, keeps both.
+set -e
+
+CONF="$SYNOPKG_PKGVAR/couch.conf"
+DATA="$SYNOPKG_PKGVAR/data"
+
+created=
+if [ ! -e "$CONF" ]; then
+	created=1
+	umask 077
+	cat >"$CONF" <<EOF
+# Options of Couch, read when the package starts (docs/INSTALL.md#synology-dsm).
+# -data $DATA is added. Values are split at spaces, so paths must not contain
+# them. Stop and run Couch in Package Center after a change.
+COUCH_ARGS="-listen :8097 -media-dir /var/packages/$SYNOPKG_PKGNAME/shares/$wizard_media_share"
+
+# Online metadata; a provider is used only when its key is set.
+EOF
+	for key in TMDB:"$wizard_tmdb_api_key" TVDB:"$wizard_tvdb_api_key" AUDIODB:"$wizard_audiodb_api_key"; do
+		if [ -n "${key#*:}" ]; then
+			echo "COUCH_${key%%:*}_API_KEY=${key#*:}"
+		else
+			echo "#COUCH_${key%%:*}_API_KEY="
+		fi
+	done >>"$CONF"
+fi
+
+# A failed install keeps no options and no state, so the next one uses the
+# wizard's answers again. DSM shows SYNOPKG_TEMP_LOGFILE as the error message.
+if [ -n "$wizard_username" ] && [ ! -e "$DATA/couch.db" ]; then
+	if ! printf '%s\n' "$wizard_password" | "$SYNOPKG_PKGDEST/bin/couch" -data "$DATA" -init -username "$wizard_username" >"$SYNOPKG_TEMP_LOGFILE" 2>&1; then
+		[ -z "$created" ] || rm -f "$CONF"
+		rm -rf "$DATA"
+		exit 1
+	fi
+fi
+exit 0

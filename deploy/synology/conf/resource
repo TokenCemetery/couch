@@ -1,0 +1,15 @@
+{
+	"port-config": {
+		"protocol-file": "app/couch.sc"
+	},
+	"data-share": {
+		"shares": [
+			{
+				"name": "{{wizard_media_share}}",
+				"permission": {
+					"ro": ["couch"]
+				}
+			}
+		]
+	}
+}

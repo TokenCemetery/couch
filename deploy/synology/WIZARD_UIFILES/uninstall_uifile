@@ -1,0 +1,16 @@
+[{
+	"step_title": "Uninstall Couch",
+	"items": [{
+		"type": "singleselect",
+		"desc": "Keep or delete Couch's data: users, watch state, the catalog index, the options and the logs. The media is not touched.",
+		"subitems": [{
+			"key": "wizard_keep_data",
+			"desc": "Keep the data for a later reinstall",
+			"defaultValue": true
+		}, {
+			"key": "wizard_delete_data",
+			"desc": "Delete the data",
+			"defaultValue": false
+		}]
+	}]
+}]
