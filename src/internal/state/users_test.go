@@ -3,6 +3,7 @@ package state
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -23,12 +24,15 @@ func TestUserManagement(t *testing.T) {
 	if err := s.RenameUser(guest.ID, "viewer"); !errors.Is(err, ErrUserNameTaken) {
 		t.Fatalf("rename onto a taken name: %v", err)
 	}
-	// Without a password the user cannot sign in, not even with an empty one.
-	if _, _, err := s.Login("guest", "", Session{}); !errors.Is(err, ErrCredentials) {
+	// Without a password the user signs in with a blank one, as in Emby.
+	if _, _, err := s.Login("guest", "any-password", Session{}); !errors.Is(err, ErrCredentials) {
+		t.Fatalf("passwordless sign-in with a password: %v", err)
+	}
+	if _, _, err := s.Login("guest", "", Session{}); err != nil {
 		t.Fatalf("passwordless sign-in: %v", err)
 	}
-	if _, err := s.SetPassword(ownerToken, guest.ID, "short"); !errors.Is(err, ErrPassword) {
-		t.Fatalf("short password: %v", err)
+	if _, err := s.SetPassword(ownerToken, guest.ID, strings.Repeat("p", 1025)); !errors.Is(err, ErrPassword) {
+		t.Fatalf("long password: %v", err)
 	}
 	if _, err := s.SetPassword(ownerToken, guest.ID, "guest-password-1"); err != nil {
 		t.Fatal(err)

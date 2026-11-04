@@ -39,7 +39,7 @@ cp .env.example .env    # set COUCH_MEDIA and COUCH_WEB
 docker compose build
 ```
 
-Create the administrator. The password is read from stdin and must be at least 12 bytes:
+Create the administrator. The password is read from stdin, at most 1024 bytes; an empty one leaves the administrator without a password, as in Emby:
 
 ```sh
 read -rsp 'Password: ' pw; printf '\n'

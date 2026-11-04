@@ -41,7 +41,7 @@ var (
 	ErrSession           = errors.New("invalid or expired session")
 	ErrSessionLimit      = errors.New("session limit reached")
 	ErrStateLimit        = errors.New("state size limit reached")
-	ErrPassword          = errors.New("password must contain 12–1024 bytes")
+	ErrPassword          = errors.New("password must contain at most 1024 bytes")
 	ErrUserName          = errors.New("user name must contain 1–128 bytes")
 	ErrUserNameTaken     = errors.New("user name is already taken")
 	ErrUserNotFound      = errors.New("user not found")
@@ -379,9 +379,14 @@ func validName(name string) (string, error) {
 	return name, nil
 }
 
+// hashPassword hashes a password; an empty one is no password, as in Emby,
+// and gets no salt or hash.
 func hashPassword(password string) (salt, hash []byte, err error) {
-	if len(password) < 12 || len(password) > 1024 {
+	if len(password) > 1024 {
 		return nil, nil, ErrPassword
+	}
+	if password == "" {
+		return nil, nil, nil
 	}
 	salt = make([]byte, 16)
 	_, _ = rand.Read(salt)
@@ -393,8 +398,8 @@ func hashPassword(password string) (salt, hash []byte, err error) {
 // a user already exists.
 func (s *Store) Initialize(name, password string) error {
 	name, err := validName(name)
-	if err != nil || len(password) < 12 || len(password) > 1024 {
-		return errors.New("username must contain 1–128 bytes; password 12–1024 bytes")
+	if err != nil || len(password) > 1024 {
+		return errors.New("username must contain 1–128 bytes; password at most 1024 bytes")
 	}
 	salt, hash, err := hashPassword(password)
 	if err != nil {
@@ -404,7 +409,7 @@ func (s *Store) Initialize(name, password string) error {
 		if d.SchemaVersion != 0 {
 			return errors.New("already initialized")
 		}
-		u := User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: passwordIterations,
+		u := User{ID: randomID(), Name: name, Salt: salt, PasswordHash: hash, Iterations: iterationsOf(hash),
 			Configuration: map[string]json.RawMessage{}, Settings: map[string]json.RawMessage{},
 			Policy: Policy{IsAdministrator: true, EnableAllFolders: true, EnabledFolders: []string{}}}
 		*d = Data{SchemaVersion: 1, ServerID: randomID(), Users: map[string]User{u.ID: u}, Sessions: map[string]Session{}, Libraries: []Library{},
@@ -421,8 +426,9 @@ func tokenHash(token string) string {
 // dummySalt makes a sign-in for an unknown user cost as much as a real one.
 var dummySalt = make([]byte, 16)
 
-// Login verifies the credentials and stores a new 30-day session. It returns the
-// session token, which is not persisted.
+// Login verifies the credentials and stores a new 30-day session. A user
+// without a password signs in with a blank one. It returns the session token,
+// which is not persisted.
 func (s *Store) Login(name, password string, client Session) (string, Session, error) {
 	s.mu.RLock()
 	u, found := s.data.UserByName(name)
@@ -435,7 +441,7 @@ func (s *Store) Login(name, password string, client Session) (string, Session, e
 	if err != nil {
 		return "", Session{}, err
 	}
-	if !found || !u.HasPassword() || u.Policy.IsDisabled || subtle.ConstantTimeCompare(hash, u.PasswordHash) != 1 {
+	if !found || u.Policy.IsDisabled || !verified(u, hash, password) {
 		return "", Session{}, ErrCredentials
 	}
 	token := randomID() + randomID()
@@ -461,6 +467,24 @@ func (s *Store) Login(name, password string, client Session) (string, Session, e
 		return nil
 	})
 	return token, client, err
+}
+
+// verified reports whether password, hashed into hash with u's salt, is u's:
+// a blank one for a user without a password.
+func verified(u User, hash []byte, password string) bool {
+	if !u.HasPassword() {
+		return password == ""
+	}
+	return subtle.ConstantTimeCompare(hash, u.PasswordHash) == 1
+}
+
+// iterationsOf returns the PBKDF2 iterations stored with hash: none without a
+// password.
+func iterationsOf(hash []byte) int {
+	if hash == nil {
+		return 0
+	}
+	return passwordIterations
 }
 
 // revokeSessions deletes the sessions of userID except the one keyed keep,
@@ -491,14 +515,15 @@ func (s *Store) ChangePassword(token, current, next string) ([]string, error) {
 	if !ok {
 		return nil, ErrSession
 	}
+	currentSalt, iterations := u.Salt, u.Iterations
 	if !u.HasPassword() {
-		return nil, ErrCredentials
+		currentSalt, iterations = dummySalt, passwordIterations
 	}
-	hash, err := pbkdf2.Key(sha256.New, current, u.Salt, u.Iterations, 32)
+	hash, err := pbkdf2.Key(sha256.New, current, currentSalt, iterations, 32)
 	if err != nil {
 		return nil, err
 	}
-	if subtle.ConstantTimeCompare(hash, u.PasswordHash) != 1 {
+	if !verified(u, hash, current) {
 		return nil, ErrCredentials
 	}
 	var revoked []string
@@ -512,7 +537,7 @@ func (s *Store) ChangePassword(token, current, next string) ([]string, error) {
 		if !ok || subtle.ConstantTimeCompare(user.PasswordHash, u.PasswordHash) != 1 {
 			return ErrCredentials
 		}
-		user.Salt, user.PasswordHash, user.Iterations = salt, nextHash, passwordIterations
+		user.Salt, user.PasswordHash, user.Iterations = salt, nextHash, iterationsOf(nextHash)
 		d.Users[u.ID] = user
 		revoked = revokeSessions(d, u.ID, key)
 		return nil
@@ -740,21 +765,17 @@ func (s *Store) SetPolicy(id string, policy Policy) ([]string, error) {
 }
 
 // SetPassword sets the user's password without the current one, as an
-// administrator does; an empty password removes it, so the user cannot sign
-// in until a new one is set. The user's sessions are revoked, except the one
-// of token, and their IDs are returned.
+// administrator does; an empty password removes it, so the user signs in with
+// a blank one. The user's sessions are revoked, except the one of token, and
+// their IDs are returned.
 func (s *Store) SetPassword(token, id, password string) ([]string, error) {
-	var salt, hash []byte
-	iterations := 0
-	if password != "" {
-		var err error
-		if salt, hash, err = hashPassword(password); err != nil {
-			return nil, err
-		}
-		iterations = passwordIterations
+	salt, hash, err := hashPassword(password)
+	if err != nil {
+		return nil, err
 	}
+	iterations := iterationsOf(hash)
 	var revoked []string
-	err := s.update(id, nil, func(d *Data) error {
+	err = s.update(id, nil, func(d *Data) error {
 		u, ok := d.Users[id]
 		if !ok {
 			return ErrUserNotFound
