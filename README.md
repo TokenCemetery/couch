@@ -133,7 +133,7 @@ Seasons and episodes fall back to the series' images.
 - **Logs:** standard error, also `logs/couch.log` in the data directory (rotated at 10 MiB) and the dashboard's logs page. Logs contain no tokens, passwords or request URLs.
 - **Backup:** `couch -data DIR -backup NEW_DIR` (in Compose: `docker compose exec couch couch -data /data -backup /data/backup`). The copy includes password and token hashes, so keep it private. To restore, stop Couch, replace `couch.db` and `user-image-*` with the backup's files, then start Couch.
 - **Upgrade:** back up, then rebuild and restart. The database is upgraded on first start; a database from a newer version is refused and left unchanged.
-- **Security:** plain HTTP for the LAN, with no TLS. `X-Forwarded-For` is ignored, so behind a reverse proxy all clients share one sign-in rate limit. Files under `-web-dir` are served without sign-in. Image URLs carry signed, per-session tags; treat them as access keys. Emby Web's Emby Premiere registration check is blocked by a CSP header.
+- **Security:** plain HTTP for the LAN, with no TLS. `X-Forwarded-For` is ignored, so behind a reverse proxy all clients share one sign-in rate limit. Files under `-web-dir` are served without sign-in. Image URLs carry signed, per-session tags; treat them as access keys. As in Emby, a signed-in session can change or remove its user's password without the current one. Emby Web's Emby Premiere registration check is blocked by a CSP header.
 
 ## Development
 
