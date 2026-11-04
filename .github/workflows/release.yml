@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   linux:
-    name: Build Linux archives, deb and rpm
+    name: Build Linux archives, deb, rpm and Synology packages
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -26,7 +26,9 @@ jobs:
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
 
-      # Per architecture: an archive with what scripts/install.sh needs, and deb and rpm packages.
+      # Per architecture: an archive with what scripts/install.sh needs, deb and rpm
+      # packages, and a DSM 7.1+ package from deploy/synology. Its arch lists the
+      # family plus the platforms SynoCommunity builds FFmpeg 8 for on DSM 7.1.
       - name: Package
         run: |
           mkdir -p dist/package
@@ -41,6 +43,22 @@ jobs:
               ARCH="$arch" VERSION="$GITHUB_REF_NAME" "$(go env GOPATH)/bin/nfpm" package \
                 --config deploy/nfpm.yaml --packager "$format" --target dist/
             done
+
+            case "$arch" in
+              amd64) dsm_arch="x86_64 apollolake avoton braswell broadwell broadwellnk broadwellnkv2 broadwellntbap bromolow cedarview denverton epyc7002 epyc7003 epyc7003ntb geminilake geminilakenk grantley icelaked kvmx64 purley r1000 r1000nk v1000 v1000nk" ;;
+              arm64) dsm_arch="armv8 rtd1296 rtd1619b armada37xx" ;;
+            esac
+            spk="dist/spk-$arch"
+            mkdir -p "$spk/package/bin" "$spk/package/app"
+            cp "bin/couch-linux-$arch" "$spk/package/bin/couch"
+            cp deploy/synology/couch.sc "$spk/package/app/"
+            cp LICENSE "$spk/package/"
+            tar -czf "$spk/package.tgz" --owner=0 --group=0 -C "$spk/package" app bin LICENSE
+            sed -e "s/@VERSION@/$GITHUB_REF_NAME/" -e "s/@ARCH@/$dsm_arch/" deploy/synology/INFO.in > "$spk/INFO"
+            tar -cf "dist/couch-$GITHUB_REF_NAME-synology-${dsm_arch%% *}.spk" --owner=0 --group=0 \
+              -C "$spk" INFO package.tgz \
+              -C "$PWD/deploy/synology" scripts conf WIZARD_UIFILES PACKAGE_ICON.PNG PACKAGE_ICON_256.PNG
+            rm -r "$spk"
           done
           rm -r dist/package
 
@@ -51,6 +69,7 @@ jobs:
             dist/*.tar.gz
             dist/*.deb
             dist/*.rpm
+            dist/*.spk
           if-no-files-found: error
 
   macos:
